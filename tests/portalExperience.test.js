@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { termsContent } from '../shared/legal-content.js';
 
 test('portal account and public rankings match the student experience with notification administration', async () => {
   const [portal, wajehDashboard, accountPrivacy, deletionRoutes, deletionMigration, db, registration, shell, sidebar, ranking, familyMarquee, rankingPoints, coinPoints, legalConsent, login, publicHome, accountLogin, app, terms] = await Promise.all([
@@ -61,8 +62,10 @@ test('portal account and public rankings match the student experience with notif
   assert.match(legalConsent, /to="\/terms">شروط الاستخدام/);
   assert.match(legalConsent, /to="\/privacy">سياسة الخصوصية/);
   assert.match(app, /path="\/terms" component=\{TermsOfUse\}/);
-  assert.match(terms, /<PublicInfoLayout title="شروط الاستخدام" showSiteName=\{false\}>/);
-  assert.match(terms, /من قائمة حساب الطالب أو أسفل الصفحة الرئيسية/);
+  assert.match(terms, /<PublicInfoLayout title=\{termsContent.title\} showSiteName=\{false\}>/);
+  assert.equal(termsContent.title, 'شروط الاستخدام');
+  assert.match(terms, /termsContent.sections.map/);
+  assert.match(JSON.stringify(termsContent), /من قائمة حساب الطالب أو أسفل الصفحة الرئيسية/);
   assert.doesNotMatch(shell, /accountContent/);
   assert.match(sidebar, /section\.badge/);
   assert.doesNotMatch(sidebar, /إدارة المجمعات القرآنية/);

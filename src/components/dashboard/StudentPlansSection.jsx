@@ -750,7 +750,7 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
   return (
     <>
       <ManagementPanel>
-        <ManagementToolbar className="flex-nowrap"><Input type="search" aria-label="ابحث باسم الطالب" placeholder="ابحث باسم الطالب" value={search} onChange={event => setSearch(event.target.value)} className="h-11 min-w-0 flex-1 sm:max-w-sm" />
+        <ManagementToolbar className="flex-nowrap"><Input type="search" aria-label="ابحث بالاسم" placeholder="ابحث بالاسم" value={search} onChange={event => setSearch(event.target.value)} className="h-11 min-w-0 flex-1 sm:max-w-sm" />
         {!hideCommitteeFilter && (
             <Select value={committeeId} onValueChange={setCommitteeId}>
               <SelectTrigger aria-label="الحلقة" className="h-11 min-w-0 flex-1 sm:max-w-xs">

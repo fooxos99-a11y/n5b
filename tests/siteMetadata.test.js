@@ -24,7 +24,7 @@ test('application text and project instructions retain only the Nukhab identity'
 });
 
 test('each website declares its own search identity in static HTML', () => {
-  for (const [key, name, url] of [['nukhab', 'نخب', 'https://161.97.171.108.sslip.io/n5b/']]) {
+  for (const [key, name, url] of [['nukhab', 'نخب', 'https://nokhab.cc/']]) {
     const markup = renderSiteMetadata(getSiteConfig(key));
     assert.ok(markup.includes(`<meta property="og:site_name" content="${name}" />`));
     const data = JSON.parse(markup.match(/<script type="application\/ld\+json">(.*?)<\/script>/s)[1]);

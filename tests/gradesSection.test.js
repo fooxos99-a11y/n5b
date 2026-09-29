@@ -84,12 +84,12 @@ test('track session page: plans-style rows, present/absent only, segment test wi
   assert.match(track, /<ManagementPanel>[\s\S]*<ManagementToolbar>[\s\S]*<RelativeWeekNavigator[\s\S]*\{filter && /);
   assert.match(track, /<ManagementList label=/);
   assert.match(track, /<li key=\{student\.id\} className="flex(?: flex-wrap)? items-center[^"]* px-4 py-3/);
-  assert.match(track, /allowNone\s/);
+  assert.match(track, /allowNone=\{false\}/);
   assert.match(track, /tested && attended !== true/);
   assert.match(dialog, /المقطع السابق/);
   assert.match(track, /present && segmentCount > 0 &&[\s\S]*اختبر/);
   assert.match(track, /recorded: false/);
-  assert.ok(track.indexOf('Always reserved') < track.indexOf('<TriStateChoice', track.indexOf('Always reserved')), 'the test button sits in a fixed slot beside the attendance choice');
+  assert.match(track, /flex shrink-0 flex-row-reverse items-center gap-2/, 'the test button sits beside absent in RTL');
   assert.match(track, /tested \? 'إعادة الاختبار' : 'اختبر'/);
   assert.doesNotMatch(track, /detail=\{/);
   assert.doesNotMatch(dialog, /detail\?\.segments/);

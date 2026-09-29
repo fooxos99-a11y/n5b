@@ -80,7 +80,7 @@ const LoginGateway = ({ loginPage = false, deletionPage = false }) => {
     return () => { active = false; };
   }, [storedUser?.id]);
 
-  const handleLogin = async (loginNumber) => {
+  const handleLogin = async (loginNumber, password) => {
     if (!loginNumber) {
       toast({ title: 'أدخل رقم الحساب', variant: 'destructive' });
       return;
@@ -88,7 +88,7 @@ const LoginGateway = ({ loginPage = false, deletionPage = false }) => {
 
     setIsLoggingIn(true);
     try {
-      const user = await studentsApi.login({ loginNumber });
+      const user = await studentsApi.login({ loginNumber, password });
       await persistAuthSession(user.token);
       localStorage.setItem('wajeh_role', user.role);
       localStorage.setItem('wajeh_name', user.name || '');

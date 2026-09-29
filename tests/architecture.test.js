@@ -299,13 +299,13 @@ test('public login uses one account number, public rankings, and direct account 
   assert.doesNotMatch(settings, /صفحات النظام|platformAccessSettings/);
   const loginForm = await readFile(new URL('../src/components/public/AccountLoginForm.jsx', import.meta.url), 'utf8');
   assert.match(loginDialog, /<AccountLoginForm/);
-  assert.match(loginForm, />رقم الحساب</);
+  assert.match(loginForm, />رقم الدخول /);
   assert.match(loginDialog, /<DialogTitle className="sr-only">تسجيل الدخول<\/DialogTitle>/);
   assert.doesNotMatch(loginDialog, /text-center text-2xl font-black[^>]*>تسجيل الدخول/);
-  assert.match(loginForm, /KeyRound[^>]+text-\[#006b62\]/);
-  assert.match(loginForm, /rounded-2xl text-base font-black text-white hover:text-white disabled:text-white/);
+  assert.match(loginForm, /<PasswordInput/);
+  assert.match(loginForm, /className="account-login-submit"/);
   assert.doesNotMatch(loginDialog, /رقم المجمع|registrationNumber/);
-  assert.match(api, /body: JSON\.stringify\(\{ loginNumber \}\)/);
+  assert.match(api, /body: JSON\.stringify\(\{ loginNumber, password \}\)/);
   assert.match(authRoutes, /getDatabaseContext\(\)\.tenant/);
   assert.doesNotMatch(authRoutes, /req\.body\.registrationNumber|findComplexByRegistration/);
   assert.match(server, /standaloneDatabaseName[\s\S]*runWithDatabase\(standaloneDatabaseName/);

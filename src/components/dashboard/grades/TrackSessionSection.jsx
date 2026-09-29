@@ -13,7 +13,7 @@ import TriStateChoice from './TriStateChoice';
 import useGradeCommittees from './useGradeCommittees';
 import useGradingWeek from './useGradingWeek';
 
-const ATTENDANCE_LABELS = Object.freeze({ yes: 'حاضر', no: 'غائب', none: 'غير مرصود' });
+const ATTENDANCE_LABELS = Object.freeze({ yes: 'حاضر', no: 'غائب' });
 
 const wasTested = (detail) => Boolean(detail?.attended && detail.segments?.some((segment) => segment.recorded !== false));
 
@@ -85,8 +85,8 @@ export default function TrackSessionSection() {
           const tested = wasTested(detail);
           const finalGrade = detail ? session?.grade : null;
           return (
-            <li key={student.id} className="flex flex-wrap items-center gap-2 px-4 py-3 transition-colors hover:bg-muted/40 sm:flex-nowrap sm:px-6">
-              <div className="flex min-w-0 flex-1 basis-full flex-wrap items-center gap-x-3 gap-y-2 sm:basis-auto">
+            <li key={student.id} className="flex items-center justify-between gap-3 px-4 py-3 transition-colors hover:bg-muted/40 sm:px-6">
+              <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-2">
                 <div className="min-w-0">
                   <div className="break-words text-base font-black leading-tight text-foreground">{student.name}</div>
                   <div className="mt-0.5 text-[10px] font-bold leading-tight text-muted-foreground sm:text-xs">{student.committeeName || 'بدون حلقة'}</div>
@@ -95,26 +95,28 @@ export default function TrackSessionSection() {
                   <GradeScore grade={finalGrade} max={session?.max ?? week.maxima?.trackSession} className="text-sm" />
                 )}
               </div>
-              {/* Always reserved so the attendance choice never moves when «اختبر» appears. */}
-              <div className="w-16 shrink-0 sm:w-20">
-                {present && segmentCount > 0 && (
-                  <Button type="button" variant={tested ? 'outline' : 'default'} className="h-11 w-full whitespace-normal rounded-lg px-1 text-xs leading-4" disabled={!editable || busy} onClick={() => setTestingId(student.id)}>
-                    {tested ? 'إعادة الاختبار' : 'اختبر'}
-                  </Button>
-                )}
-              </div>
+              <div className="ms-auto flex shrink-0 flex-row-reverse items-center gap-2">
               <TriStateChoice
                 ariaLabel={`حضور ${student.name} جلسة المسار`}
                 labels={ATTENDANCE_LABELS}
-                allowNone
+                allowNone={false}
                 value={detail ? present : null}
                 onChange={(attended) => {
                   if (tested && attended !== true) setPendingAttendance({ student, attended });
                   else setAttendance(student, attended);
                 }}
                 disabled={!editable || busy}
-                className="w-44 shrink-0 sm:w-56"
+                className="w-28 shrink-0 sm:w-40"
               />
+              {/* Keep the test action beside absent while preserving alignment across rows. */}
+              <div className="w-14 shrink-0 sm:w-20">
+                {present && segmentCount > 0 && (
+                  <Button type="button" variant={tested ? 'outline' : 'default'} className="h-11 w-full whitespace-normal rounded-lg px-1 text-xs leading-4" disabled={!editable || busy} onClick={() => setTestingId(student.id)}>
+                    {tested ? 'إعادة الاختبار' : 'اختبر'}
+                  </Button>
+                )}
+              </div>
+              </div>
             </li>
           );
         })}

@@ -1,4 +1,5 @@
 import express from 'express';
+import { verifyStudentPassword } from '../services/studentPassword.js';
 import { trimTrailingCharacter } from '../../shared/string-suffix.js';
 import { db, getDatabaseContext } from '../db.js';
 import {
@@ -89,10 +90,14 @@ router.post('/login', async (req, res, next) => {
     }
 
     const [students] = await db().query(
-      'SELECT id, name FROM students WHERE login_number = ? LIMIT 1',
+      'SELECT id, name, password_hash AS passwordHash FROM students WHERE login_number = ? LIMIT 1',
       [loginNumber],
     );
     if (students[0]) {
+      if (students[0].passwordHash && !await verifyStudentPassword(req.body.password, students[0].passwordHash)) {
+        await recordLoginFailures(db(), loginIdentities);
+        return res.status(401).json({ message: 'رقم الدخول أو كلمة المرور غير صحيحة.' });
+      }
       await clearLoginFailuresForIdentities(db(), loginIdentities);
       return res.json(await createLoginPayload(req, res, 'student', students[0], tenantPayload));
     }

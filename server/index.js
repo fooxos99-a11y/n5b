@@ -97,6 +97,7 @@ import { createStaffRecitationPreferencesRouter } from './routes/staffRecitation
 import { createOfflineRecitationRouter } from './routes/offlineRecitationRoutes.js';
 import { createOfflineStudentRouter } from './routes/offlineStudentRoutes.js';
 import tenantAuthRouter from './routes/tenantAuthRoutes.js';
+import { hashStudentPassword, validateStudentPassword } from './services/studentPassword.js';
 import { removedFeaturesMiddleware } from './middleware/removedFeatures.js';
 import { readLocalMushafFont, readLocalMushafPage } from './services/localMushaf.js';
 import { findNextUnmemorizedPosition } from './services/quranMemorizationContinuity.js';
@@ -4411,10 +4412,10 @@ function normalizeAccountName(value, label) {
   return name;
 }
 
-function normalizeAccountLoginNumber(value) {
+function normalizeAccountLoginNumber(value, minimumLength = 3) {
   const loginNumber = toAsciiDigits(value).trim();
-  if (!/^\d{3,80}$/.test(loginNumber)) {
-    throw invalidInput('رقم الدخول يجب أن يتكون من 3 إلى 80 رقمًا.');
+  if (!/^\d{1,80}$/.test(loginNumber) || loginNumber.length < minimumLength) {
+    throw invalidInput(`رقم الدخول يجب أن يتكون من ${minimumLength} إلى 80 رقمًا.`);
   }
   return loginNumber;
 }
@@ -7556,7 +7557,7 @@ app.post('/api/registration-requests/:id/accept', requirePermission('registratio
     }
 
     const name = String(req.body.name || request.name || '').replace(/\s+/g, ' ').trim();
-    const loginNumber = normalizeAccountLoginNumber(req.body.loginNumber || request.nationalId || '');
+    const loginNumber = normalizeAccountLoginNumber(req.body.loginNumber || request.nationalId || '', 1);
     const guardianPhone = normalizeAccountPhone(req.body.guardianPhone ?? request.guardianPhone);
     const nationalId = normalizeOptionalNationalId(req.body.nationalId ?? request.nationalId);
     const age = Number(toDigitsOnly(req.body.age || request.age));
@@ -7587,10 +7588,10 @@ app.post('/api/registration-requests/:id/accept', requirePermission('registratio
 
     const [result] = await connection.query(
       `
-      INSERT INTO students (name, login_number, national_id, guardian_phone, age, committee_id)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO students (name, login_number, national_id, guardian_phone, age, committee_id, password_hash)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
       `,
-      [name, loginNumber, nationalId, guardianPhone, age, committeeId]
+      [name, loginNumber, nationalId, guardianPhone, age, committeeId, await hashStudentPassword(req.body.password)]
     );
 
     await saveStandalonePriorMemorizationRanges(connection, result.insertId, acceptedRanges);
@@ -11445,7 +11446,7 @@ app.post('/api/students', requirePermission('students'), async (req, res, next) 
   const connection = await db().getConnection();
   try {
     const name = normalizeAccountName(req.body.name, 'اسم الطالب');
-    const loginNumber = normalizeAccountLoginNumber(req.body.loginNumber);
+    const loginNumber = normalizeAccountLoginNumber(req.body.loginNumber, 1);
     const cleanNationalId = normalizeOptionalNationalId(req.body.nationalId);
     const guardianPhone = normalizeAccountPhone(req.body.guardianPhone);
     const { committeeId } = req.body;
@@ -11457,10 +11458,10 @@ app.post('/api/students', requirePermission('students'), async (req, res, next) 
     await assertStudentIdentityAvailable(connection, cleanNationalId);
     const [result] = await connection.query(
       `
-      INSERT INTO students (name, login_number, national_id, guardian_phone, committee_id)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO students (name, login_number, national_id, guardian_phone, committee_id, password_hash)
+      VALUES (?, ?, ?, ?, ?, ?)
       `,
-      [name, loginNumber, cleanNationalId, guardianPhone, validatedCommitteeId]
+      [name, loginNumber, cleanNationalId, guardianPhone, validatedCommitteeId, await hashStudentPassword(req.body.password)]
     );
 
     const [rows] = await connection.query(
@@ -11509,7 +11510,8 @@ app.post('/api/students/bulk', requirePermission('students'), async (req, res, n
           nationalId: normalizeOptionalNationalId(student.nationalId),
           guardianPhone: normalizeAccountPhone(student.guardianPhone),
           committeeId: Number(normalizeOptionalCommitteeId(student.committeeId)),
-          requestedLoginNumber: normalizeAccountLoginNumber(student.loginNumber),
+          requestedLoginNumber: normalizeAccountLoginNumber(student.loginNumber, 1),
+          password: validateStudentPassword(student.password),
         };
       } catch (error) {
         throw invalidInput(`الصف ${index + 1}: ${error.message}`);
@@ -11535,10 +11537,10 @@ app.post('/api/students/bulk', requirePermission('students'), async (req, res, n
       await assertStudentIdentityAvailable(connection, student.nationalId);
       const [result] = await connection.query(
         `
-        INSERT INTO students (name, login_number, national_id, guardian_phone, committee_id)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO students (name, login_number, national_id, guardian_phone, committee_id, password_hash)
+        VALUES (?, ?, ?, ?, ?, ?)
         `,
-        [student.name, loginNumber, student.nationalId, student.guardianPhone, student.committeeId]
+        [student.name, loginNumber, student.nationalId, student.guardianPhone, student.committeeId, await hashStudentPassword(student.password)]
       );
       inserted.push(result.insertId);
     }
@@ -11560,7 +11562,7 @@ app.put('/api/students/:id', requirePermission('students'), async (req, res, nex
     const { committeeId } = req.body;
     const cleanCommitteeId = normalizeOptionalCommitteeId(committeeId);
     const [validatedCommitteeId] = await ensureCommitteeIdsExist(connection, cleanCommitteeId);
-    const cleanLoginNumber = normalizeAccountLoginNumber(req.body.loginNumber);
+    const cleanLoginNumber = normalizeAccountLoginNumber(req.body.loginNumber, 1);
     const cleanNationalId = normalizeOptionalNationalId(req.body.nationalId);
     // The balance is only changed by an «إضافة / خصم» amount, never by writing the final value.
     const adjustment = normalizeStudentGradeAdjustment({
@@ -11590,7 +11592,11 @@ app.put('/api/students/:id', requirePermission('students'), async (req, res, nex
       `,
       [name, cleanLoginNumber, cleanNationalId, guardianPhone, validatedCommitteeId, req.params.id]
     );
-    if (String(current.loginNumber || '').trim() !== cleanLoginNumber) {
+    const passwordChanged = req.body.password !== undefined && req.body.password !== '';
+    if (passwordChanged) {
+      await connection.query('UPDATE students SET password_hash = ? WHERE id = ?', [await hashStudentPassword(req.body.password), req.params.id]);
+    }
+    if (passwordChanged || String(current.loginNumber || '').trim() !== cleanLoginNumber) {
       await revokeAuthSessionsForUser(connection, 'student', req.params.id);
     }
     if (adjustment) {

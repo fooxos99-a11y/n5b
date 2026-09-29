@@ -45,7 +45,8 @@ test('teacher attendance and reports are constrained to linked committees on the
   assert.match(server, /requireManagementReportAccess/);
   assert.match(server, /sc\.supervisor_id = \? AND sc\.committee_id = s\.committee_id/);
   assert.doesNotMatch(attendance, /طلاب حلقاتي|getMyCommittees/);
-  assert.match(attendance, /teacherScoped \? \([\s\S]*headerLabel/);
+  assert.match(attendance, /<DashboardMobileHeaderActions>[\s\S]*headerLabel[\s\S]*<\/DashboardMobileHeaderActions>/);
+  assert.match(attendance, /!teacherScoped && \([\s\S]*<ManagementToolbar>/);
   assert.doesNotMatch(reports, /getMyCommittees/);
   // Teachers get no circle selector and no archive; the server scopes every report to their circles.
   assert.match(reports, /canViewStandardReports && !teacherScoped \? cachedReport\('scoped-committees'/);

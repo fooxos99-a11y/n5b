@@ -37,11 +37,15 @@ try {
       const selector = page.getByRole('button', {name:'اختيار الأسبوع', exact:true});
       assert.equal(await selector.innerText(), 'هذا الأسبوع');
       assert.equal(await page.locator('input[type="date"]').count(), 0);
-      if (section === 'weekly') {
-        assert.equal(await page.getByRole('radio', {name:'غير مرصود', exact:true}).count(), 0);
-        await page.getByRole('radio', {name:'حاضر', exact:true}).click();
-        assert.equal(writes.at(-1).attended, true);
-      }
+      assert.equal(await page.getByRole('radio', {name:'غير مرصود', exact:true}).count(), 0);
+      const present = page.getByRole('radio', {name:'حاضر', exact:true});
+      const absent = page.getByRole('radio', {name:'غائب', exact:true});
+      assert.ok((await present.boundingBox()).x < (await absent.boundingBox()).x);
+      await Promise.all([
+        page.waitForResponse(response => response.url().includes('/grading/weekly-component') && response.ok()),
+        present.click(),
+      ]);
+      assert.equal(writes.at(-1).attended, true);
       await page.getByRole('button', {name:'الأسبوع السابق', exact:true}).click();
       await page.waitForFunction(() => globalThis.document.querySelector('[aria-label="اختيار الأسبوع"]')?.textContent === 'الأسبوع الماضي');
       assert.equal(weeks.at(-1), '2026-09-20');
@@ -90,6 +94,7 @@ try {
     }
     await visit('plans');
     await page.getByText('طالب الاختبار', {exact:true}).waitFor();
+    assert.equal(await page.getByRole('searchbox', {name:'ابحث بالاسم', exact:true}).getAttribute('placeholder'), 'ابحث بالاسم');
     const search = await page.getByRole('searchbox').boundingBox();
     const filter = await page.getByRole('combobox', {name:'الحلقة', exact:true}).boundingBox();
     assert.ok(Math.abs(search.y - filter.y) < 2);

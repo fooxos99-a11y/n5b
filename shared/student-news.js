@@ -1,5 +1,5 @@
 export const emptyStudentNews = () => ({ entries: [], revision: 0 });
-export const DEFAULT_NEWS_TEXT_COLOR = '#ffffff';
+export const DEFAULT_NEWS_TEXT_COLOR = '#000000';
 export function newsTimeNow() {
   const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Riyadh', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date()).map(part => [part.type, part.value]));
   return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;

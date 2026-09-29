@@ -33,7 +33,7 @@ const nukhabColors = {
 const nukhabSiteConfig = Object.freeze({
   key: 'nukhab',
   name: 'نخب',
-  publicUrl: 'https://161.97.171.108.sslip.io/n5b/',
+  publicUrl: 'https://nokhab.cc/',
   shortName: 'نخب',
   organizationName: 'نخب',
   description: 'تطبيق نخب',

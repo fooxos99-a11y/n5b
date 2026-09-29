@@ -177,14 +177,14 @@ async function requestFile(path, options = {}) {
 }
 
 export const studentsApi = {
-  login: async ({ loginNumber }) => {
+  login: async ({ loginNumber, password }) => {
     // A previous logout response must never clear the cookie of a new login.
     if (pendingLogout) await pendingLogout;
     clearTenantApiBase();
     clearTenantRegistrationNumber();
     const user = await request('/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ loginNumber }),
+      body: JSON.stringify({ loginNumber, password }),
       apiBaseOverride: apiBase,
     });
     setTenantRegistrationNumber(user.complex?.registrationNumber || '');

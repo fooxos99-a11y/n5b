@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { privacyContent } from '../shared/legal-content.js';
 
 test('legal pages hide the site name and carry no contact channel', async () => {
   const [layout, terms, privacy, login] = await Promise.all([
@@ -15,9 +16,11 @@ test('legal pages hide the site name and carry no contact channel', async () => 
   assert.match(privacy, /showSiteName=\{false\}/);
   assert.doesNotMatch(privacy, /PublicContactDialog|setContactOpen|تواصل معنا/);
   assert.doesNotMatch(privacy, /wa\.me|whatsappUrl/);
-  assert.match(privacy, /من قائمة حساب الطالب داخل التطبيق أو رابط «طلب حذف الحساب» في تذييل الصفحة الرئيسية/);
-  assert.doesNotMatch(privacy, /فتح أيقونة الحساب وتقديم طلب حذف/);
-  assert.doesNotMatch(privacy, /عزل بيانات المجمعات|حسابات القاصرين/);
+  assert.match(privacy, /privacyContent.sections.map/);
+  const privacyText = JSON.stringify(privacyContent);
+  assert.match(privacyText, /من قائمة حساب الطالب داخل التطبيق أو رابط «طلب حذف الحساب» في تذييل الصفحة الرئيسية/);
+  assert.doesNotMatch(privacyText, /فتح أيقونة الحساب وتقديم طلب حذف|wa\.me|whatsappUrl|تواصل معنا/);
+  assert.doesNotMatch(privacyText, /عزل بيانات المجمعات|حسابات القاصرين/);
   assert.doesNotMatch(privacy, /to="\/support"|>الدعم<\/Link>/);
   assert.doesNotMatch(login, /WhatsAppIcon|wa\.me\/966539599222/);
 });

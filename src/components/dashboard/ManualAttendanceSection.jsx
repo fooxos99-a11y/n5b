@@ -3,6 +3,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
 import DashboardLoader from '@/components/dashboard/DashboardLoader';
+import DashboardMobileHeaderActions from '@/components/dashboard/DashboardMobileHeaderActions';
 import ErrorState from '@/components/ui/error-state';
 import { ManagementEmpty, ManagementList, ManagementPanel, ManagementToolbar } from '@/components/dashboard/layout/ManagementPanel';
 import { studentsApi } from '@/services/studentsApi';
@@ -65,8 +66,6 @@ const statusLabel = (status) => {
   if (status === 'excused') return 'مستأذن';
   return 'اختر الحالة';
 };
-
-const dateClass = 'ms-auto flex min-h-11 flex-col justify-center text-left';
 
 const ManualAttendanceSection = ({ teacherScoped = false }) => {
   const { toast } = useToast();
@@ -211,15 +210,15 @@ const ManualAttendanceSection = ({ teacherScoped = false }) => {
     </>;
   };
   return (
-    <ManagementPanel>
-      {teacherScoped ? (
-        <ManagementToolbar>
-          <div className={dateClass}>
-            <span className="text-xs font-bold text-primary">{headerDate}</span>
-            <span className="text-sm font-black text-foreground">{headerLabel}</span>
-          </div>
-        </ManagementToolbar>
-      ) : (
+    <>
+      <DashboardMobileHeaderActions>
+        <div className="flex min-h-11 flex-col justify-center whitespace-nowrap text-left" aria-label="موعد التحضير">
+          <span className="text-xs font-black text-foreground">{headerLabel}</span>
+          <time dateTime={headerDate} dir="ltr" className="text-[11px] font-bold text-primary">{headerDate}</time>
+        </div>
+      </DashboardMobileHeaderActions>
+      <ManagementPanel>
+      {!teacherScoped && (
         <ManagementToolbar>
           <Label className="sr-only">الفئة</Label>
           <Select value={target} onValueChange={setTarget}>
@@ -251,14 +250,11 @@ const ManualAttendanceSection = ({ teacherScoped = false }) => {
             </>
           )}
 
-          <div className={dateClass}>
-            <span className="text-xs font-bold text-primary">{headerDate}</span>
-            <span className="text-sm font-black text-foreground">{headerLabel}</span>
-          </div>
         </ManagementToolbar>
       )}
       {_resolveManualAttendanceSection()}
-    </ManagementPanel>
+      </ManagementPanel>
+    </>
   );
 };
 

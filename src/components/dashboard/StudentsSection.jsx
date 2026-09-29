@@ -5,6 +5,7 @@ import { filterRosterByName } from '@/lib/rosterSearch';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import PasswordInput from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
@@ -14,11 +15,13 @@ import { FormField, FormGrid, ManagementEmpty, ManagementList, ManagementRow, Ma
 import { studentsApi } from '@/services/studentsApi';
 import useOnlineStatus from '@/hooks/useOnlineStatus';
 import { loadOfflineSnapshot } from '@/services/offlineOperationsService';
-import { generateStudentLoginNumber as generateLoginNumber } from '../../../shared/login-numbers.js';
+import { readSpreadsheetSheets, parseBestStudentSheet, updateImportedStudent } from '@/lib/studentImport';
+import StudentBulkTable from './StudentBulkTable';
 
 const emptyStudent = {
   name: '',
   loginNumber: '',
+  password: '',
   nationalId: '',
   guardianPhone: '',
   committeeId: '',
@@ -26,199 +29,6 @@ const emptyStudent = {
   gradeAdjustmentAmount: '',
   gradeAdjustmentReason: '',
 };
-
-const normalizeCell = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
-const normalizeKey = (value) =>
-  normalizeCell(value)
-    .toLowerCase()
-    .replace(/[أإآ]/g, 'ا')
-    .replaceAll('ؤ', 'و')
-    .replaceAll('ئ', 'ي')
-    .replaceAll('ة', 'ه')
-    .replace(/[^\p{L}\p{N}]+/gu, '');
-
-const toEnglishDigits = (value) =>
-  normalizeCell(value).replace(/[٠-٩۰-۹]/g, (digit) => {
-    const arabicDigits = '٠١٢٣٤٥٦٧٨٩';
-    const persianDigits = '۰۱۲۳۴۵۶۷۸۹';
-    const arabicIndex = arabicDigits.indexOf(digit);
-    if (arabicIndex >= 0) return String(arabicIndex);
-    return String(persianDigits.indexOf(digit));
-  });
-
-const toDigits = (value) => toEnglishDigits(value).replace(/[^\d]/g, '');
-const normalizeLoginNumber = (value) => {
-  const digits = toEnglishDigits(value);
-  if (digits && !/^\d{3,80}$/.test(digits)) throw new Error('رقم الدخول في الملف غير صحيح. استخدم من 3 إلى 80 رقمًا.');
-  return digits;
-};
-
-const normalizePhone = (value) => {
-  const digits = toDigits(value);
-  if (!digits) return '';
-  if (digits.startsWith('9665') && digits.length === 12) return `0${digits.slice(3)}`;
-  if (digits.startsWith('05')) return digits;
-  if (digits.startsWith('5') && digits.length === 9) return `0${digits}`;
-  return digits;
-};
-
-const toNamePart = (value) =>
-  toEnglishDigits(value)
-    .replace(/[0-9+]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-const headerAliases = {
-  name: ['اسم', 'الاسم', 'اسمالطالب', 'الطالب', 'student', 'studentname', 'name'],
-  phone: ['جوال', 'الجوال', 'جوالوليالامر', 'رقمجوالوليالامر', 'هاتف', 'الهاتف', 'phone', 'mobile', 'guardianphone'],
-  nationalId: ['identity', 'nationalid', 'id', '\u0647\u0648\u064a\u0629', '\u0627\u0644\u0647\u0648\u064a\u0629', '\u0631\u0642\u0645\u0627\u0644\u0647\u0648\u064a\u0629'],
-  loginNumber: ['رقمالدخول', 'دخول', 'login', 'loginnumber'],
-  committee: ['اسرة', 'الاسرة', 'حلقة', 'الحلقة', 'العائلة', 'family', 'committee'],
-};
-
-const findHeaderMapping = (rows) => {
-  const maxHeaderRows = Math.min(rows.length, 8);
-  for (let rowIndex = 0; rowIndex < maxHeaderRows; rowIndex += 1) {
-    const mapping = {};
-    (rows[rowIndex] || []).forEach((cell, cellIndex) => {
-      const key = normalizeKey(cell);
-      Object.entries(headerAliases).forEach(([field, aliases]) => {
-        if (mapping[field] !== undefined) return;
-        if (aliases.some((alias) => key.includes(normalizeKey(alias)))) {
-          mapping[field] = cellIndex;
-        }
-      });
-    });
-    if (mapping.name !== undefined) {
-      return { mapping, startIndex: rowIndex + 1 };
-    }
-  }
-
-  return {
-    mapping: { name: 0, phone: 1, nationalId: 2 },
-    startIndex: 0,
-  };
-};
-
-const parseStudentRows = (rows, usedLoginNumbers, committees = []) => {
-  const safeRows = rows.filter(Array.isArray).filter((row) => row.some((cell) => normalizeCell(cell)));
-  const committeeByName = new Map(
-    committees.map((committee) => [normalizeKey(committee.name), String(committee.id)])
-  );
-  const { mapping, startIndex } = findHeaderMapping(safeRows);
-
-  return safeRows
-    .slice(startIndex)
-    .map((row, index) => {
-      const name = toNamePart(row[mapping.name]);
-      const phone = mapping.phone === undefined ? '' : normalizePhone(row[mapping.phone]);
-      const nationalId = mapping.nationalId === undefined ? '' : toDigits(row[mapping.nationalId]);
-      const loginFromFile = mapping.loginNumber === undefined ? '' : normalizeLoginNumber(row[mapping.loginNumber]);
-      const committeeFromFile = mapping.committee === undefined
-        ? ''
-        : committeeByName.get(normalizeKey(row[mapping.committee])) || '';
-      const rowText = row.map(normalizeCell).join(' ');
-
-      if (/اسم|طالب|جوال|ولي|هاتف|رقم|هوية/i.test(rowText) && !name) return null;
-      if (!name) return null;
-
-      const loginNumber = loginFromFile || generateLoginNumber(usedLoginNumbers);
-      if (loginNumber) usedLoginNumbers.add(loginNumber);
-
-      return {
-        rowId: `${Date.now()}-${startIndex + index}`,
-        name,
-        loginNumber,
-        nationalId,
-        guardianPhone: phone,
-        committeeId: committeeFromFile,
-      };
-    })
-    .filter(Boolean);
-};
-
-const detectCsvDelimiter = (text) => {
-  const sample = text.split(/\r?\n/).find((line) => line.trim()) || '';
-  const candidates = [',', ';', '\t'];
-  return candidates.reduce((best, delimiter) => {
-    const count = sample.split(delimiter).length;
-    return count > best.count ? { delimiter, count } : best;
-  }, { delimiter: ',', count: 0 }).delimiter;
-};
-
-const parseCsvRows = (text) => {
-  const delimiter = detectCsvDelimiter(text);
-  const rows = [];
-  let row = [];
-  let cell = '';
-  let inQuotes = false;
-
-  for (let index = 0; index < text.length; index += 1) {
-    const char = text[index];
-    const next = text[index + 1];
-
-    if (char === '"' && inQuotes && next === '"') {
-      cell += '"';
-      index += 1;
-    } else if (char === '"') {
-      inQuotes = !inQuotes;
-    } else if (char === delimiter && !inQuotes) {
-      row.push(cell);
-      cell = '';
-    } else if ((char === '\n' || char === '\r') && !inQuotes) {
-      if (char === '\r' && next === '\n') index += 1;
-      row.push(cell);
-      rows.push(row);
-      row = [];
-      cell = '';
-    } else {
-      cell += char;
-    }
-  }
-
-  row.push(cell);
-  rows.push(row);
-  return rows.filter((csvRow) => csvRow.some((value) => normalizeCell(value)));
-};
-
-const readSpreadsheetSheets = async (file) => {
-  const fileName = String(file.name || '').toLowerCase();
-
-  if (fileName.endsWith('.csv') || file.type === 'text/csv') {
-    return [{ name: 'CSV', rows: parseCsvRows(await file.text()) }];
-  }
-
-  if (fileName.endsWith('.xls') && !fileName.endsWith('.xlsx')) {
-    throw new Error('صيغة .xls القديمة غير مدعومة. احفظ الملف بصيغة .xlsx أو CSV ثم ارفعه.');
-  }
-
-  const { default: readXlsxFile } = await import('read-excel-file/browser');
-  const sheets = await readXlsxFile(file);
-  if (Array.isArray(sheets) && sheets[0]?.data) {
-    return sheets.map((sheet) => ({ name: sheet.sheet, rows: sheet.data || [] }));
-  }
-
-  return [{ name: 'Sheet1', rows: Array.isArray(sheets) ? sheets : [] }];
-};
-
-const parseBestStudentSheet = (sheets, usedLoginNumbers, committees) => {
-  let best = { parsed: [], sheetName: '' };
-
-  sheets.forEach((sheet) => {
-    const candidateUsedNumbers = new Set(usedLoginNumbers);
-    const parsed = parseStudentRows(sheet.rows || [], candidateUsedNumbers, committees);
-    if (parsed.length > best.parsed.length) {
-      best = { parsed, sheetName: sheet.name || '' };
-    }
-  });
-
-  best.parsed.forEach((student) => {
-    if (student.loginNumber) usedLoginNumbers.add(student.loginNumber);
-  });
-
-  return best;
-};
-
 
 const StudentsSection = () => {
   const [search, setSearch] = useState('');
@@ -297,6 +107,7 @@ const StudentsSection = () => {
     setStudentForm({
       name: student.name,
       loginNumber: student.loginNumber,
+      password: '',
       nationalId: student.nationalId || '',
       guardianPhone: student.guardianPhone,
       committeeId: student.committeeId ? String(student.committeeId) : '',
@@ -313,6 +124,10 @@ const StudentsSection = () => {
       return;
     }
 
+    if (!studentForm.loginNumber.trim() || (dialog === 'add' && !studentForm.password)) {
+      toast({ title: 'أدخل رقم الدخول وكلمة المرور.', variant: 'destructive' });
+      return;
+    }
     if (!studentForm.committeeId) {
       toast({ title: 'الحلقة مطلوبة', description: 'اختر حلقة للطالب قبل الحفظ.', variant: 'destructive' });
       return;
@@ -366,7 +181,7 @@ const StudentsSection = () => {
 
   const updateBulkStudent = (rowId, field, value) => {
     setBulkStudents((current) =>
-      current.map((student) => student.rowId === rowId ? { ...student, [field]: value } : student)
+      current.map((student) => student.rowId === rowId ? updateImportedStudent(student, field, value) : student)
     );
   };
 
@@ -376,11 +191,11 @@ const StudentsSection = () => {
 
   const saveBulkStudents = async () => {
     const invalid = bulkStudents.some((student) =>
-      !student.name.trim() || !String(student.loginNumber).trim() || !student.committeeId
+      !student.name.trim() || !String(student.loginNumber).trim() || !student.password || !student.committeeId
     );
 
     if (invalid) {
-      toast({ title: 'بيانات ناقصة', description: 'تأكد من الاسم ورقم الدخول والحلقة لكل طالب.', variant: 'destructive' });
+      toast({ title: 'بيانات ناقصة', description: 'تأكد من الاسم ورقم الدخول وكلمة المرور والحلقة لكل طالب.', variant: 'destructive' });
       return;
     }
 
@@ -496,7 +311,7 @@ const StudentsSection = () => {
       {_resolveStudentsSection()}
 
       <Dialog open={dialog === 'add' || dialog === 'edit'} onOpenChange={(open) => !open && setDialog(null)}>
-        <DialogContent className={`bg-card border-primary/30 text-foreground ${bulkStudents.length > 0 ? 'sm:max-w-5xl' : ''}`} dir="rtl">
+        <DialogContent className={`bg-card border-primary/30 text-foreground ${bulkStudents.length > 0 ? 'sm:max-w-7xl' : ''}`} dir="rtl">
           <DialogHeader>
             <DialogTitle className="text-primary neon-text">
               {dialog === 'edit' ? "تعديل بيانات الطالب" : "إضافة طالب"}
@@ -505,7 +320,7 @@ const StudentsSection = () => {
           {dialog === 'add' && (
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-muted/60 p-3">
               <div className="text-sm text-muted-foreground">
-                ارفع ملف Excel بصيغة .xlsx: العمود A للاسم، والجوال والهوية اختياريان، ورقم الدخول يتولد تلقائيًا.
+                أعمدة Excel: الاسم، جوال ولي الأمر، الهوية، الحلقة، رقم الدخول، كلمة المرور. عند ترك الرقم والرمز فارغين يُولّدان بالقيمة نفسها، ويمكن تعديلهما قبل الحفظ.
               </div>
               <Input
                 aria-label="ملف الطلاب"
@@ -522,48 +337,7 @@ const StudentsSection = () => {
             </div>
           )}
           {dialog === 'add' && bulkStudents.length > 0 ? (
-            <div className="max-h-[60vh] space-y-3 overflow-y-auto py-4 pr-1">
-              {bulkStudents.map((student, index) => (
-                <div key={student.rowId} className="grid gap-3 rounded-2xl border border-primary/20 bg-background/70 p-3 sm:grid-cols-2 lg:grid-cols-3 lg:items-end">
-                  <div className="flex h-10 items-center justify-center rounded-xl bg-primary/10 text-sm font-black text-primary">
-                    {index + 1}
-                  </div>
-                  <div className="space-y-1">
-                    <Label>الاسم</Label>
-                    <Input aria-label={`اسم الطالب ${index + 1}`} value={student.name} onChange={(event) => updateBulkStudent(student.rowId, 'name', event.target.value)} />
-                  </div>
-                  <FormField label="رقم الدخول" htmlFor={`bulk-login-${index}`}>
-                    <Input id={`bulk-login-${index}`} aria-label={`رقم دخول الطالب ${index + 1}`} inputMode="numeric" value={student.loginNumber} onChange={event => updateBulkStudent(student.rowId, 'loginNumber', event.target.value)} />
-                  </FormField>
-                  <div className="space-y-1">
-                    <Label>رقم الجوال</Label>
-                    <Input aria-label={`رقم جوال الطالب ${index + 1}`} value={student.guardianPhone} onChange={(event) => updateBulkStudent(student.rowId, 'guardianPhone', event.target.value)} />
-                  </div>
-                  <div className="space-y-1">
-                    <Label>رقم الهوية</Label>
-                    <Input aria-label={`رقم هوية الطالب ${index + 1}`} value={student.nationalId} onChange={(event) => updateBulkStudent(student.rowId, 'nationalId', event.target.value)} />
-                  </div>
-                  <div className="space-y-1">
-                    <Label>الحلقة</Label>
-                    <Select value={student.committeeId} onValueChange={(value) => updateBulkStudent(student.rowId, 'committeeId', value)}>
-                      <SelectTrigger aria-label={`حلقة الطالب ${index + 1}`}>
-                        <SelectValue placeholder="اختر الحلقة" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {committees.map((committee) => (
-                          <SelectItem key={committee.id} value={String(committee.id)}>
-                            {committee.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <ManagementIconButton onClick={() => removeBulkStudent(student.rowId)} tone="destructive" aria-label="حذف الطالب من القائمة">
-                    <Trash2 className="h-4 w-4" />
-                  </ManagementIconButton>
-                </div>
-              ))}
-            </div>
+            <StudentBulkTable students={bulkStudents} committees={committees} disabled={isBulkSaving} onChange={updateBulkStudent} onRemove={removeBulkStudent} />
           ) : (
             <div className="space-y-5 py-2">
               <FormGrid>
@@ -589,6 +363,10 @@ const StudentsSection = () => {
                 </FormField>
                 <FormField label="رقم الجوال" htmlFor="student-phone">
                   <Input id="student-phone" aria-label="رقم الجوال" inputMode="tel" value={studentForm.guardianPhone} onChange={(event) => setStudentForm({ ...studentForm, guardianPhone: event.target.value })} />
+                </FormField>
+                <FormField label={dialog === 'edit' ? 'كلمة مرور جديدة' : 'كلمة المرور'} htmlFor="student-password">
+                  <PasswordInput id="student-password" required={dialog === 'add'} autoComplete="new-password" value={studentForm.password} onChange={(event) => setStudentForm({ ...studentForm, password: event.target.value })} />
+                  {dialog === 'edit' && <p className="text-xs text-muted-foreground">اتركها فارغة للإبقاء على كلمة المرور الحالية.</p>}
                 </FormField>
                 <FormField label="رقم الهوية" htmlFor="student-national-id">
                   <Input id="student-national-id" aria-label="رقم الهوية" inputMode="numeric" value={studentForm.nationalId} onChange={(event) => setStudentForm({ ...studentForm, nationalId: event.target.value })} />

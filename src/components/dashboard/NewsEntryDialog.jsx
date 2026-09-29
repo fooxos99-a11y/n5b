@@ -48,8 +48,8 @@ export default function NewsEntryDialog({ entry, committees, pending, onClose, o
         <fieldset disabled={pending || reading} className="min-w-0 space-y-4">
           <div className="space-y-1.5"><Label htmlFor="news-title">الخبر</Label><Input id="news-title" required maxLength={80} value={draft.title} onChange={event => update('title', event.target.value)} /></div>
           <div className="space-y-1.5"><Label htmlFor="news-body">نص الخبر</Label><Textarea id="news-body" maxLength={2000} value={draft.body || ''} onChange={event => update('body', event.target.value)} /></div>
-          <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-3">
-          <div className="min-w-0 space-y-1.5"><Label htmlFor="news-text-color">لون نص الخبر</Label><Input id="news-text-color" type="color" className="h-11 w-11 cursor-pointer overflow-hidden rounded-xl border-0 p-0 [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded-xl [&::-webkit-color-swatch]:border-0 [&::-moz-color-swatch]:rounded-xl [&::-moz-color-swatch]:border-0" value={draft.textColor || DEFAULT_NEWS_TEXT_COLOR} onChange={event => update('textColor', event.target.value)} /></div>
+          <div className="grid min-w-0 grid-cols-[auto_minmax(0,12rem)] gap-3">
+          <div className="min-w-0 space-y-1.5"><Label htmlFor="news-text-color">اللون</Label><Input id="news-text-color" type="color" className="h-11 w-11 cursor-pointer overflow-hidden rounded-xl border-0 p-0 [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded-xl [&::-webkit-color-swatch]:border-0 [&::-moz-color-swatch]:rounded-xl [&::-moz-color-swatch]:border-0" value={draft.textColor || DEFAULT_NEWS_TEXT_COLOR} onChange={event => update('textColor', event.target.value)} /></div>
           <div className="min-w-0 space-y-1.5"><Label>الحلقات</Label>
             <MultiSelectSetting value={draft.committeeIds.length ? draft.committeeIds : ['all']} placeholder="جميع الحلقات"
               options={[{ value: 'all', label: 'جميع الحلقات' }, ...committees.map(row => ({ value: Number(row.id), label: row.name }))]}

@@ -5,6 +5,7 @@ import LoadingSpinner from '@/components/ui/loading-spinner';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import PasswordInput from '@/components/ui/password-input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
 import DashboardLoader from '@/components/dashboard/DashboardLoader';
@@ -15,6 +16,7 @@ import { studentsApi } from '@/services/studentsApi';
 const emptyAcceptForm = {
   name: '',
   loginNumber: '',
+  password: '',
   guardianPhone: '',
   nationalId: '',
   age: '',
@@ -113,6 +115,7 @@ const RegistrationRequestsSection = () => {
     setAcceptForm({
       name: request.name || '',
       loginNumber: request.nationalId || '',
+      password: '',
       guardianPhone: request.guardianPhone || '',
       nationalId: request.nationalId || '',
       age: request.age ? String(request.age) : '',
@@ -177,6 +180,7 @@ const RegistrationRequestsSection = () => {
   const allResultsComplete = memorizationItems.every((item) => ['passed', 'failed'].includes(testResults[item.id]));
   const canAccept = acceptForm.name.trim()
     && acceptForm.loginNumber.trim()
+    && acceptForm.password
     && acceptForm.committeeId
     && allResultsComplete;
 
@@ -281,6 +285,9 @@ const RegistrationRequestsSection = () => {
             </FormField>
             <FormField label="رقم الدخول" htmlFor="registration-accept-login-number">
               <Input id="registration-accept-login-number" value={acceptForm.loginNumber} onChange={(event) => setAcceptForm({ ...acceptForm, loginNumber: event.target.value })} />
+            </FormField>
+            <FormField label="كلمة المرور" htmlFor="registration-accept-password">
+              <PasswordInput id="registration-accept-password" required autoComplete="new-password" value={acceptForm.password} onChange={(event) => setAcceptForm({ ...acceptForm, password: event.target.value })} />
             </FormField>
           </FormGrid>
 

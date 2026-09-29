@@ -7,7 +7,7 @@ import { nativeUpdatePolicy } from '../server/services/nativeUpdate.js';
 test('standalone app always resolves its own product and native identity', async () => {
   for (const key of [undefined, 'nukhab', 'nukhab', 'unknown-product']) {
     assert.equal(getSiteConfig(key).key, 'nukhab');
-    assert.equal(getSiteConfig(key).publicUrl, 'https://161.97.171.108.sslip.io/n5b/');
+    assert.equal(getSiteConfig(key).publicUrl, 'https://nokhab.cc/');
   }
   const cap = JSON.parse(await readFile(new URL('../capacitor.config.json', import.meta.url), 'utf8'));
   assert.equal(cap.appId, 'sa.nukhab.app');

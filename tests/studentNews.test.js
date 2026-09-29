@@ -9,8 +9,8 @@ const entry = { id: 'one', title: 'تكريم', image: 'image', committeeIds: [4
 test('news text colors survive saving and student responses, with safe legacy defaults', async () => {
   for (const textColor of [undefined, '#aBc123']) {
     const content = await normalizeStudentNews({ revision: 0, entries: [{ ...entry, image: '', textColor }] });
-    assert.equal(content.entries[0].textColor, textColor ?? '#ffffff');
-    assert.equal(visibleStudentNews(content, { id: 244, committeeId: 4 }, '2026-09-23T12:00').entries[0].textColor, textColor ?? '#ffffff');
+    assert.equal(content.entries[0].textColor, textColor ?? '#000000');
+    assert.equal(visibleStudentNews(content, { id: 244, committeeId: 4 }, '2026-09-23T12:00').entries[0].textColor, textColor ?? '#000000');
   }
   for (const textColor of ['red', '#fff', 'url(example)', {}, 123]) {
     await assert.rejects(normalizeStudentNews({ revision: 0, entries: [{ ...entry, image: '', textColor }] }), error => error.statusCode === 422);

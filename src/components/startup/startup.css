@@ -1,22 +1,25 @@
-.startup-scene { position: relative; display: grid; min-height: 100svh; width: 100%; place-items: center; overflow: hidden; background: hsl(var(--background)); color: hsl(var(--foreground)); font-family: var(--font-ui); }
-.startup-lines { position: absolute; inset: 50% auto auto 50%; width: min(160vw, 900px); height: min(160vw, 900px); transform: translate(-50%, -50%); pointer-events: none; color: #25b8ac; }
-.startup-lines path { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-dasharray: 90 600; animation: startup-stream 1.2s ease-out both; }
-.startup-lines path:nth-child(even) { opacity: .4; }
-.startup-login-card { position: relative; width: 100%; max-width: 24rem; padding: 24px; border-radius: 24px; background: hsl(var(--card)); border: 1px solid hsl(var(--border)); box-shadow: 0 16px 50px hsl(var(--primary) / .08); }
-.startup-login-logo { position: absolute; width: 80px; height: 80px; object-fit: contain; top: 24px; left: calc(50% - 40px); }
-.startup-login-header { padding-top: 104px; margin-bottom: 32px; text-align: center; }
-.startup-enter .startup-login-card { animation: startup-card 2s ease-in-out both; animation-delay: var(--startup-delay, 0s); }
-.startup-enter .startup-login-logo { animation: startup-logo 2s ease-in-out both; animation-delay: var(--startup-delay, 0s); }
-.startup-enter .startup-login-fields, .startup-enter .startup-login-header { animation: startup-fields 2s ease both; animation-delay: var(--startup-delay, 0s); }
-.startup-enter .startup-lines { animation: startup-lines-out 2s ease both; animation-delay: var(--startup-delay, 0s); }
-.startup-enter .startup-lines path { animation-delay: var(--startup-delay, 0s); }
-@keyframes startup-stream { from { stroke-dashoffset: 100; opacity: 0; } 30% { opacity: .7; } to { stroke-dashoffset: -520; opacity: 0; } }
-@keyframes startup-lines-out { 0%,65% { opacity: 1; } 100% { opacity: 0; } }
-@keyframes startup-card {
-  0%,60% { clip-path: polygon(calc(50% - 38px) calc(50% - 80px),calc(50% + 38px) calc(50% - 80px),calc(50% + 75px) 50%,calc(50% + 38px) calc(50% + 80px),calc(50% - 38px) calc(50% + 80px),calc(50% - 75px) 50%); }
-  100% { clip-path: polygon(0 0,100% 0,100% 50%,100% 100%,0 100%,0 50%); }
+.startup-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: var(--startup-background);
+  color: #fff;
+  font-family: var(--font-ui);
+  animation: startup-reveal 2s ease both;
 }
-@keyframes startup-logo { 0% { opacity: 0; top: calc(50% - 40px); transform: scale(.9); } 35%,60% { opacity: 1; top: calc(50% - 40px); transform: scale(1); } 100% { top: 24px; } }
-@keyframes startup-fields { 0%,75% { opacity: 0; transform: translateY(8px); } 100% { opacity: 1; transform: translateY(0); } }
-@media (max-width: 480px) { .startup-lines path:nth-child(even) { display: none; } }
-@media (prefers-reduced-motion: reduce) { .startup-lines { display: none; } .startup-scene *, .startup-enter * { animation: none !important; } }
+.startup-brand { text-align: center; margin-top: -6svh; animation: startup-grow 2s cubic-bezier(.22, 1, .36, 1) both; }
+.startup-brand-logo { display: block; width: clamp(150px, 42vw, 210px); height: clamp(180px, 48vw, 240px); margin: 0 auto 20px; object-fit: contain; }
+.startup-brand p { font-size: clamp(23px, 5vw, 30px); font-weight: 600; }
+.startup-pattern { position: absolute; bottom: 0; left: 0; height: min(24svh, 192px); color: var(--startup-accent); opacity: .28; mask-image: linear-gradient(transparent, #000 60%); animation: startup-pattern-in 2s ease both; }
+@keyframes startup-grow {
+  0% { opacity: 0; transform: scale(.12); }
+  12% { opacity: 1; }
+  48%, 78% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1.04); }
+}
+@keyframes startup-reveal { 0%, 76% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes startup-pattern-in { 0%, 18% { opacity: 0; transform: translateY(24px); } 52%, 100% { opacity: .28; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .startup-splash { display: none; } }
