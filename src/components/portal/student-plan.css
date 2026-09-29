@@ -1,0 +1,72 @@
+.student-plan { font-family: var(--font-ui); max-width: 1080px; margin-inline: auto; display: grid; gap: 8px; }
+.student-plan-progress { font-family: var(--font-ui); width: 100%; max-width: 560px; }
+.student-plan-progress-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 5px; }
+.student-plan-progress h2 { display: flex; align-items: center; gap: 5px; color: hsl(var(--foreground)); font-size: 12px; font-weight: 800; }
+.student-plan-progress h2 svg { width: 15px; height: 15px; color: hsl(var(--primary)); }
+.student-plan-progress-percent { display: inline-flex; align-items: baseline; gap: 2px; padding: 2px 4px; border-radius: 9px; background: hsl(var(--primary) / .09); color: hsl(var(--primary)); font-size: 10px; line-height: 1.2; font-weight: 700; font-variant-numeric: tabular-nums; }
+.student-plan-progress-percent > span { font-size: 8px; }
+.student-plan-progress-track { position: relative; height: 12px; overflow: hidden; border: 1px solid hsl(var(--primary) / .12); border-radius: 999px; background: hsl(var(--primary) / .07); box-shadow: inset 0 1px 3px hsl(var(--primary) / .1); }
+.student-plan-progress-track::after { content: ''; position: absolute; inset: 0; pointer-events: none; border-radius: inherit; background: repeating-linear-gradient(90deg, transparent 0, transparent calc(10% - 1px), hsl(var(--card) / .5) calc(10% - 1px), hsl(var(--card) / .5) 10%); }
+.student-plan-progress-fill { position: relative; height: 100%; overflow: hidden; border-radius: inherit; background: linear-gradient(90deg, color-mix(in srgb, var(--brand-navigation), white 35%), var(--brand-navigation)); box-shadow: 0 0 10px color-mix(in srgb, var(--brand-navigation), transparent 70%); transition: width .65s ease; }
+.student-plan-progress-fill::before { content: ''; position: absolute; inset: 0; background: linear-gradient(110deg, transparent 25%, #ffffff55 50%, transparent 75%); transform: translateX(-100%); animation: plan-progress-glow 3.5s ease-in-out infinite; }
+.student-plan-progress[data-complete='true'] .student-plan-progress-percent { background: color-mix(in srgb, var(--brand-navigation), transparent 90%); color: var(--brand-navigation); }
+@keyframes plan-progress-glow { 0%, 15% { transform: translateX(-100%); } 75%, 100% { transform: translateX(100%); } }
+.student-plan-week { min-width: 0; overflow: hidden; border: 1px solid hsl(var(--border)); border-radius: 14px; background: hsl(var(--card)); }
+.student-plan-week[data-current='true'] { border-color: hsl(var(--primary) / .2); }
+.student-plan-week-toggle { width: 100%; min-height: 48px; height: auto; padding: 10px; border-radius: 0; display: flex; justify-content: space-between; text-align: start; font-size: 13px; font-weight: 800; white-space: normal; }
+.student-plan-week-toggle > span { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.student-plan-week-toggle > svg { width: 16px; height: 16px; flex-shrink: 0; }
+.student-plan-week-dates { font-size: 10px; font-weight: 600; color: hsl(var(--muted-foreground)); }
+.student-plan-days { padding: 0 8px 8px; }
+.student-plan-day { display: grid; grid-template-columns: 44px minmax(0, 1fr); align-items: center; gap: 5px; padding-block: 5px; border-top: 1px solid hsl(var(--border) / .65); }
+.student-plan-day-heading { min-width: 0; }
+.student-plan-day-heading h3 { font-weight: 800; font-size: 11px; white-space: nowrap; overflow-wrap: normal; }
+.student-plan-day[data-current='true'] h3 { color: hsl(var(--primary)); }
+.student-plan-amounts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: auto auto; align-items: stretch; gap: 4px; }
+.student-plan-amount { display: flex; flex-direction: column; align-items: stretch; justify-content: center; min-width: 0; min-height: 44px; height: auto; padding: 4px 3px; gap: 2px; border: 1px solid hsl(var(--primary) / .12); border-radius: 8px; white-space: normal; background: hsl(var(--primary) / .035); text-align: center; }
+.student-plan-amount:hover { background: hsl(var(--primary) / .085); border-color: hsl(var(--primary) / .35); }
+.student-plan-amount:disabled { opacity: .6; }
+.student-plan-task:where([data-kind='memorization']) .student-plan-amount { background: hsl(var(--primary) / .065); }
+.student-plan-amount[data-completed='true'] { background: #22c55e12; border-color: #22c55e55; }
+.student-plan-amount[data-completed='true']:hover { background: #22c55e20; }
+.student-plan-amount-line { display: block; min-width: 0; overflow-x: auto; scrollbar-width: none; white-space: nowrap; font-size: 10px; line-height: 1.6; }
+.student-plan-amount-title { color: hsl(var(--primary)); font-weight: 800; }
+.student-plan-amount-range { color: hsl(var(--foreground)); font-weight: 600; }
+.student-plan-counts { display: grid; gap: 3px; color: hsl(var(--muted-foreground)); }
+.student-plan-counts > span { display: flex; flex-wrap: wrap; justify-content: center; gap: 2px 4px; }
+.student-plan-counts > span > span { font-size: 9px; }
+.student-plan-error { border: 1px solid hsl(var(--destructive) / .3); padding: 12px; border-radius: 12px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; color: hsl(var(--destructive)); }
+.student-plan-empty { text-align: center; padding: 12px; color: hsl(var(--muted-foreground)); font-size: 14px; }
+@media (min-width: 640px) {
+  .student-plan-progress-percent { font-size: 13px; font-weight: 900; padding-inline: 5px; }
+  .student-plan-progress-percent > span { font-size: 9px; }
+  .student-plan-week-toggle { padding-inline: 14px; }
+  .student-plan-days { padding-inline: 12px; }
+  .student-plan-day { grid-template-columns: 44px minmax(0, 1fr); gap: 6px; }
+  .student-plan-day-heading h3 { font-size: 11px; }
+  .student-plan-amounts { gap: 5px; }
+  .student-plan-amount { padding: 5px; }
+  .student-plan-amount-line { font-size: 11px; }
+  .student-plan-counts > span > span { font-size: 10px; }
+}
+@media (prefers-reduced-motion: reduce) { .student-plan-progress-fill { transition: none; } }
+
+.student-plan-feedback { display: grid; gap: 2px; font-family: var(--font-ui); text-align: start; }
+.student-plan-feedback:empty { display: none; }
+.student-plan-feedback-task { display: grid; gap: 2px; font-size: 10px; line-height: 1.7; overflow-wrap: anywhere; }
+.student-plan-feedback-rating { color: hsl(var(--primary)); text-align: center; font-weight: 800; }
+.student-plan-feedback-counts { display: flex; flex-wrap: wrap; justify-content: center; gap: 3px 6px; font-weight: 800; }
+.student-plan-feedback-mark { display: block; padding-block: 3px; }
+.student-plan-feedback-quran { font-size: 16px; font-weight: 400; line-height: 1.6; }
+.student-plan-feedback [data-tone='mistake'] { color: #b42338; background: #fff1f2; }
+.student-plan-feedback [data-tone='warning'] { color: #8a5300; background: #fff7e6; }
+.dark .student-plan-feedback [data-tone='mistake'] { color: #fda4af; }
+.dark .student-plan-feedback [data-tone='warning'] { color: #fcd34d; }
+@media (prefers-reduced-motion: reduce) { .student-plan-progress-fill::before { animation: none; } }
+
+.student-plan-history .student-plan-day { grid-template-columns: 42px minmax(0, 1fr); }
+.student-plan-history .student-plan-day-heading h3 { white-space: nowrap; overflow-wrap: normal; font-size: 10px; }
+
+.student-plan-task { display: contents; }
+.student-plan-task > .student-plan-amount { width: 100%; grid-row: 1; grid-column: var(--plan-task-column); }
+.student-plan-task > .student-plan-feedback { min-width: 0; padding: 0 3px; grid-row: 2; grid-column: var(--plan-task-column); }

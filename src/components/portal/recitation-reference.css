@@ -1,0 +1,54 @@
+.recitation-reference {
+  font-family: var(--font-ui);
+  direction: rtl;
+  width: 100%;
+  padding: 0;
+}
+.recitation-reference-card {
+  min-width: 0;
+  border: 1px solid hsl(var(--primary) / .035);
+  border-radius: 12px;
+  background: hsl(var(--card));
+  box-shadow: 0 5px 20px hsl(var(--primary) / .045);
+  padding: 6px;
+}
+.recitation-students { display: grid; grid-template-columns: minmax(0, 1fr); grid-auto-rows: max-content; align-content: start; align-items: start; gap: 7px; }
+.recitation-identity { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; }
+.recitation-person { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.recitation-avatar { display: grid; place-items: center; width: 26px; height: 26px; flex-shrink: 0; border-radius: 50%; color: hsl(var(--primary)); background: hsl(var(--primary) / .065); }
+.recitation-avatar svg { width: 17px; height: 17px; stroke-width: 1.8; }
+.recitation-name { font-weight: 700; font-size: 13px; line-height: 1.4; overflow-wrap: anywhere; }
+.recitation-compensation { flex-shrink: 0; min-height: 32px; padding: 0 9px; border-radius: 8px; border: 1px solid hsl(var(--primary) / .18); background: hsl(var(--primary) / .05); color: hsl(var(--primary)); font-size: 11px; font-weight: 700; line-height: 1; cursor: pointer; }
+.recitation-compensation:hover { background: hsl(var(--primary) / .1); }
+.recitation-compensation:focus-visible { outline: 2px solid hsl(var(--primary)); outline-offset: 2px; }
+.recitation-reference .recitation-attendance { flex-shrink: 0; width: 82px; height: 44px; min-height: 44px; border-radius: 8px; border: 1px solid hsl(var(--primary) / .1); background: transparent; padding: 0 8px; font-size: 12px; font-weight: 700; box-shadow: none; }
+.recitation-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 82px)); gap: 4px; margin-top: 3px; }
+.recitation-actions > [data-recitation-slot="saved"] { grid-column: 1; }
+.recitation-actions > [data-recitation-slot="link"] { grid-column: 2; }
+.recitation-actions > [data-recitation-slot="review"] { grid-column: 3; }
+.recitation-reference .recitation-action { width: 100%; height: 44px; min-height: 44px; border-radius: 8px; border: 1px solid hsl(var(--primary) / .08); background: hsl(var(--primary) / .025); color: hsl(var(--foreground)); font-size: 13px; font-weight: 600; box-shadow: none; }
+.recitation-reference .recitation-action[data-active="true"] { background: linear-gradient(120deg, hsl(var(--primary)), hsl(var(--primary-dark))); color: white; border-color: transparent; }
+ .recitation-actions[data-has-both-tracks="true"] { grid-template-columns: repeat(4, minmax(0, 82px)); }
+.recitation-actions > [data-recitation-slot="mastery"] { grid-column: 4; }
+.recitation-actions[data-has-reading="true"] { grid-template-columns: repeat(4, minmax(0, 82px)); }
+.recitation-actions[data-has-reading="true"][data-has-both-tracks="true"] { grid-template-columns: repeat(5, minmax(0, 82px)); }
+.recitation-actions > [data-recitation-slot="reading"] { grid-column: -2; }
+.recitation-action-column { display: flex; flex-direction: column; gap: 3px; min-width: 0; text-align: center; }
+.recitation-amount { display: flex; align-items: center; justify-content: center; min-width: 0; min-height: 44px; border-radius: 7px; background: hsl(var(--primary) / .025); padding: 2px; text-align: center; }
+.recitation-amount .recitation-amount-text, .recitation-amount .recitation-range-trigger { min-width: 0; max-width: 100%; width: 100%; font-size: 10px; font-weight: 600; line-height: 1.5; text-align: center; white-space: normal; overflow-wrap: anywhere; }
+.recitation-amount .recitation-range-trigger { min-height: 44px; height: auto; padding: 2px; color: hsl(var(--muted-foreground)); text-decoration: underline dotted hsl(var(--primary) / .5); text-underline-offset: 3px; }
+.recitation-practice { display: flex; align-items: center; justify-content: center; gap: 12px; min-width: 0; font-size: 11px; line-height: 1.5; }
+.recitation-practice > div { display: flex; align-items: center; justify-content: center; gap: 2px; white-space: nowrap; }
+.recitation-practice button[role="combobox"] { min-height: 44px !important; min-width: 44px !important; font-size: 11px; }
+.recitation-practice > div > span, .recitation-practice > div > div { font-size: inherit; font-weight: 600; }
+@media (min-width: 640px) {
+  .recitation-reference-card { padding: 10px; }
+  .recitation-students { gap: 10px; }
+  .recitation-person { gap: 10px; }
+  .recitation-avatar { width: 30px; height: 30px; }
+  .recitation-avatar svg { width: 19px; height: 19px; }
+  .recitation-name { font-size: 14px; }
+  .recitation-reference .recitation-attendance { width: 98px; padding-inline: 10px; font-size: 13px; }
+  .recitation-actions { gap: 6px; margin-top: 5px; }
+  .recitation-reference .recitation-action { font-size: 13px; }
+}

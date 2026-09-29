@@ -1,0 +1,89 @@
+apply plugin: 'com.android.application'
+
+def releaseKeystorePath = System.getenv('ANDROID_RELEASE_KEYSTORE_PATH') ?: System.getenv('NUKHAB_ANDROID_KEYSTORE_PATH')
+def releaseKeystorePassword = System.getenv('ANDROID_RELEASE_KEYSTORE_PASSWORD') ?: System.getenv('NUKHAB_ANDROID_KEYSTORE_PASSWORD')
+def releaseKeyAlias = System.getenv('ANDROID_RELEASE_KEY_ALIAS') ?: System.getenv('NUKHAB_ANDROID_KEY_ALIAS') ?: 'nukhab'
+def releaseKeyPassword = System.getenv('ANDROID_RELEASE_KEY_PASSWORD') ?: System.getenv('NUKHAB_ANDROID_KEY_PASSWORD') ?: releaseKeystorePassword
+def releaseSigningReady = releaseKeystorePath && releaseKeystorePassword && releaseKeyPassword
+
+android {
+    namespace = "sa.nukhab.app"
+    compileSdk = rootProject.ext.compileSdkVersion
+    flavorDimensions += "brand"
+    defaultConfig {
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    productFlavors {
+        nukhab {
+            dimension "brand"
+            applicationId "sa.nukhab.app"
+            versionCode 24
+            versionName "1.0.24"
+        }
+    }
+    signingConfigs {
+        if (releaseSigningReady) {
+            releaseBrand {
+                storeFile file(releaseKeystorePath)
+                storePassword releaseKeystorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
+        }
+    }
+    buildTypes {
+        release {
+            if (releaseSigningReady) signingConfig signingConfigs.releaseBrand
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+}
+
+gradle.taskGraph.whenReady { graph ->
+    if (graph.allTasks.any { it.name.toLowerCase().contains('release') } && !releaseSigningReady) {
+        throw new GradleException('Release signing variables are required for release builds.')
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+		dirs '../../node_modules/@capacitor/background-runner/android/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'
+
+// Each brand registers with its own Firebase project.
+def pushConfigs = fileTree('src') { include '**/google-services.json' }
+if (!pushConfigs.isEmpty()) {
+    apply plugin: 'com.google.gms.google-services'
+}
+gradle.taskGraph.whenReady { graph ->
+    android.productFlavors.each { flavor ->
+        if (graph.allTasks.any { it.name.toLowerCase().contains(flavor.name.toLowerCase() + 'release') }
+                && !file("src/${flavor.name}/google-services.json").isFile()) {
+            throw new GradleException("Firebase configuration is required for ${flavor.name} release push notifications.")
+        }
+    }
+}

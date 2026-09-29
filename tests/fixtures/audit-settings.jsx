@@ -1,0 +1,32 @@
+import StaffAttendanceSettings from '../../src/components/dashboard/StaffAttendanceSettings';
+import WeeklySessionSection from '../../src/components/dashboard/grades/WeeklySessionSection';
+import TeacherPreviousSessionsPanel from '../../src/components/portal/TeacherPreviousSessionsPanel';
+import React, { useState } from 'react';
+import { createRoot } from 'react-dom/client';
+import GradingSettingsPanel from '../../src/components/dashboard/GradingSettingsPanel';
+import NotificationButton from '../../src/components/notifications/NotificationButton';
+import TrackSessionSection from '../../src/components/dashboard/grades/TrackSessionSection';
+import NarrationDaySection from '../../src/components/dashboard/NarrationDaySection';
+import StudentsSection from '../../src/components/dashboard/StudentsSection';
+import CallsSection from '../../src/components/calls/CallsSection';
+import FamiliesSection from '../../src/components/dashboard/FamiliesSection';
+import ManualAttendanceSection from '../../src/components/dashboard/ManualAttendanceSection';
+import WhatsAppSendSection from '../../src/components/dashboard/WhatsAppSendSection';
+import StudentPlansSection from '../../src/components/dashboard/StudentPlansSection';
+import { Button } from '../../src/components/ui/button';
+import '../../src/index.css';
+if (!import.meta.env.DEV || !['localhost', '127.0.0.1'].includes(location.hostname)) throw new Error('Local only');
+function Fixture() {
+  const [show, setShow] = useState(true);
+  const [staffSettings, setStaffSettings] = useState({ staffAttendanceLateAfterAsrMinutes: 50 });
+  const section = new URLSearchParams(location.search).get('section');
+  const additional = { weekly: WeeklySessionSection, history: TeacherPreviousSessionsPanel, calls: CallsSection, families: FamiliesSection, attendance: ManualAttendanceSection, whatsapp: WhatsAppSendSection, plans: StudentPlansSection };
+  if (section === 'staff-settings') return <main className="p-3"><StaffAttendanceSettings settings={staffSettings} setSettings={setStaffSettings} /></main>;
+  const Section = additional[section];
+  if (Section) return <main className="p-3"><Section /></main>;
+  if (section === 'track') return <main className="p-3"><TrackSessionSection /></main>;
+  if (section === 'narration') return <main className="p-3"><NarrationDaySection /></main>;
+  if (section === 'students') return <main className="p-3"><StudentsSection /></main>;
+  return <main className="p-3 [font-family:var(--font-ui)]"><Button onClick={() => setShow(false)}>مغادرة الإعدادات</Button><NotificationButton presentation="popover" />{show && <GradingSettingsPanel />}</main>;
+}
+createRoot(document.getElementById('root')).render(<Fixture />);

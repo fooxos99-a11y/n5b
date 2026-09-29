@@ -1,0 +1,19 @@
+/* One logo and opacity-only animation for pre-React boot and every React loader. */
+.loading-logo {
+  display: inline-block;
+  flex-shrink: 0;
+  background: url('/branding/nukhab/nukhab-color-320.webp') center / contain no-repeat;
+  animation: loading-logo-in .35s ease-out both, loading-logo-breathe 1.8s .35s ease-in-out infinite;
+}
+.loading-spinner--screen { width: 80px; height: 80px; }
+/* Scrollbar changes must not shift the indicator during login handoff. */
+:root .boot-loader, :root [data-loading-indicator="screen"] {
+  box-sizing: border-box;
+  width: 100vw;
+  /* An RTL fixed box otherwise anchors to the right scrollbar edge. */
+  left: 0;
+  right: auto;
+}
+@keyframes loading-logo-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes loading-logo-breathe { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
+@media (prefers-reduced-motion: reduce) { .loading-logo { animation: none; } }

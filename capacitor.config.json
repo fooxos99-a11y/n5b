@@ -1,0 +1,55 @@
+{
+  "appId": "sa.nukhab.app",
+  "appName": "نخب",
+  "webDir": "dist/nukhab-mobile",
+  "backgroundColor": "#002926",
+  "loggingBehavior": "production",
+  "zoomEnabled": false,
+  "android": {
+    "allowMixedContent": false,
+    "webContentsDebuggingEnabled": false
+  },
+  "ios": {
+    "contentInset": "never",
+    "preferredContentMode": "mobile",
+    "allowsLinkPreview": false,
+    "webContentsDebuggingEnabled": false
+  },
+  "server": {
+    "hostname": "localhost",
+    "androidScheme": "https",
+    "cleartext": false
+  },
+  "plugins": {
+    "PushNotifications": { "presentationOptions": ["sound", "banner", "list"] },
+    "SystemBars": {
+      "insetsHandling": "css",
+      "style": "DARK"
+    },
+    "SplashScreen": {
+      "launchShowDuration": 0,
+      "launchAutoHide": true,
+      "backgroundColor": "#002926",
+      "showSpinner": false
+    },
+    "StatusBar": {
+      "overlaysWebView": false,
+      "style": "DARK",
+      "backgroundColor": "#002926"
+    },
+    "CapacitorSQLite": {
+      "iosDatabaseLocation": "Library/CapacitorDatabase",
+      "iosIsEncryption": true,
+      "iosKeychainPrefix": "sa.nukhab.app.offline",
+      "androidIsEncryption": true
+    },
+    "BackgroundRunner": {
+      "label": "sa.nukhab.app.offline-recitation",
+      "src": "runners/offline-recitation.js",
+      "event": "nukhabOfflineRecitationSync",
+      "repeat": true,
+      "interval": 15,
+      "autoStart": true
+    }
+  }
+}

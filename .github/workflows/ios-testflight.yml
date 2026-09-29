@@ -1,0 +1,233 @@
+name: iOS Build and TestFlight
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Upload the signed build to TestFlight
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-testflight-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  ios:
+    name: Build iOS app
+    runs-on: macos-26
+    timeout-minutes: 60
+    env:
+      BASE_URL: /
+      VITE_API_BASE: ${{ vars.MOBILE_API_BASE }}
+      VITE_API_BASE_URL: ${{ vars.MOBILE_API_ROOT }}
+      APPSTORE_API_KEY_ID: ${{ vars.APPSTORE_API_KEY_ID }}
+      APPSTORE_ISSUER_ID: ${{ vars.APPSTORE_ISSUER_ID }}
+      APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Validate mobile configuration
+        shell: bash
+        run: |
+          if [[ -z "$VITE_API_BASE" || -z "$VITE_API_BASE_URL" ]]; then
+            echo "Set MOBILE_API_BASE and MOBILE_API_ROOT in repository variables."
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Build and sync Capacitor iOS
+        run: npm run native:ios
+
+      - name: Resolve Swift packages
+        run: |
+          xcodebuild \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -resolvePackageDependencies \
+            -onlyUsePackageVersionsFromResolvedFile
+
+      - name: Build unsigned simulator app
+        if: ${{ !inputs.publish }}
+        run: |
+          xcodebuild \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -configuration Debug \
+            -onlyUsePackageVersionsFromResolvedFile \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Validate TestFlight credentials
+        if: ${{ inputs.publish }}
+        shell: bash
+        env:
+          APPSTORE_API_PRIVATE_KEY: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
+          APPSTORE_CERTIFICATES_FILE_BASE64: ${{ secrets.APPSTORE_CERTIFICATES_FILE_BASE64 }}
+          APPSTORE_CERTIFICATES_PASSWORD: ${{ secrets.APPSTORE_CERTIFICATES_PASSWORD }}
+        run: |
+          missing=0
+          for name in \
+            APPSTORE_API_PRIVATE_KEY \
+            APPSTORE_CERTIFICATES_FILE_BASE64 \
+            APPSTORE_CERTIFICATES_PASSWORD \
+            APPSTORE_API_KEY_ID \
+            APPSTORE_ISSUER_ID \
+            APPLE_TEAM_ID; do
+            if [[ -z "${!name}" ]]; then
+              echo "Missing GitHub secret or variable: $name"
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      - name: Import Apple distribution certificate
+        if: ${{ inputs.publish }}
+        uses: apple-actions/import-codesign-certs@7abe6dfe88f6bf6b1fa06e6a5704a2605d897418 # v7
+        with:
+          p12-file-base64: ${{ secrets.APPSTORE_CERTIFICATES_FILE_BASE64 }}
+          p12-password: ${{ secrets.APPSTORE_CERTIFICATES_PASSWORD }}
+
+      - name: Download App Store provisioning profile
+        if: ${{ inputs.publish }}
+        uses: apple-actions/download-provisioning-profiles@c0047984c626d0c444c6b6018b92fcbe74eaf7b5 # v4
+        with:
+          bundle-id: sa.nukhab.app
+          profile-type: IOS_APP_STORE
+          issuer-id: ${{ vars.APPSTORE_ISSUER_ID }}
+          api-key-id: ${{ vars.APPSTORE_API_KEY_ID }}
+          api-private-key: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
+
+      - name: Prepare push provisioning profile
+        if: ${{ inputs.publish }}
+        env:
+          APPSTORE_API_PRIVATE_KEY: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
+          APP_IDENTIFIER: sa.nukhab.app
+          APP_PROVISIONING_PROFILE: Nukhab App Store GitHub Actions
+        run: |
+          python3 -m venv "$RUNNER_TEMP/push-profile-venv"
+          "$RUNNER_TEMP/push-profile-venv/bin/pip" install --quiet PyJWT cryptography
+          "$RUNNER_TEMP/push-profile-venv/bin/python" scripts/prepare-ios-push-profile.py
+
+      - name: Prepare App Store Connect API key
+        if: ${{ inputs.publish }}
+        shell: bash
+        env:
+          APPSTORE_API_PRIVATE_KEY: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
+        run: |
+          api_key_path="$RUNNER_TEMP/AuthKey_${APPSTORE_API_KEY_ID}.p8"
+          printf '%s' "$APPSTORE_API_PRIVATE_KEY" > "$api_key_path"
+          chmod 600 "$api_key_path"
+          mkdir -p "$HOME/.appstoreconnect/private_keys"
+          cp "$api_key_path" "$HOME/.appstoreconnect/private_keys/AuthKey_${APPSTORE_API_KEY_ID}.p8"
+          echo "APPSTORE_API_KEY_PATH=$api_key_path" >> "$GITHUB_ENV"
+
+      - name: Archive signed application
+        if: ${{ inputs.publish }}
+        run: |
+          xcodebuild \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -configuration Release \
+            -onlyUsePackageVersionsFromResolvedFile \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/Nukhab.xcarchive" \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+            CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" \
+            PROVISIONING_PROFILE_SPECIFIER="$APP_PUSH_PROVISIONING_PROFILE" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$APPSTORE_API_KEY_PATH" \
+            -authenticationKeyID "$APPSTORE_API_KEY_ID" \
+            -authenticationKeyIssuerID "$APPSTORE_ISSUER_ID" \
+            archive
+
+      - name: Create export options
+        if: ${{ inputs.publish }}
+        shell: bash
+        run: |
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>destination</key>
+            <string>export</string>
+            <key>manageAppVersionAndBuildNumber</key>
+            <false/>
+            <key>method</key>
+            <string>app-store-connect</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>teamID</key>
+            <string>${APPLE_TEAM_ID}</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>sa.nukhab.app</key>
+              <string>${APP_PUSH_PROVISIONING_PROFILE}</string>
+            </dict>
+            <key>uploadSymbols</key>
+            <true/>
+          </dict>
+          </plist>
+          PLIST
+
+      - name: Export IPA
+        if: ${{ inputs.publish }}
+        run: |
+          xcodebuild \
+            -exportArchive \
+            -archivePath "$RUNNER_TEMP/Nukhab.xcarchive" \
+            -exportPath "$RUNNER_TEMP/export" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$APPSTORE_API_KEY_PATH" \
+            -authenticationKeyID "$APPSTORE_API_KEY_ID" \
+            -authenticationKeyIssuerID "$APPSTORE_ISSUER_ID"
+
+      - name: Locate IPA
+        if: ${{ inputs.publish }}
+        shell: bash
+        run: |
+          ipa_path="$(find "$RUNNER_TEMP/export" -maxdepth 1 -name '*.ipa' -print -quit)"
+          if [[ -z "$ipa_path" ]]; then
+            echo "The signed IPA was not produced."
+            exit 1
+          fi
+          echo "IPA_PATH=$ipa_path" >> "$GITHUB_ENV"
+
+      - name: Upload build to TestFlight
+        if: ${{ inputs.publish }}
+        run: |
+          xcrun altool \
+            --upload-app \
+            --file "$IPA_PATH" \
+            --type ios \
+            --apiKey "$APPSTORE_API_KEY_ID" \
+            --apiIssuer "$APPSTORE_ISSUER_ID"
+
+      - name: Store signed IPA artifact
+        if: ${{ inputs.publish }}
+        continue-on-error: true
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: nukhab-ios-${{ github.run_number }}
+          path: ${{ env.IPA_PATH }}
+          if-no-files-found: error
+          retention-days: 7

@@ -1,0 +1,353 @@
+import {
+  BookMarked, Building2, CalendarCheck2, CalendarRange, GraduationCap, PlusCircle, Route,
+} from 'lucide-react';
+import { formatStatisticsNumber as formatNumber } from '@/lib/statisticsNumber';
+import { STUDENT_LEVELS, STUDENT_LEVEL_GROUPS, studentLevelShare } from '../../../../shared/student-levels.js';
+
+export const METRIC_COLORS = Object.freeze({
+  weeklyProgram: '#0d9488',
+  weeklySession: '#ea580c',
+  trackSession: '#2563eb',
+  levels: STUDENT_LEVELS[0].color,
+  committees: '#4f46e5',
+  narration: '#e11d48',
+  points: '#dc2626',
+});
+
+const TONES = Object.freeze({
+  good: 'bg-emerald-500/12 text-emerald-700 dark:text-emerald-300',
+  warn: 'bg-amber-500/15 text-amber-700 dark:text-amber-300',
+  bad: 'bg-destructive/12 text-destructive',
+  neutral: 'bg-muted text-foreground',
+});
+
+const facesFormatter = new Intl.NumberFormat('ar-SA-u-nu-latn', { useGrouping: false, maximumFractionDigits: 2 });
+const faces = (value) => facesFormatter.format(Number(value || 0));
+const pct = (part, total) => (Number(total) > 0 ? Math.round((Number(part || 0) / Number(total)) * 100) : 0);
+const rounded = (value) => Math.round(Number(value || 0));
+const percentMetric = (value) => ({ value: rounded(value), display: `${formatNumber(rounded(value))}%` });
+const countMetric = (count) => ({ value: Number(count || 0) > 0 ? 100 : 0, countValue: Number(count || 0), display: formatNumber(count) });
+const byName = (a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'ar');
+const outOf = (part, total, format = formatNumber) => `${format(part)} من ${format(total)}`;
+const gradeTone = (percentage) => (percentage >= 80 ? TONES.good : percentage >= 50 ? TONES.warn : TONES.bad);
+
+/** Small summary cards at the top of a details window: a share (%) or a count. */
+const percentTile = (label, value) => ({ label, ...percentMetric(value) });
+const countTile = (label, count, format = formatNumber) => ({ label, value: Number(count || 0) > 0 ? 100 : 0, display: format(count) });
+
+const attendedOf = (stats = {}) => Number(stats.present || 0) + Number(stats.late || 0) + Number(stats.excused || 0);
+const committeeBars = (committees = []) => (committees.length > 1
+  ? committees.map((row) => ({ label: row.name, percent: row.percentage }))
+  : []);
+
+export const ALL_COMMITTEES = 'all';
+const sum = (rows, read) => rows.reduce((total, row) => total + Number(read(row) || 0), 0);
+
+/** Students of every circle with their plan indicators (attendance and accepted faces). */
+const studentsOf = (overview) => (overview.committeeIndicators || [])
+  .flatMap((committee) => (committee.students || []).map((student) => ({ ...student, committeeName: committee.name })));
+
+/** Weekly program: attendance share, the faces achieved and each student's attendance, faces and grade. */
+function weeklyProgramMetric(overview, students, filtered) {
+  const program = overview.grades?.weeklyProgram || {};
+  // Circle totals come from the students shown; all circles use the server totals.
+  const quranFaces = filtered
+    ? Object.fromEntries(['memorization', 'review', 'link'].map((key) => [key, sum(students, (student) => student.metrics?.[key]?.done)]))
+    : overview.totals?.quranFaces || {};
+  const attendance = filtered
+    ? { present: sum(students, (student) => student.metrics?.attendance?.done), total: sum(students, (student) => student.metrics?.attendance?.total) }
+    : overview.attendance?.students || {};
+  const gradeById = new Map((program.studentsList || []).map((row) => [String(row.id), row]));
+  const reading = overview.grades?.reading || {};
+  const readingExpected = Number(reading.expectedDays || 0);
+  const readingExpectedOf = (student) => Number(reading.expectedByStudent?.[String(student.id)] ?? readingExpected);
+  const readingDaysOf = (student) => Number(reading.byStudent?.[String(student.id)]?.days || 0);
+  const readingDone = filtered ? sum(students, readingDaysOf) : Number(reading.days || 0);
+  const readingTotal = sum(students, readingExpectedOf);
+  const facesOf = (metric = {}) => outOf(metric.done, metric.total, faces);
+  const rows = students
+    .map((student) => ({ student, grade: gradeById.get(String(student.id)) }))
+    .sort((a, b) => (b.grade?.percentage ?? -1) - (a.grade?.percentage ?? -1) || byName(a.student, b.student))
+    .map(({ student, grade }) => ({
+      label: student.name,
+      note: student.committeeName,
+      value: grade ? outOf(grade.grade, grade.max) : '—',
+      tone: grade ? gradeTone(grade.percentage) : TONES.neutral,
+      stats: [
+        { label: 'الحضور', value: outOf(student.metrics?.attendance?.done, student.metrics?.attendance?.total) },
+        { label: 'الحفظ', value: facesOf(student.metrics?.memorization) },
+        { label: 'المراجعة', value: facesOf(student.metrics?.review) },
+        { label: 'الربط', value: facesOf(student.metrics?.link) },
+        { label: 'القراءة الذاتية', value: outOf(readingDaysOf(student), readingExpectedOf(student)) },
+      ],
+    }));
+  return {
+    id: 'weeklyProgram',
+    label: 'البرنامج الأسبوعي',
+    icon: CalendarRange,
+    color: METRIC_COLORS.weeklyProgram,
+    ...percentMetric(program.percentage),
+    tiles: [
+      percentTile('الحضور', pct(attendedOf(attendance), attendance.total)),
+      countTile('الحفظ', quranFaces.memorization, faces),
+      countTile('المراجعة', quranFaces.review, faces),
+      countTile('الربط', quranFaces.link, faces),
+      percentTile('القراءة الذاتية', pct(readingDone, readingTotal)),
+    ],
+    bars: [{ title: 'الحلقات', rows: filtered ? [] : committeeBars(program.committees) }],
+    records: [{ title: 'الطلاب', rows, emptyText: 'لا يوجد طلاب' }],
+  };
+}
+
+const sessionValue = (row) => {
+  const absentOnly = Number(row.attended || 0) === 0 && Number(row.absent || 0) > 0;
+  return absentOnly
+    ? { value: 'غائب', tone: TONES.bad }
+    : { value: outOf(row.grade, row.max), tone: gradeTone(row.percentage) };
+};
+
+/** Weekly session: attendance only, so its details are the weeks attended and missed. */
+function weeklySessionMetric(data = {}, inCommittee, filtered) {
+  const students = (data.studentsList || []).filter((row) => inCommittee(row.committeeName));
+  const totals = filtered ? { attended: sum(students, (row) => row.attended), absent: sum(students, (row) => row.absent) } : data;
+  return {
+    id: 'weeklySession',
+    label: 'الجلسة الأسبوعية',
+    icon: CalendarCheck2,
+    color: METRIC_COLORS.weeklySession,
+    ...percentMetric(data.percentage),
+    tiles: [
+      countTile('حاضر', totals.attended),
+      countTile('غائب', totals.absent),
+    ],
+    bars: [{ title: 'الحلقات', rows: filtered ? [] : committeeBars(data.committees) }],
+    records: [{
+      title: 'الطلاب',
+      rows: students.map((row) => ({
+        label: row.name,
+        note: row.committeeName || 'بدون حلقة',
+        ...sessionValue(row),
+        stats: [
+          { label: 'حضر', value: `${formatNumber(row.attended)} أسبوع` },
+          { label: 'غاب', value: `${formatNumber(row.absent)} أسبوع` },
+        ],
+      })),
+      emptyText: 'لا توجد درجات مرصودة في هذه الفترة',
+    }],
+  };
+}
+
+/**
+ * Track session: the card shows how well the tested segments were recited (their grades out of their maxima),
+ * so an untested segment does not count as a failure; attendance is its own summary card.
+ */
+function trackSessionMetric(data = {}, inCommittee, filtered) {
+  const students = (data.studentsList || []).filter((row) => inCommittee(row.committeeName));
+  const segments = filtered
+    ? Object.fromEntries(['tested', 'mistakes', 'warnings', 'grade', 'max'].map((key) => [key, sum(students, (row) => row.segments?.[key])]))
+    : data.segments || {};
+  const attended = filtered ? sum(students, (row) => row.attended) : data.attended;
+  const recorded = filtered ? attended + sum(students, (row) => row.absent) : data.recorded;
+  const studentValue = (row) => {
+    if (Number(row.attended || 0) === 0 && Number(row.absent || 0) > 0) return { value: 'غائب', tone: TONES.bad };
+    if (!Number(row.segments?.tested || 0)) return { value: Number(row.attended) > 0 ? `${outOf(row.grade, row.max)} · لم يُختبر` : 'غير مرصود', tone: TONES.neutral };
+    const accuracy = pct(row.segments.grade, row.segments.max);
+    return { value: `${formatNumber(accuracy)}%`, tone: gradeTone(accuracy) };
+  };
+  return {
+    id: 'trackSession',
+    label: 'جلسة المسار',
+    icon: Route,
+    color: METRIC_COLORS.trackSession,
+    ...percentMetric(data.percentage),
+    tiles: [
+      percentTile('الحضور', pct(attended, recorded)),
+      percentTile('إتقان المقاطع', pct(segments.grade, segments.max)),
+      countTile('المقاطع المختبرة', segments.tested),
+      countTile('الأخطاء واللحون', segments.mistakes),
+      countTile('التنبيهات', segments.warnings),
+    ],
+    bars: [],
+    records: [{
+      title: 'الطلاب',
+      rows: students.map((row) => ({
+        label: row.name,
+        note: row.committeeName || 'بدون حلقة',
+        ...studentValue(row),
+        stats: [
+          { label: 'الحضور', value: outOf(row.attended, Number(row.attended || 0) + Number(row.absent || 0)) },
+          { label: 'المقاطع', value: outOf(row.segments?.tested, row.segments?.total) },
+          { label: 'الأخطاء واللحون', value: formatNumber(row.segments?.mistakes) },
+          { label: 'التنبيهات', value: formatNumber(row.segments?.warnings) },
+        ],
+      })),
+      emptyText: 'لا توجد درجات مرصودة في هذه الفترة',
+    }],
+  };
+}
+
+/** Level colour: the group's hue, lighter for the group's earlier levels. */
+const studentLevelColor = (level) => `color-mix(in oklab, ${level.color} ${studentLevelShare(level)}%, hsl(var(--card)))`;
+
+/**
+ * Students per level: the card splits every student into the level colours; the details list each
+ * level's count and its students, the longest time in the level first.
+ */
+function studentLevelsMetric(overview, inCommittee) {
+  const allStudents = overview.studentLevels || [];
+  const students = allStudents.filter((student) => inCommittee(student.committeeName));
+  const byLevel = (rows) => new Map(STUDENT_LEVELS.map((level) => [level.key, rows.filter((row) => row.level?.key === level.key)]));
+  const cardLevels = byLevel(allStudents);
+  const detailLevels = byLevel(students);
+  return {
+    id: 'levels',
+    label: 'مستويات الطلاب',
+    icon: GraduationCap,
+    color: METRIC_COLORS.levels,
+    ...(Array.isArray(overview.studentLevels) ? countMetric(allStudents.length) : { value: 0, display: 'غير متاح' }),
+    segments: STUDENT_LEVELS.map((level) => ({
+      key: level.key,
+      label: level.name,
+      color: studentLevelColor(level),
+      count: cardLevels.get(level.key).length,
+    })),
+    tiles: [],
+    levelGroups: STUDENT_LEVEL_GROUPS.map((group) => ({
+      ...group,
+      name: { taheel: 'التأهيل', nujaba: 'النجباء', fursan: 'الفرسان', huffaz: 'الحفاظ', khirijeen: 'الخريجين' }[group.key],
+      count: students.filter(student => student.level?.group === group.key || STUDENT_LEVELS.some(level => level.group === group.key && level.key === student.level?.key)).length,
+      levels: STUDENT_LEVELS.filter(level => level.group === group.key).map(level => ({ ...level, color: studentLevelColor(level), count: detailLevels.get(level.key).length })),
+    })),
+    records: STUDENT_LEVELS
+      .filter((level) => detailLevels.get(level.key).length > 0)
+      .map((level) => ({
+        key: level.key,
+        title: `${level.name} · ${formatNumber(detailLevels.get(level.key).length)} طالب`,
+        rows: [...detailLevels.get(level.key)]
+          .sort((a, b) => Number(b.days || 0) - Number(a.days || 0) || byName(a, b))
+          .map((student) => ({ label: student.name, value: `${formatNumber(student.days)} يوم` })),
+      })),
+  };
+}
+
+/** Number of circles, with each circle's students and teachers. */
+function committeesCountMetric(overview, inCommittee) {
+  const teachersByCommittee = new Map();
+  for (const teacher of overview.teachers || []) {
+    for (const name of String(teacher.committees || '').split('، ').filter(Boolean)) {
+      teachersByCommittee.set(name, [...(teachersByCommittee.get(name) || []), teacher.name]);
+    }
+  }
+  const committees = (overview.committeeIndicators || []).filter((committee) => inCommittee(committee.name));
+  return {
+    id: 'committees',
+    label: 'عدد الحلقات',
+    icon: Building2,
+    color: METRIC_COLORS.committees,
+    ...countMetric(overview.totals?.familiesCount),
+    tiles: [
+      countTile('الحلقات', committees.length),
+      countTile('الطلاب', sum(committees, (committee) => committee.studentsCount)),
+    ],
+    bars: [],
+    records: [{
+      title: 'الحلقات',
+      rows: [...committees].sort(byName).map((committee) => ({
+        label: committee.name,
+        note: (teachersByCommittee.get(committee.name) || []).join('، ') || 'بدون معلم',
+        value: `${formatNumber(committee.studentsCount)} طالب`,
+      })),
+      emptyText: 'لا توجد حلقات',
+    }],
+  };
+}
+
+function narrationMetric(narration = {}, inCommittee, filtered) {
+  const students = (narration.studentsList || []).filter((row) => inCommittee(row.committeeName));
+  return {
+    id: 'narration',
+    label: 'يوم السرد',
+    icon: BookMarked,
+    color: METRIC_COLORS.narration,
+    ...countMetric(narration.grade),
+    tiles: [
+      countTile('الدرجات', filtered ? sum(students, (row) => row.grade) : narration.grade),
+      countTile('الطلاب', filtered ? students.length : narration.students),
+    ],
+    bars: [],
+    records: [{
+      title: 'الطلاب',
+      rows: students.map((row) => ({
+        label: row.name,
+        note: row.committeeName || 'بدون حلقة',
+        value: `${formatNumber(row.grade)} درجة`,
+        stats: [{ label: 'مرات السرد', value: formatNumber(row.times) }],
+      })),
+    }],
+  };
+}
+
+function teacherPointsMetric(list = { loading: true, rows: [] }, inCommittee) {
+  const allRows = list.rows || [];
+  const allIncreases = allRows.filter((row) => row.type === 'increase').length;
+  const rows = allRows.filter((row) => inCommittee(row.committeeName));
+  const increases = rows.filter((row) => row.type === 'increase').length;
+  return {
+    id: 'points',
+    label: 'الإضافة والخصم',
+    icon: PlusCircle,
+    color: METRIC_COLORS.points,
+    value: pct(allIncreases, allRows.length),
+    countValue: allRows.length,
+    display: formatNumber(allRows.length),
+    loading: list.loading,
+    error: list.error,
+    tiles: [
+      countTile('إضافة', increases),
+      countTile('خصم', rows.length - increases),
+    ],
+    bars: [],
+    records: [{
+      title: 'العمليات',
+      rows: rows.map((row) => ({
+        label: row.studentName,
+        note: [row.reason, row.transactionDate, row.teacherName].filter(Boolean).join(' · '),
+        value: `${row.type === 'increase' ? '+' : '-'}${faces(row.points)}`,
+        tone: row.type === 'increase' ? TONES.good : TONES.bad,
+      })),
+    }],
+  };
+}
+
+/** Circle names that the details window can filter by. */
+export const detailCommitteesOf = (overview) => [...new Set((overview?.committeeIndicators || []).map((committee) => committee.name).filter(Boolean))];
+
+/**
+ * Every indicator of the statistics page, each with its own summary cards and student details.
+ * The card values always cover the whole page scope; `committee` narrows only the details.
+ * `lists` holds { teacherPoints } as { rows, loading, error } or undefined.
+ */
+export function buildReportMetrics(overview, {
+  lists = {},
+  showStandard = true,
+  showTeacherPoints = false,
+  committee = ALL_COMMITTEES,
+} = {}) {
+  const filtered = committee !== ALL_COMMITTEES;
+  const inCommittee = (name) => !filtered || name === committee;
+  const metrics = [];
+  if (showStandard && overview) {
+    const grades = overview.grades || {};
+    const students = studentsOf(overview).filter((student) => inCommittee(student.committeeName));
+    metrics.push(
+      weeklyProgramMetric(overview, students, filtered),
+      weeklySessionMetric(grades.weeklySession, inCommittee, filtered),
+      trackSessionMetric(grades.trackSession, inCommittee, filtered),
+      narrationMetric(grades.narration, inCommittee, filtered),
+      studentLevelsMetric(overview, inCommittee),
+      committeesCountMetric(overview, inCommittee),
+    );
+  }
+  if (showTeacherPoints) metrics.push(teacherPointsMetric(lists.teacherPoints, inCommittee));
+  return metrics;
+}

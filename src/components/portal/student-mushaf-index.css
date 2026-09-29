@@ -1,0 +1,30 @@
+.student-mushaf-index[data-reader-theme] {
+  --background: 175 30% 97%;
+  --card: 0 0% 100%;
+  --foreground: 215 28% 17%;
+  --muted: 175 25% 94%;
+  --muted-foreground: 175 18% 42%;
+  --border: 175 28% 84%;
+  --primary: 186 83% 27%;
+  --primary-dark: 175 86% 22%;
+  --ring: 186 83% 27%;
+  color: hsl(var(--foreground));
+  background: hsl(var(--card));
+  font-family: var(--font-ui);
+}
+
+.student-mushaf-index[data-reader-theme="dark"] {
+  --background: 215 38% 14%;
+  --card: 217 36% 19%;
+  --foreground: 210 40% 98%;
+  --muted: 216 25% 25%;
+  --muted-foreground: 210 20% 78%;
+  --border: 215 20% 35%;
+  --primary: 186 83% 27%;
+  --primary-dark: 175 86% 22%;
+  --ring: 186 65% 58%;
+}
+
+.student-mushaf-index button { box-shadow: none; }
+.student-mushaf-index button:hover { transform: none; }
+.student-mushaf-index[data-reader-theme="dark"] .text-primary { color: #60dcd2; }

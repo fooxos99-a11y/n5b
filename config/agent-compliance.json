@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "agentsSha256": "16ec3e164ee16f789c482afdac71afddc569117707b04c43b63e67f86c809f92",
+  "requiredSections": [
+    "## 14. قواعد مشروع نخب",
+    "## 15. بوابة الامتثال الإلزامية",
+    "## 16. بوابة الجودة الدائمة",
+    "## 17. لوب الجودة",
+    "## 18. منع نسيان تعليمات AGENTS",
+    "## 19. منتج نخب"
+  ],
+  "requiredRules": [
+    "var(--font-ui)",
+    "Mobile-first",
+    "npm run verify",
+    "لا نشر",
+    "TestSprite",
+    "منتجًا واحدًا فقط"
+  ],
+  "sourceRoots": [
+    "src",
+    "server",
+    "scripts",
+    "tests"
+  ]
+}

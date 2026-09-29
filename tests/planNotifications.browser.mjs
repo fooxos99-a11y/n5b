@@ -1,0 +1,102 @@
+import assert from 'node:assert/strict';
+import { URL } from 'node:url';
+import console from 'node:console';
+import { chromium } from 'playwright';
+import { mkdir } from 'node:fs/promises';
+
+const base = 'http://127.0.0.1:3000';
+const browser = await chromium.launch({ headless: true });
+const settings = { hasStudentQuranExecution: true, pointsSystemEnabled: false, staffAttendanceSource: 'supervisor' };
+const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Riyadh' }).format(new Date());
+const tasks = ['memorization', 'link', 'review'].map((taskType, i) => ({ id: i + 1, taskType, taskDate: today, fromPage: 3, toPage: 3, fromSurah: 2, toSurah: 2, fromAyah: 6, toAyah: 16, preview: 'البقرة ٦–١٦', repeatCount: 10, listeningCount: 3 }));
+const todayData = { date: today, plan: { progressPercent: 42 }, todayAmounts: tasks, tasks, executionSources: { memorization: 'student' } };
+await mkdir('outputs', { recursive: true });
+try {
+  for (const width of [360, 768, 1440]) {
+    const context = await browser.newContext({ viewport: { width, height: 900 }, serviceWorkers: 'block' });
+    const sends = [];
+    await context.route('**/api/**', async (route) => {
+      const path = new URL(route.request().url()).pathname;
+      let body = [];
+      if (path.endsWith('/public-settings')) body = settings;
+      else if (path.endsWith('/site-config')) body = {};
+      else if (path.includes('bootstrap')) body = { settings, permissions: ['notifications'] };
+      else if (path.includes('permissions')) body = { permissions: [] };
+      else if (path.endsWith('/quran-today')) body = todayData;
+      else if (path.endsWith('/quran-sessions')) body = tasks;
+      else if (path.endsWith('/notification-management/audience')) body = { committees: [{ id: 1, name: 'الحلقة الأولى' }, { id: 2, name: 'الحلقة الثانية' }], people: [{ id: 1, role: 'student', name: 'طالب أول', committeeId: 1 }, { id: 2, role: 'student', name: 'طالب ثان', committeeId: 2 }, { id: 1, role: 'supervisor', name: 'معلم تجريبي' }, { id: 1, role: 'admin', name: 'إداري تجريبي' }] };
+      else if (path.endsWith('/notification-management') && route.request().method() === 'POST') { sends.push(route.request().postDataJSON()); body = { id: 1 }; }
+      else if (path.includes('/notifications')) body = { notifications: [], unreadCount: 0 };
+      await route.fulfill({ json: body });
+    });
+    await context.addInitScript(() => {
+      if (!globalThis.localStorage.getItem('wajeh_role')) globalThis.localStorage.setItem('wajeh_role', 'student');
+      globalThis.localStorage.setItem('wajeh_student_id', '901');
+      globalThis.localStorage.setItem('nukhab_web_session', '1');
+    });
+    const page = await context.newPage();
+    const errors = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    await page.goto(`${base}/portal/my-plan`);
+    await page.locator('header [role="progressbar"]').waitFor();
+    assert.equal(await page.locator('header [role="progressbar"]').getAttribute('aria-valuenow'), '42');
+    assert.equal(await page.locator('header').getByText('نخب', { exact: true }).count(), 0);
+    assert.equal(await page.locator('.student-plan-day time').count(), 0);
+    await page.getByText('التكرار: 10', { exact: true }).waitFor();
+    await page.getByText('السماع: 3', { exact: true }).waitFor();
+    const layout = await page.locator('.student-plan-day').first().evaluate((row) => {
+      const rect = row.getBoundingClientRect();
+      const boxes = [...row.querySelectorAll('.student-plan-amount')].map((el) => el.getBoundingClientRect());
+      return { rowHeight: rect.height, tops: boxes.map((box) => box.y), sizes: boxes.map((box) => ({ width: box.width, height: box.height })), overflow: row.scrollWidth > row.clientWidth };
+    });
+    assert.equal(new Set(layout.tops).size, 1);
+    assert.ok(layout.sizes.every((box) => box.width >= 44 && box.height >= 44));
+    assert.ok(layout.rowHeight < 160 && !layout.overflow);
+    if (width < 1024) await page.getByRole('button', { name: 'فتح القائمة الجانبية' }).click();
+    assert.equal(await page.getByRole('button', { name: 'التنفيذ', exact: true }).count(), 0);
+    if (width < 1024) await page.getByRole('button', { name: 'إغلاق القائمة الجانبية' }).click();
+    await page.waitForFunction(() => globalThis.document.querySelectorAll('aside').length === 1);
+    await page.screenshot({ path: `outputs/compact-plan-${width}.png` });
+    await page.goto(base);
+    await page.getByRole('button', { name: 'التنفيذ', exact: true }).click();
+    await page.getByRole('dialog').waitFor();
+    await page.evaluate(() => globalThis.localStorage.setItem('wajeh_role', 'manager'));
+    await page.goto(`${base}/dashboard/notifications`);
+    await page.getByRole('button', { name: 'تحديد الكل (2)' }).click();
+    assert.equal(await page.getByLabel('عنوان الإشعار').count(), 0);
+    await page.getByLabel('نص الرسالة').fill('نص تجريبي');
+    await page.getByRole('combobox', { name: 'الحلقة', exact: true }).click();
+    await page.getByRole('option', { name: 'الحلقة الأولى', exact: true }).click();
+    assert.equal(await page.getByRole('button', { name: 'إلغاء تحديد طالب أول' }).count(), 1);
+    assert.equal(await page.getByText('طالب ثان', { exact: true }).count(), 0);
+    await page.getByRole('button', { name: 'إرسال', exact: true }).click();
+    await page.waitForFunction(() => globalThis.document.querySelector('textarea')?.value === '');
+    assert.equal(sends.length, 1);
+    assert.equal(sends[0].title, 'نخب');
+    assert.deepEqual(sends[0].selection, { roles: [], committeeIds: [], people: ['student:1'] });
+    await page.getByRole('combobox', { name: 'فئة المستلمين' }).click();
+    await page.getByRole('option', { name: 'المعلمون', exact: true }).click();
+    await page.getByRole('button', { name: 'تحديد معلم تجريبي' }).click();
+    await page.getByRole('combobox', { name: 'فئة المستلمين' }).click();
+    await page.getByRole('option', { name: 'الإداريون', exact: true }).click();
+    assert.equal(await page.getByRole('button', { name: 'تحديد إداري تجريبي' }).getAttribute('aria-pressed'), 'false');
+    assert.ok(await page.locator('main').evaluate((el) => el.scrollWidth <= el.clientWidth));
+    await page.screenshot({ path: `outputs/notifications-compose-${width}.png` });
+    await page.goto(base + '/dashboard/notifications');
+    await page.getByLabel('نص الرسالة').waitFor();
+    const notificationBox = await page.getByLabel('نص الرسالة').boundingBox();
+    await page.getByRole('button', { name: 'الإشعارات المرسلة', exact: true }).click();
+    await page.getByRole('dialog').getByText('لا توجد إشعارات مرسلة.', { exact: true }).waitFor();
+    await page.keyboard.press('Escape');
+    await page.getByRole('dialog').waitFor({ state: 'hidden' });
+    await page.goto(base + '/dashboard/whatsapp');
+    await page.getByLabel('نص الرسالة').waitFor();
+    const whatsappBox = await page.getByLabel('نص الرسالة').boundingBox();
+    for (const dimension of ['x', 'width', 'height']) assert.ok(Math.abs(notificationBox[dimension] - whatsappBox[dimension]) < 2, dimension + ' must match WhatsApp');
+    assert.equal(await page.getByRole('button', { name: 'باركود واتساب' }).count(), 1);
+    assert.equal(await page.getByText('إرفاق ملف', { exact: true }).count(), 1);
+    assert.deepEqual(errors, []);
+    await context.close();
+  }
+} finally { await browser.close(); }
+console.log('Plan, homepage execution and notifications: passed at 360, 768, 1440px (mocked API only).');

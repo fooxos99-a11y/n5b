@@ -1,0 +1,62 @@
+import assert from 'node:assert/strict';
+import { URL } from 'node:url';
+import { Buffer } from 'node:buffer';
+import { chromium } from 'playwright';
+import { normalizeGradingPolicy } from '../shared/grading-policy.js';
+const browser = await chromium.launch({ headless: true });
+try {
+  for (const width of [360, 768, 1440]) {
+    const page = await browser.newPage({ viewport: { width, height: 900 } });
+    const writes = [];
+    await page.route('**/api/**', async route => {
+      const path = new URL(route.request().url()).pathname;
+      let body = [];
+      if (route.request().method() !== 'GET') writes.push(path);
+      if (path.endsWith('/grading/policy')) body = { policy: normalizeGradingPolicy({}) };
+      if (path.endsWith('/grading/week')) body = { weekStart: '2026-09-27', weekEnd: '2026-10-03', policy: normalizeGradingPolicy({}), students: [{ id: 1, name: 'طالب اختبار طويل الاسم', committeeName: 'الحلقة', grade: { total: 34.5, max: 60, weeklyDetail: { attended: true }, weeklySession: { grade: 20, max: 20 }, trackSession: { grade: 30, max: 30 }, trackDetail: { attended: true, segments: [{ recorded: true, mistakes: 0, warnings: 0 }, { recorded: true, mistakes: 0, warnings: 0 }] } } }] };
+      if (path.endsWith('/committees')) body = [{ id: 1, name: 'حلقة تجريبية' }];
+      if (path.endsWith('/narration-events')) body = [{ id: 1, name: 'اليوم الأول', status: 'open', startDate: '2026-09-27' }, { id: 2, name: 'اليوم الثاني', status: 'open', startDate: '2026-09-28' }];
+      if (/narration-events\/\d+$/.test(path)) body = { id: Number(path.split('/').at(-1)), name: 'يوم السرد', status: 'open', evaluationPolicy: { maxScore: 50 }, students: [{ id: 1, studentName: 'طالب السرد', status: 'pending', parts: [{ id: 1, juzNumber: 30, score: 50, startPage: 604, endPage: 604 }] }] };
+      await route.fulfill({ json: body });
+    });
+    const visit = section => page.goto(`http://127.0.0.1:3107/tests/fixtures/audit-settings.html?section=${section}`);
+    const noOverflow = async () => assert.equal(await page.evaluate(() => globalThis.document.documentElement.scrollWidth > globalThis.innerWidth), false);
+    await visit('staff-settings');
+    await page.getByLabel('بداية التأخر بعد أذان العصر بالدقائق').fill('75');
+    assert.equal(await page.getByLabel('بداية التأخر بعد أذان العصر بالدقائق').inputValue(), '75');
+    await noOverflow();
+    await visit('weekly');
+    await page.getByText('المجموع الأسبوعي:', { exact: false }).waitFor();
+    await page.getByLabel('الانتقال إلى أسبوع', { exact: true }).waitFor();
+    await noOverflow();
+    await visit('track');
+    await page.getByRole('radio', { name: 'غائب', exact: true }).click();
+    await page.getByRole('dialog', { name: 'تغيير حالة الطالب' }).waitFor();
+    assert.equal(writes.length, 0);
+    await page.getByRole('button', { name: 'إلغاء', exact: true }).click();
+    await page.getByRole('button', { name: 'إعادة الاختبار', exact: true }).click();
+    await page.getByRole('button', { name: 'التالي', exact: true }).click();
+    await page.getByRole('button', { name: 'المقطع السابق', exact: true }).click();
+    await page.getByText('المقطع 1 من 2', { exact: true }).waitFor();
+    await noOverflow();
+    await visit('narration');
+    await page.getByRole('combobox', { name: 'يوم السرد المفتوح' }).click();
+    await page.getByRole('option', { name: /اليوم الثاني/ }).click();
+    await page.getByRole('button', { name: 'بدء', exact: true }).click();
+    await page.getByText('50.0 من 50', { exact: true }).waitFor();
+    assert.equal(writes.length, 0, 'Opening a student is read-only');
+    await page.getByRole('button', { name: 'غائب', exact: true }).click();
+    await page.getByRole('dialog', { name: 'تغيير حالة الطالب' }).waitFor();
+    await page.getByRole('button', { name: 'إلغاء', exact: true }).click();
+    assert.equal(writes.length, 0, 'Cancelling narration absence preserves the grade');
+    await noOverflow();
+    await visit('students');
+    await page.getByRole('button', { name: 'إضافة طالب' }).click();
+    await page.getByLabel('ملف الطلاب').setInputFiles({ name: 'students.csv', mimeType: 'text/csv', buffer: Buffer.from('الاسم,رقم الدخول,الحلقة\nطالب تجربة,9450,حلقة تجريبية\n') });
+    await page.getByLabel('رقم دخول الطالب 1', { exact: true }).waitFor();
+    assert.equal(await page.getByLabel('رقم دخول الطالب 1', { exact: true }).inputValue(), '9450');
+    await noOverflow();
+    await page.close();
+    globalThis.console.log(`Management audit passed at ${width}px`);
+  }
+} finally { await browser.close(); }

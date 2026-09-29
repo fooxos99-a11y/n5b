@@ -1,0 +1,153 @@
+name: Submit iOS app to App Store Review
+
+on:
+  workflow_dispatch:
+    inputs:
+      app:
+        description: App to submit
+        required: true
+        type: choice
+        options:
+          - nukhab
+      build_number:
+        description: Processed TestFlight build number
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-app-store-${{ inputs.app }}
+  cancel-in-progress: false
+
+jobs:
+  submit:
+    name: Submit ${{ inputs.app }} to App Review
+    runs-on: macos-26
+    timeout-minutes: 45
+    env:
+      APPSTORE_API_KEY_ID: ${{ vars.APPSTORE_API_KEY_ID }}
+      APPSTORE_ISSUER_ID: ${{ vars.APPSTORE_ISSUER_ID }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Resolve app release
+        shell: bash
+        run: |
+          case "${{ inputs.app }}" in
+            nukhab)
+              echo "APP_IDENTIFIER=sa.nukhab.app" >> "$GITHUB_ENV"
+              echo "APP_VERSION=1.0.16" >> "$GITHUB_ENV"
+              echo "APP_NAME=نخب" >> "$GITHUB_ENV"
+              echo "APP_COPYRIGHT=2026 نخب" >> "$GITHUB_ENV"
+              echo "APP_DESCRIPTION_AR=نخب منصة متكاملة لإدارة الحلقات والمجمعات القرآنية، تساعد الطلاب والمعلمين والإداريين على متابعة الحفظ والمراجعة والربط والتكرار والاختبارات، وإدارة جلسات التسميع والحضور والتقارير. يرسل التطبيق رسائل الغياب تلقائيًا إلى أولياء الأمور عبر واتساب، ويوفر للطالب مصحفًا كاملًا للقراءة دون اتصال بالإنترنت، مع متابعة المهام اليومية والنقاط والترتيب بواجهة عربية حديثة ومتوافقة مع مختلف أحجام الشاشات." >> "$GITHUB_ENV"
+              echo "APP_DESCRIPTION_EN=Nukhab is an integrated platform for managing Quran learning groups and centers. It helps students, teachers, and administrators follow memorization, revision, recitation sessions, attendance, assessments, reports, daily tasks, points, and rankings. It also provides an offline Quran reader and can send absence notifications to guardians through WhatsApp." >> "$GITHUB_ENV"
+              ;;
+            *)
+              echo "Unsupported app: ${{ inputs.app }}"
+              exit 1
+              ;;
+          esac
+
+      - name: Validate App Store credentials
+        shell: bash
+        env:
+          APPSTORE_API_PRIVATE_KEY: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
+        run: |
+          missing=0
+          for name in APPSTORE_API_PRIVATE_KEY APPSTORE_API_KEY_ID APPSTORE_ISSUER_ID; do
+            if [[ -z "${!name}" ]]; then
+              echo "Missing GitHub secret or variable: $name"
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      - name: Prepare App Store Connect API key
+        shell: bash
+        env:
+          APPSTORE_API_PRIVATE_KEY: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
+        run: |
+          export API_KEY_PATH="$RUNNER_TEMP/app-store-connect-key.json"
+          python3 - <<'PY'
+          import json
+          import os
+
+          payload = {
+              "key_id": os.environ["APPSTORE_API_KEY_ID"],
+              "issuer_id": os.environ["APPSTORE_ISSUER_ID"],
+              "key": os.environ["APPSTORE_API_PRIVATE_KEY"],
+              "in_house": False,
+          }
+          with open(os.environ["API_KEY_PATH"], "w", encoding="utf-8") as handle:
+              json.dump(payload, handle)
+          PY
+          chmod 600 "$API_KEY_PATH"
+          echo "API_KEY_PATH=$API_KEY_PATH" >> "$GITHUB_ENV"
+
+      - name: Install fastlane
+        run: gem install fastlane --no-document
+
+      - name: Inspect current App Store version
+        env:
+          APPSTORE_API_PRIVATE_KEY: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
+          REPLACE_READY_FOR_REVIEW_BUILD: "true"
+          REOPEN_FOR_METADATA: "true"
+          CREATE_VERSION_IF_MISSING: "true"
+          TARGET_BUILD_NUMBER: ${{ inputs.build_number }}
+          APP_RELEASE_NOTES_AR: "تحسين التمرير وتسجيل الخروج وزر الشراء، وتحديث احتساب أخطاء المراجعة."
+          APP_RELEASE_NOTES_EN: "Improved scrolling, sign-out, purchase button appearance, and review mistake scoring."
+        run: |
+          python3 -m venv "$RUNNER_TEMP/app-store-status-venv"
+          "$RUNNER_TEMP/app-store-status-venv/bin/pip" install --quiet PyJWT cryptography
+          "$RUNNER_TEMP/app-store-status-venv/bin/python" scripts/inspect-app-store-version.py
+
+      - name: Update App Store product name
+        env:
+          APPSTORE_API_PRIVATE_KEY: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
+        run: |
+          python3 -m venv "$RUNNER_TEMP/app-store-branding-venv"
+          "$RUNNER_TEMP/app-store-branding-venv/bin/pip" install --quiet PyJWT cryptography
+          "$RUNNER_TEMP/app-store-branding-venv/bin/python" scripts/update-app-store-branding.py
+
+      - name: Select processed build and submit for review
+        shell: bash
+        env:
+          BUILD_NUMBER: ${{ inputs.build_number }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/fastlane"
+          cat > "$RUNNER_TEMP/fastlane/Deliverfile" <<'RUBY'
+          api_key_path(ENV.fetch("API_KEY_PATH"))
+          app_identifier(ENV.fetch("APP_IDENTIFIER"))
+          app_version(ENV.fetch("APP_VERSION"))
+          build_number(ENV.fetch("BUILD_NUMBER"))
+          platform("ios")
+          skip_binary_upload(true)
+          skip_metadata(true)
+          skip_screenshots(true)
+          submit_for_review(true)
+          reject_if_possible(true)
+          automatic_release(true)
+          force(true)
+          run_precheck_before_submit(false)
+          precheck_include_in_app_purchases(false)
+          RUBY
+          cd "$RUNNER_TEMP"
+          delivery_log="$RUNNER_TEMP/fastlane-deliver.log"
+          for attempt in {1..15}; do
+            if fastlane deliver 2>&1 | tee "$delivery_log"; then
+              exit 0
+            fi
+            if ! grep -Eq "Build number: .* does not exist|Could not find.*build" "$delivery_log"; then
+              exit 1
+            fi
+            if [[ "$attempt" -eq 15 ]]; then
+              echo "The selected build was not processed by App Store Connect in time."
+              exit 1
+            fi
+            echo "Build is still processing in App Store Connect; retrying in 60 seconds ($attempt/15)."
+            sleep 60
+          done

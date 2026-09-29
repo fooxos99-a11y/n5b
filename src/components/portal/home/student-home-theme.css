@@ -1,0 +1,66 @@
+/* A soft slate palette shared by student screens and their portalled menus. */
+html.dark:has(.student-home),
+.dark :is(.student-home,.student-home-window,.student-home-account-menu,.student-home-notifications) {
+  --background: 210 25% 19%;
+  --foreground: 175 25% 93%;
+  --card: 207 24% 24%;
+  --card-foreground: 175 25% 93%;
+  --popover: 207 24% 24%;
+  --popover-foreground: 175 25% 93%;
+  --primary: 174 48% 68%;
+  --primary-light: 174 48% 76%;
+  --primary-dark: 180 35% 44%;
+  --primary-foreground: 205 35% 16%;
+  --border: 207 19% 36%;
+  --input: 207 19% 36%;
+  --muted: 207 22% 28%;
+  --muted-foreground: 204 20% 75%;
+  --secondary: 207 22% 30%;
+  --secondary-foreground: 175 25% 93%;
+  --accent: 175 25% 32%;
+  --accent-foreground: 175 25% 93%;
+  --ring: 174 48% 68%;
+  --destructive: 0 75% 74%;
+  --home-ink: #e9f1f4;
+  --home-muted: #b3c3ce;
+  --home-line: #4a5e6d;
+  --home-teal: #86d5cd;
+  --home-card: #2f4050;
+}
+.dark .student-home { background: hsl(var(--background)); color: var(--home-ink); }
+.dark :is(.student-home-header,.student-home-today,.student-home-rankings,.student-home-account-menu,.student-bottom-navigation) {
+  background: hsl(var(--card)); color: hsl(var(--foreground)); border-color: hsl(var(--border));
+}
+.dark .student-home .student-home-task { background: hsl(var(--card)); color: var(--home-ink); }
+.dark :is(.student-home-task small,.student-home-rank-name small,.student-home-empty,.student-bottom-navigation>button) { color: #b3c3ce; }
+.dark :is(.student-home-section-head h1 svg,.student-home-header-actions>button:not(.student-home-store),.student-bottom-navigation>button[aria-current=page]) {
+  background: #354e5a; border-color: #527481; color: #a0e3dc;
+}
+.dark :is(.student-home-section-head>strong,.student-session-completion[data-completed=true],.student-session-result[data-tone=completed]) { color: #95dfd6; }
+.dark .student-session-result[data-tone=mistakes] { color: #f5c397; }
+.dark .student-home-level-name { color: #e6f3f1; }
+.dark .student-home-progress { background: #465d6d; }
+.dark .student-home-progress>span { background: linear-gradient(90deg,#4fa99f,#93d7ce); }
+.dark .student-home .student-home-level { outline-color: #65818b; }
+.dark :is(.student-home-points,.student-home-rank-list>li,.student-home-rank-desktop>article+article) { border-color: #4a5e6d; }
+.dark .student-home-rank-list>li[data-rank="1"] { background: linear-gradient(270deg,#514c3f,#344451); }
+.dark .student-home-rank-list>li[data-self=true] { background: linear-gradient(270deg,#315b5c,#2f4050); }
+.dark .student-home-rank-medal { background: #415565; color: #e2ecf1; }
+.dark [data-rank='1']>.student-home-rank-medal { background: #63563b; color: #f4d992; }
+.dark [data-rank='2']>.student-home-rank-medal { background: #485b6c; color: #d8e5ef; }
+.dark [data-rank='3']>.student-home-rank-medal { background: #63503f; color: #f1ceaf; }
+.dark .student-home-rankings>h2 svg { background: #63563b; color: #f4d992; }
+.dark .student-home-rank-list .student-rank-points { background: #355660; color: #a0e3dc; }
+.dark :is(.student-home,.student-home-window) .section-tabs-list { background: #283a49; }
+.dark :is(.student-home,.student-home-window) .section-tabs-list>[role=tab] { color: #c1d0d9; }
+.dark :is(.student-home,.student-home-window) .section-tabs-list>[aria-selected=true] { background: #405866; color: #a5e7df; }
+.dark .student-home-error { background: #503c46; border-color: #986874; color: #ffd0d2; }
+.dark .student-home-skeleton { background: #405364; }
+.dark .student-home .student-home-task[aria-pressed=true],
+.dark .student-home-execution-task:has([aria-pressed=true]) { background: #33594f; border-color: #78bfa5; color: #c5eedc; }
+.dark .student-home .student-home-task[aria-pressed=true] small { color: #b6e0cc; }
+.dark .student-home .student-home-execution-task .student-home-task { background: transparent; }
+.dark .student-home-task svg { color: #98dcbc; }
+.dark .student-home-entry-loading { background: #24303d; color: #a0e3dc; }
+.dark :is(.student-home,.student-home-window) .student-plan-feedback [data-tone=mistake] { background: #563d4c; color: #ffd0da; }
+.dark :is(.student-home,.student-home-window) .student-plan-feedback [data-tone=warning] { background: #564c35; color: #f6d995; }

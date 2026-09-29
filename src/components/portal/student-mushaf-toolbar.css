@@ -1,0 +1,13 @@
+.student-mushaf-reader[data-reader-theme="light"]{--reader-button-bg:rgba(255,255,255,.35);--reader-button-ink:#076b63;--reader-button-border:rgba(148,163,184,.3)}
+.student-mushaf-reader[data-reader-theme="dark"]{--reader-button-bg:rgba(255,255,255,.12);--reader-button-ink:#ffffff;--reader-button-border:#53657b;background:#111b25}
+.student-mushaf-reader[data-reader-theme] .student-mushaf-toolbar button{background:var(--reader-button-bg)!important;color:var(--reader-button-ink)!important;border-color:var(--reader-button-border)!important;box-shadow:none;transition-property:transform,box-shadow}
+.student-mushaf-reader[data-reader-theme] .student-mushaf-toolbar button svg{color:inherit!important}
+.student-mushaf-reader[data-reader-theme] .student-mushaf-toolbar button[aria-pressed="true"]{background:#08887d!important;color:#fff!important;border-color:#08887d!important}
+.student-mushaf-reader[data-reader-theme] .student-mushaf-toolbar button:hover{filter:brightness(1.08)}
+
+.student-mushaf-reader { font-family:var(--font-ui); background:#f4f0e7; }
+.student-mushaf-toolbar { grid-template-columns:1fr auto 1fr; }
+.student-mushaf-reader[data-reader-theme="light"] .student-mushaf-toolbar { background:#faf8f2; border-color:#e6e0d3; }
+.student-mushaf-reader .student-mushaf-toolbar button { border-color:transparent!important; background:transparent!important; border-radius:50%; }
+.student-mushaf-reader .mushaf-page { box-shadow:none; }
+@media (min-width:768px) { .student-mushaf-reader .mushaf-page { border-radius:6px; box-shadow:0 8px 36px rgb(0 0 0 / 7%); } }

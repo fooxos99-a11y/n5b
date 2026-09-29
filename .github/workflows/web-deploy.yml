@@ -1,0 +1,58 @@
+name: Deploy website
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: production-website
+  cancel-in-progress: false
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Prepare public web build settings
+        run: cp config/web-build.env .env.nukhab
+      - name: Quality gate
+        run: npm run verify
+      - name: Build configured website targets
+        env:
+          WEB_BUILD_COMMANDS: ${{ secrets.WEB_BUILD_COMMANDS }}
+        run: |
+          node --input-type=module <<'JS'
+          import { execSync } from 'node:child_process';
+          const commands = JSON.parse(process.env.WEB_BUILD_COMMANDS);
+          if (!Array.isArray(commands) || !commands.length) throw Error('Missing build configuration');
+          for (const command of commands) execSync(command, { stdio: 'inherit' });
+          JS
+      - name: Package tested release
+        env:
+          RELEASE_ARCHIVE: ${{ runner.temp }}/web-release.tar.gz
+        run: python3 scripts/web-release/package.py
+      - name: Deploy through restricted SSH command
+        env:
+          WEB_SSH_PRIVATE_KEY: ${{ secrets.WEB_SSH_PRIVATE_KEY }}
+          WEB_SSH_KNOWN_HOSTS: ${{ secrets.WEB_SSH_KNOWN_HOSTS }}
+          WEB_SSH_DESTINATION: ${{ secrets.WEB_SSH_DESTINATION }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          key="$RUNNER_TEMP/web-deploy-key"
+          hosts="$RUNNER_TEMP/web-known-hosts"
+          trap 'rm -f "$key" "$hosts"' EXIT
+          printf '%s\n' "$WEB_SSH_PRIVATE_KEY" > "$key"
+          printf '%s\n' "$WEB_SSH_KNOWN_HOSTS" > "$hosts"
+          digest=$(sha256sum "$RUNNER_TEMP/web-release.tar.gz" | cut -d ' ' -f 1)
+          ssh -T -i "$key" -o IdentitiesOnly=yes -o BatchMode=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=10 -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$hosts" "$WEB_SSH_DESTINATION" "deploy $GITHUB_SHA $digest" < "$RUNNER_TEMP/web-release.tar.gz"

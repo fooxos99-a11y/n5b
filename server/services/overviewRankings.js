@@ -1,0 +1,139 @@
+// Rankings of the statistics page: best students and circles by their grades, and each teacher's indicators.
+
+const number = (value) => Number(value || 0);
+const percentage = (part, total) => (total > 0 ? Math.round((part / total) * 100) : 0);
+const byName = (a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'ar');
+// Every recorded grade (weekly program, both sessions and narration day) is stored as a point with this key prefix.
+const GRADE_POINTS = `t.dedupe_key LIKE 'grade:%'`;
+const SIGNED_POINTS = `CASE WHEN t.transaction_type = 'deduction' THEN -t.points ELSE t.points END`;
+const RANKING_SIZE = 10;
+
+/**
+ * @param reportDb scoped report connection (createOverviewReportScope)
+ * @param {{ from: string, to: string, attendanceDates: string[], attendanceWeekDays: number[] }} period
+ */
+export async function buildOverviewRankings(reportDb, { from, to, attendanceDates = [], grades = null }) {
+  const [studentRows] = await reportDb.query(
+    `SELECT s.id, s.name, c.name AS committeeName, COALESCE(SUM(${SIGNED_POINTS}), 0) AS grade
+     FROM student_point_transactions t
+     JOIN students s ON s.id = t.student_id
+     LEFT JOIN committees c ON c.id = s.committee_id
+     WHERE ${GRADE_POINTS} AND t.transaction_date BETWEEN ? AND ? AND ${reportDb.student('t.student_id')}
+     GROUP BY s.id, s.name, c.name
+     HAVING grade > 0`,
+    [from, to],
+  );
+  const bestStudents = studentRows
+    .map((row) => ({ id: number(row.id), name: row.name, committeeName: row.committeeName || '', grade: number(row.grade) }))
+    .sort((a, b) => b.grade - a.grade || byName(a, b))
+    .slice(0, RANKING_SIZE);
+
+  const [committeeRows] = await reportDb.query(
+    `SELECT c.id, c.name, COUNT(DISTINCT s.id) AS studentsCount, COALESCE(SUM(${SIGNED_POINTS}), 0) AS grade
+     FROM committees c
+     JOIN students s ON s.committee_id = c.id
+     LEFT JOIN student_point_transactions t
+       ON t.student_id = s.id AND ${GRADE_POINTS} AND t.transaction_date BETWEEN ? AND ?
+     WHERE ${reportDb.committee('c.id')}
+     GROUP BY c.id, c.name`,
+    [from, to],
+  );
+  // Circles are compared by the average grade of their students, so a large circle is not favoured.
+  const bestCommittees = committeeRows
+    .map((row) => {
+      const studentsCount = number(row.studentsCount);
+      const grade = number(row.grade);
+      return { id: number(row.id), name: row.name, studentsCount, grade, average: studentsCount ? Math.round((grade / studentsCount) * 10) / 10 : 0 };
+    })
+    .filter((row) => row.grade > 0)
+    .sort((a, b) => b.average - a.average || byName(a, b))
+    .slice(0, RANKING_SIZE);
+
+  const [teacherRows] = await reportDb.query(
+    `SELECT sp.id, sp.name, DATE_FORMAT(sp.created_at, '%Y-%m-%d') AS joined,
+       GROUP_CONCAT(DISTINCT c.id) AS committeeIds, GROUP_CONCAT(DISTINCT c.name ORDER BY c.name SEPARATOR '، ') AS committees
+     FROM supervisors sp
+     LEFT JOIN supervisor_committees sc ON sc.supervisor_id = sp.id
+     LEFT JOIN committees c ON c.id = sc.committee_id
+     WHERE sp.role = 'supervisor' AND sp.is_active = 1 AND ${reportDb.staff('sp.id')}
+     GROUP BY sp.id, sp.name, sp.created_at`,
+  );
+  const dayPlaceholders = attendanceDates.map(() => '?').join(', ');
+  const [attendanceRows] = attendanceDates.length
+    ? await reportDb.query(
+      `SELECT ar.supervisor_id AS teacherId,
+         COALESCE(SUM(ar.status IN ('present', 'late', 'excused')), 0) AS attended,
+         COALESCE(SUM(ar.status = 'late'), 0) AS late,
+         COALESCE(SUM(ar.status = 'absent'), 0) AS absent
+       FROM supervisor_attendance_records ar
+       WHERE ar.record_date BETWEEN ? AND ? AND ${reportDb.staff('ar.supervisor_id')}
+         AND ar.record_date IN (${dayPlaceholders})
+       GROUP BY ar.supervisor_id`,
+      [from, to, ...attendanceDates],
+    )
+    : [[]];
+  // A teacher's achievement is the weekly program result of the students in the teacher's circles.
+  const [achievementRows] = await reportDb.query(
+    `SELECT sc.supervisor_id AS teacherId, COALESCE(SUM(g.grade), 0) AS grade, COALESCE(SUM(g.max_grade), 0) AS max
+     FROM supervisor_committees sc
+     JOIN students s ON s.committee_id = sc.committee_id
+     JOIN student_daily_grades g ON g.student_id = s.id AND g.grade_date BETWEEN ? AND ?
+     WHERE ${reportDb.staff('sc.supervisor_id')}
+     GROUP BY sc.supervisor_id`,
+    [from, to],
+  );
+  const attendanceById = new Map(attendanceRows.map((row) => [String(row.teacherId), row]));
+  const achievementById = new Map(achievementRows.map((row) => [String(row.teacherId), row]));
+  const expectedDays = attendanceDates.length;
+  const teachers = teacherRows
+    .map((row) => {
+      const attendance = attendanceById.get(String(row.id)) || {};
+      let achievement = achievementById.get(String(row.id)) || {};
+      if (grades) {
+        const ids = new Set(String(row.committeeIds || '').split(','));
+        achievement = (grades.weeklyProgram?.committees || []).filter(item => ids.has(String(item.id)))
+          .reduce((sum, item) => ({ grade: sum.grade + item.grade, max: sum.max + item.max }), { grade: 0, max: 0 });
+      }
+      const teacherExpectedDays = row.joined ? attendanceDates.filter(date => date >= row.joined).length : expectedDays;
+      return {
+        id: number(row.id),
+        name: row.name,
+        committees: row.committees || '',
+        attendance: {
+          attended: number(attendance.attended),
+          late: number(attendance.late),
+          absent: number(attendance.absent),
+          expected: teacherExpectedDays,
+          percentage: percentage(number(attendance.attended), teacherExpectedDays),
+        },
+        achievement: {
+          grade: number(achievement.grade),
+          max: number(achievement.max),
+          percentage: percentage(number(achievement.grade), number(achievement.max)),
+        },
+      };
+    })
+    .sort((a, b) => b.achievement.percentage - a.achievement.percentage || byName(a, b));
+
+  if (grades) {
+    const totals = new Map();
+    for (const component of ['weeklyProgram', 'weeklySession', 'trackSession']) {
+      for (const row of grades[component]?.studentsList || []) {
+        const result = totals.get(row.id) || { id: row.id, name: row.name, committeeName: row.committeeName, grade: 0, max: 0 };
+        result.grade += number(row.grade);
+        result.max += number(row.max);
+        totals.set(row.id, result);
+      }
+    }
+    const ranked = [...totals.values()].map(row => ({ ...row, percentage: percentage(row.grade, row.max) }));
+    const circleResults = committeeRows.map(row => {
+      const students = ranked.filter(student => student.committeeName === row.name);
+      const grade = students.reduce((sum, student) => sum + student.grade, 0);
+      const max = students.reduce((sum, student) => sum + student.max, 0);
+      return { id: number(row.id), name: row.name, studentsCount: students.length, grade, max, percentage: percentage(grade, max) };
+    });
+    const rank = rows => rows.filter(row => row.max > 0).sort((a,b) => b.percentage - a.percentage || byName(a,b)).slice(0, RANKING_SIZE);
+    return { bestStudents: rank(ranked), bestCommittees: rank(circleResults), teachers };
+  }
+  return { bestStudents, bestCommittees, teachers };
+}

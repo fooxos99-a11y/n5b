@@ -1,0 +1,23 @@
+import { buildReviewCycle } from '../../shared/quran-review-cycle.js';
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import QuranExecutionDialog from '@/components/portal/QuranExecutionDialog';
+import StudentReadAmounts from '@/components/portal/home/StudentReadAmounts';
+import { studentsApi } from '@/services/studentsApi';
+import '@/index.css';
+import '@/components/portal/home/student-home.css';
+const tasks = ['memorization', 'review', 'link'].map((taskType, id) => ({ id: id + 1, taskType, fromSurah: 2, toSurah: 2, fromAyah: 1, toAyah: 5, fromPage: 2, toPage: 2, preview: 'البقرة آية 1 إلى آية 5', studentStatus: 'pending', teacherCompleted: true }));
+const editable = new URLSearchParams(globalThis.location.search).get('editable') === 'true';
+const executionAyahs = Array.from({ length: 5 }, (_, i) => ({ page: 2, surah: 2, ayah: i + 1, surahName: 'البقرة' }));
+tasks[1] = { ...tasks[1], fromSurah: 4, toSurah: 4, preview: 'النساء آية 1 إلى آية 5' };
+executionAyahs.push(...Array.from({length:7},(_,i)=>({page:2,surah:4,ayah:i+1,surahName:'النساء'})), {page:2,surah:3,ayah:1,surahName:'آل عمران'});
+const cyclic = new URLSearchParams(globalThis.location.search).has('cycle');
+const reviewCycle = cyclic ? { ...buildReviewCycle({ ayahs: [78,79,80,114].flatMap((surah,page) => [1,2].map(ayah => ({surah,ayah,page:page+1,surahName:({78:'النبأ',79:'النازعات',80:'عبس',114:'الناس'})[surah]}))), start: {surah:80,ayah:1,page:3}, direction:-1, isAvailable:()=>true }), expectedFaces: 2 } : null;
+globalThis.compactFixture = { fail: false, writes: [] };
+studentsApi.getStudentQuranToday = async () => ({ date: '2026-09-25', reviewCycle, tasks, executionAyahs: executionAyahs.filter(ayah => ayah.surah !== 4), executionAyahsByType: { memorization: executionAyahs.filter(ayah => ayah.surah === 2), review: executionAyahs.filter(ayah => ayah.surah === 4), link: executionAyahs.filter(ayah => ayah.surah === 2) }, studentTaskAmountEditable: editable, studentReviewAmountEditable: editable, studentLinkAmountEditable: editable, allowQuranCompensation: false, allowQuranExtra: false, executionSources: { memorization: 'student', review: 'student', link: 'student' } });
+studentsApi.updateStudentQuranTasksExecution = async (_, body) => {
+  if (globalThis.compactFixture.fail) throw new Error('تعذر الحفظ');
+  globalThis.compactFixture.writes.push(body);
+  for (const task of tasks) if (body.taskIds.includes(task.id)) task.studentStatus = body.status;
+};
+createRoot(document.getElementById('root')).render(<main className="student-home" dir="rtl"><div className="student-home-main"><section className="student-home-today"><QuranExecutionDialog studentId={1} inline compact /><StudentReadAmounts groups={[{ type: 'read', label: 'حفظ مكتمل', complete: true, amount: 'مقدار مكتمل مخفي', target: { page: 2 } }]} onRead={() => {}} /></section></div></main>);
