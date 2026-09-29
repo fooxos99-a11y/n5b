@@ -34,6 +34,6 @@ export default function ScreenLoadingProvider({ children }) {
   useEffect(() => () => window.clearTimeout(timer.current), []);
   return <ScreenLoadingContext.Provider value={acquire}>
     <div className="contents" inert={visible ? '' : undefined} aria-hidden={visible || undefined}>{children}</div>
-    {visible && createPortal(<div className="screen-loading-surface fixed inset-0 z-[1000] grid place-items-center text-[#0ab4a6] [font-family:var(--font-ui)]" data-loading-indicator="screen" role="status" aria-live="polite" aria-label="جاري التحميل"><ScreenLoadingVisual /></div>, document.body)}
+    {visible && createPortal(<div className="screen-loading-surface fixed inset-0 z-[1000] grid place-items-center text-[#0ab4a6] [font-family:var(--font-ui)]" data-loading-indicator="screen" data-startup={startup?.active || undefined} role="status" aria-live="polite" aria-label="جاري التحميل"><ScreenLoadingVisual /></div>, document.body)}
   </ScreenLoadingContext.Provider>;
 }

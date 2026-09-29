@@ -2,7 +2,7 @@
   "appId": "sa.nukhab.app",
   "appName": "نخب",
   "webDir": "dist/nukhab-mobile",
-  "backgroundColor": "#002926",
+  "backgroundColor": "#04433D",
   "loggingBehavior": "production",
   "zoomEnabled": false,
   "android": {
@@ -29,7 +29,7 @@
     "SplashScreen": {
       "launchShowDuration": 0,
       "launchAutoHide": true,
-      "backgroundColor": "#002926",
+      "backgroundColor": "#04433D",
       "showSpinner": false
     },
     "StatusBar": {

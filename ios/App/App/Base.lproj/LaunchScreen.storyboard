@@ -18,10 +18,10 @@
                         <subviews>
                             <activityIndicatorView opaque="NO" contentMode="scaleToFill" horizontalHuggingPriority="750" verticalHuggingPriority="750" animating="YES" style="large" translatesAutoresizingMaskIntoConstraints="NO" id="nukhab-loading-indicator">
                                 <rect key="frame" x="168.5" y="315" width="38" height="37"/>
-                                <color key="color" red="0.0" green="0.2392156863" blue="0.3215686275" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                                <color key="color" red="1" green="1" blue="1" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
                             </activityIndicatorView>
                         </subviews>
-                        <color key="backgroundColor" red="0.968627451" green="0.9803921569" blue="0.9647058824" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                        <color key="backgroundColor" red="0.0156862745" green="0.2627450980" blue="0.2392156863" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
                         <constraints>
                             <constraint firstItem="nukhab-loading-indicator" firstAttribute="centerX" secondItem="snD-IY-ifK" secondAttribute="centerX" id="loading-center-x"/>
                             <constraint firstItem="nukhab-loading-indicator" firstAttribute="centerY" secondItem="snD-IY-ifK" secondAttribute="centerY" id="loading-center-y"/>

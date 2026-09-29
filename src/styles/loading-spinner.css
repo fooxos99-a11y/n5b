@@ -6,6 +6,13 @@
   animation: loading-logo-in .35s ease-out both, loading-logo-breathe 1.8s .35s ease-in-out infinite;
 }
 .loading-spinner--screen { width: 80px; height: 80px; }
+.screen-loading-surface[data-startup="true"] {
+  background: #04433d;
+}
+.boot-loader .loading-logo,
+.screen-loading-surface[data-startup="true"] .loading-logo {
+  background-image: url('/branding/nukhab/nukhab-white-320.webp');
+}
 /* Scrollbar changes must not shift the indicator during login handoff. */
 :root .boot-loader, :root [data-loading-indicator="screen"] {
   box-sizing: border-box;

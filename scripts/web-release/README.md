@@ -16,6 +16,12 @@ Deployment configuration comes from the locally ignored `data1.yml`. Its build
 commands and restricted SSH credentials are provisioned as GitHub secrets. The
 server-owned receiver and configuration are installed separately; a website
 archive cannot overwrite them. SSH host keys are verified, not accepted on trust.
+Changes to `receiver.py` and `preflight.mjs` must therefore be installed together
+by an administrator through a separately authorized server update; retrying the
+website workflow alone does not update these files. Preflight failures report
+fixed `PREFLIGHT_*` codes for configuration, dependencies, migration loading,
+database access, or pending migrations, without exposing connection details.
+`PREFLIGHT_MIGRATIONS_PENDING` still blocks activation; it never applies migrations.
 The deployment account runs only this project's services, with its own PM2 home
 and database grants. The API binds to loopback behind the reverse proxy.
 Runtime dependencies are installed without lifecycle scripts; Puppeteer's Chrome

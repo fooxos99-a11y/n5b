@@ -23,6 +23,26 @@ class AppStoreHttpTests(unittest.TestCase):
                     request_json(path, "fixture-token")
             opener.assert_not_called()
 
+    def test_signing_workflow_resources_reach_the_apple_endpoint(self):
+        paths = [
+            "/bundleIds?filter%5Bidentifier%5D=sa.nukhab.app",
+            "/bundleIds/fixture-bundle/bundleIdCapabilities",
+            "/bundleIdCapabilities",
+            "/profiles?filter%5Bname%5D=Nukhab+App+Store+GitHub+Actions+Push",
+            "/profiles/fixture-profile/bundleId",
+            "/profiles/fixture-profile/certificates",
+        ]
+        response = MagicMock()
+        response.status = 200
+        response.read.return_value = b'{"data": []}'
+        with patch("app_store_http.urllib.request.build_opener") as opener:
+            opener.return_value.open.return_value.__enter__.return_value = response
+            for path in paths:
+                with self.subTest(path=path):
+                    self.assertEqual(request_json(path, "fixture-token"), {"data": []})
+                    request = opener.return_value.open.call_args.args[0]
+                    self.assertEqual(request.full_url, "https://api.appstoreconnect.apple.com/v1" + path)
+
     def test_json_request_uses_expected_method_payload_and_timeout(self):
         response = MagicMock()
         response.status = 200

@@ -30,6 +30,23 @@ FILES = {PACKAGE_FILE, LOCK_FILE, INDEX_FILE, 'vite.config.js',
          'tailwind.config.js', 'postcss.config.js'}
 RELEASE_NAME = r'github-\d{8}-\d{6}-[a-f0-9]{12}'
 BROWSER_CHECK = "import puppeteer from 'puppeteer'; const b=await puppeteer.launch({headless:true,args:['--no-sandbox','--disable-setuid-sandbox']}); await b.close();"
+PREFLIGHT_FAILURES = {
+    41: 'PREFLIGHT_CONFIG_INVALID: Check server-owned configuration and environment file.',
+    42: 'PREFLIGHT_DEPENDENCIES_FAILED: Required database dependencies could not load.',
+    43: 'PREFLIGHT_MIGRATIONS_INVALID: Release migration files could not load.',
+    44: 'PREFLIGHT_DATABASE_FAILED: Check database connectivity, credentials and read permissions.',
+    45: 'PREFLIGHT_MIGRATIONS_PENDING: Database migrations require a separate reviewed deployment with a backup.',
+}
+
+
+class PreflightFailure(RuntimeError):
+    """Only fixed, non-sensitive diagnostics may be returned to the SSH caller."""
+
+
+def public_failure(error):
+    if isinstance(error, PreflightFailure):
+        return str(error)
+    return 'Deployment failed'
 
 
 def checked_token(value, pattern):
@@ -162,6 +179,9 @@ def run(operation, cwd=None, *, services=(), release=None):
     # Avoid printing service environment variables or npm configuration.
     result = subprocess.run([executable, *args[1:]], cwd=cwd, capture_output=True, text=True, shell=False)
     if result.returncode:
+        if operation == 'preflight':
+            raise PreflightFailure(PREFLIGHT_FAILURES.get(result.returncode,
+                'PREFLIGHT_FAILED: Check the server-owned preflight runtime and configuration.'))
         raise RuntimeError('Command failed: ' + args[0] + ' ' + args[1])
     return result.stdout
 
@@ -459,7 +479,7 @@ def main():
 if __name__ == '__main__':
     try:
         main()
-    except Exception:
+    except Exception as error:
         # Do not expose filesystem existence, paths or tracebacks to the SSH caller.
-        print('Deployment failed', file=sys.stderr)
+        print(public_failure(error), file=sys.stderr)
         sys.exit(1)
