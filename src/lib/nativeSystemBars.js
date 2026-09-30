@@ -1,4 +1,5 @@
 export function getNativeBarAppearance(root, backgroundColor) {
+  if (root.dataset.startupActive === 'true') return { style: 'DARK', color: '#04433d' };
   const surface = root.dataset.nativeSurface;
   const dark = surface === 'dark' || (surface !== 'light' && root.classList.contains('dark'));
   const channels = backgroundColor.match(/^rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)/);

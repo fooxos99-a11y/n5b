@@ -35,7 +35,7 @@
     "StatusBar": {
       "overlaysWebView": false,
       "style": "DARK",
-      "backgroundColor": "#002926"
+      "backgroundColor": "#04433D"
     },
     "CapacitorSQLite": {
       "iosDatabaseLocation": "Library/CapacitorDatabase",

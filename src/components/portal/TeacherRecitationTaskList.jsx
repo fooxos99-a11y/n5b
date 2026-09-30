@@ -81,7 +81,7 @@ const TeacherRecitationTaskList = ({
       map.get(studentId).tasks.push(task);
     });
     return [...map.values()]
-      .filter((student) => !onRecite || student.readingOnly || readingByStudent.has(String(student.studentId)) || isRecitationAttendanceVisible(student.attendanceStatus, recitationAttendanceSource === 'teacher' && student.canSetAttendance))
+      .filter((student) => !onRecite || (recitationAttendanceSource === 'teacher' && student.canSetAttendance) || student.readingOnly || readingByStudent.has(String(student.studentId)) || isRecitationAttendanceVisible(student.attendanceStatus, recitationAttendanceSource === 'teacher' && student.canSetAttendance))
       // A student stays listed while the day's self reading is still to be recorded.
       .filter((student) => !onRecite || shouldShowRecitationStudent(student, student.tasks, taskQueue)
         || readingByStudent.get(String(student.studentId))?.status === null)
@@ -98,12 +98,8 @@ const TeacherRecitationTaskList = ({
       {grouped.map((student) => {
         const taskGroups = groupContinuousRecitationTasks(student.tasks);
         const attendanceEditable = Boolean(onAttendanceChange) && recitationAttendanceSource === 'teacher' && student.canSetAttendance;
-        const attendanceControlled = attendanceEditable
-          || Boolean(student.canSetAttendance);
-        const attendanceBlocksRecitation = ['absent', 'excused'].includes(student.attendanceStatus);
-        const canRecite = !student.offlineSequenceBlocked
-          && !attendanceBlocksRecitation
-          && (!attendanceControlled || ['present', 'late'].includes(student.attendanceStatus));
+        const attendanceAllowsActions = ['present', 'late'].includes(student.attendanceStatus);
+        const canRecite = !student.offlineSequenceBlocked && attendanceAllowsActions;
         const pendingTasks = student.tasks.filter(isRecitationActionPending);
         const recitationActions = [
           {
@@ -174,8 +170,7 @@ const TeacherRecitationTaskList = ({
         const position = (item) => actionOrder.indexOf(item.action.key === 'mastery' && !memorizationView ? 'saved' : item.action.key);
         const displayActionViews = [...actionViews].sort((a, b) => position(a) - position(b));
         const readingEntry = onReading ? readingByStudent.get(String(student.studentId)) : null;
-        // Self reading does not depend on the session's attendance on a reading-only day.
-        const canRecord = Boolean(readingEntry);
+        const canRecord = Boolean(readingEntry) && attendanceAllowsActions;
         const readingSummary = readingEntry?.status === 'read'
           ? `قرأ ${readingEntry.recordedFaces ?? readingEntry.faces} وجه`
           : readingEntry?.status === 'missed' ? 'لم يقرأ' : `${readingEntry?.faces ?? ''} وجه`;
@@ -224,7 +219,7 @@ const TeacherRecitationTaskList = ({
 
               {onRecite && ((hasRecitationTasks && canRecite) || canRecord) && (
                 <div className="recitation-actions" data-has-both-tracks={hasBothTracks} data-has-reading={canRecord}>
-                  {displayActionViews.map(({
+                  {canRecite && displayActionViews.map(({
                     action,
                     actionKey,
                     defaultRepeatCount,

@@ -140,7 +140,6 @@ const TeacherEvaluationDialog = ({ supervisorId, open = false, onOpenChange, inl
     const studentId = Number(student.studentId);
     if (data?.recitationAttendanceSource !== 'teacher' || !student.canSetAttendance
       || !studentId || attendancePendingIds.includes(studentId)) return;
-    const shouldHideStudent = ['absent', 'excused'].includes(status);
     setAttendancePendingIds((current) => [...current, studentId]);
     try {
       await commitOfflineAttendance({
@@ -153,14 +152,9 @@ const TeacherEvaluationDialog = ({ supervisorId, open = false, onOpenChange, inl
         if (!current) return current;
         return {
           ...current,
-          tasks: shouldHideStudent
-            ? (current.tasks || []).filter((task) => Number(task.studentId) !== studentId)
-            : current.tasks,
-          students: shouldHideStudent
-            ? (current.students || []).filter((item) => Number(item.studentId) !== studentId)
-            : (current.students || []).map((item) => (
-              Number(item.studentId) === studentId ? { ...item, attendanceStatus: status } : item
-            )),
+          students: (current.students || []).map((item) => (
+            Number(item.studentId) === studentId ? { ...item, attendanceStatus: status } : item
+          )),
         };
       });
       if (navigator.onLine !== false) {

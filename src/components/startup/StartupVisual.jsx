@@ -2,9 +2,9 @@ import React, { useId } from 'react';
 import { resolveAssetUrl } from '@/lib/assetUrl';
 import './startup.css';
 
-export function StartupSplash({ site }) {
+export function StartupSplash({ site, hold = false }) {
   const patternId = useId();
-  return <div className="startup-splash" style={{ '--startup-background': site.themeColor, '--startup-accent': site.navigation.accent }} aria-hidden="true">
+  return <div className="startup-splash" data-hold={hold || undefined} style={{ '--startup-background': site.themeColor, '--startup-accent': site.navigation.accent }} aria-hidden="true">
     <div className="startup-brand">
       <img className="startup-brand-logo" src={resolveAssetUrl(site.whiteLogo || site.logo)} alt="" fetchPriority="high" />
       <p>برنامج نخب التعليمي</p>

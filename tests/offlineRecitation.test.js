@@ -226,7 +226,7 @@ test('client persists atomically, restores drafts, retries globally, and never b
   assert.match(merge, /latestAttendanceByStudent/);
   assert.match(merge, /LOCAL_ATTENDANCE_STATUSES\.has\(action\.status\)/);
   assert.match(merge, /\['absent', 'excused'\]\.includes\(student\.attendanceStatus\)/);
-  assert.match(merge, /filter\(\(student\) => !\['absent', 'excused'\]\.includes\(student\.attendanceStatus\)\)/);
+  assert.match(merge, /filter\(\(student\) => student.canSetAttendance \|\| !\['absent', 'excused'\]\.includes\(student\.attendanceStatus\)\)/);
   assert.match(evaluation, /useTeacherEvaluationData\(/);
   const evaluationLoader = await read('../src/hooks/useTeacherEvaluationData.js');
   assert.match(evaluationLoader, /resolvedEvaluation = await mergeOfflineReading\(supervisorId, await mergeLocalTeacherEvaluation\(supervisorId, evaluation\)\)/);
@@ -267,4 +267,15 @@ test('client persists atomically, restores drafts, retries globally, and never b
   assert.match(auth, /SecureStorage/);
   assert.match(config, /"androidIsEncryption": true/);
   assert.match(config, /"BackgroundRunner"/);
+});
+
+test('authorized teachers keep absent and excused pupils visible during offline delivery', () => {
+  for (const status of ['absent', 'excused']) {
+    const evaluation = { date: '2026-09-30', students: [{ studentId: 16, canSetAttendance: true, attendanceStatus: 'present' }], tasks: [{ id: 1, studentId: 16 }] };
+    const actions = [{ status: 'pending', actionType: 'student_attendance', payload: { studentId: 16, date: evaluation.date, status } }];
+    const result = mergeCommittedOfflineEvaluation(evaluation, [], actions);
+    assert.equal(result.students[0].attendanceStatus, status);
+    assert.deepEqual(result.tasks, []);
+    assert.equal(mergeCommittedOfflineEvaluation({ ...evaluation, students: [{ studentId: 16, canSetAttendance: false }] }, [], actions).students.length, 0);
+  }
 });

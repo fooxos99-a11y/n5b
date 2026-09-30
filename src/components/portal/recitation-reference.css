@@ -23,16 +23,8 @@
 .recitation-compensation:focus-visible { outline: 2px solid hsl(var(--primary)); outline-offset: 2px; }
 .recitation-reference .recitation-attendance { flex-shrink: 0; width: 82px; height: 44px; min-height: 44px; border-radius: 8px; border: 1px solid hsl(var(--primary) / .1); background: transparent; padding: 0 8px; font-size: 12px; font-weight: 700; box-shadow: none; }
 .recitation-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 82px)); gap: 4px; margin-top: 3px; }
-.recitation-actions > [data-recitation-slot="saved"] { grid-column: 1; }
-.recitation-actions > [data-recitation-slot="link"] { grid-column: 2; }
-.recitation-actions > [data-recitation-slot="review"] { grid-column: 3; }
 .recitation-reference .recitation-action { width: 100%; height: 44px; min-height: 44px; border-radius: 8px; border: 1px solid hsl(var(--primary) / .08); background: hsl(var(--primary) / .025); color: hsl(var(--foreground)); font-size: 13px; font-weight: 600; box-shadow: none; }
 .recitation-reference .recitation-action[data-active="true"] { background: linear-gradient(120deg, hsl(var(--primary)), hsl(var(--primary-dark))); color: white; border-color: transparent; }
- .recitation-actions[data-has-both-tracks="true"] { grid-template-columns: repeat(4, minmax(0, 82px)); }
-.recitation-actions > [data-recitation-slot="mastery"] { grid-column: 4; }
-.recitation-actions[data-has-reading="true"] { grid-template-columns: repeat(4, minmax(0, 82px)); }
-.recitation-actions[data-has-reading="true"][data-has-both-tracks="true"] { grid-template-columns: repeat(5, minmax(0, 82px)); }
-.recitation-actions > [data-recitation-slot="reading"] { grid-column: -2; }
 .recitation-action-column { display: flex; flex-direction: column; gap: 3px; min-width: 0; text-align: center; }
 .recitation-amount { display: flex; align-items: center; justify-content: center; min-width: 0; min-height: 44px; border-radius: 7px; background: hsl(var(--primary) / .025); padding: 2px; text-align: center; }
 .recitation-amount .recitation-amount-text, .recitation-amount .recitation-range-trigger { min-width: 0; max-width: 100%; width: 100%; font-size: 10px; font-weight: 600; line-height: 1.5; text-align: center; white-space: normal; overflow-wrap: anywhere; }

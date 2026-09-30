@@ -76,9 +76,16 @@ test('native background updates after delayed palette changes and serializes rap
   await sync.request();
   assert.equal(calls.length, 3);
   const source = await readFile(new URL('../src/hooks/useNativeSystemBars.js', import.meta.url), 'utf8');
-  assert.match(source, /attributeFilter: \['class', 'style', 'data-native-surface'\]/);
+  assert.match(source, /attributeFilter: \['class', 'style', 'data-native-surface', 'data-startup-active'\]/);
   const config = JSON.parse(await readFile(new URL('../capacitor.config.json', import.meta.url), 'utf8'));
   assert.equal(config.appName, 'نخب');
-  assert.equal(config.plugins.StatusBar.backgroundColor, '#002926');
+  assert.equal(config.plugins.StatusBar.backgroundColor, '#04433D');
   assert.equal(config.plugins.StatusBar.style, 'DARK');
+});
+
+test('startup overrides a light page until the splash finishes', () => {
+  const root = { dataset: { startupActive: 'true', nativeSurface: 'light' }, classList: { contains: () => false } };
+  assert.deepEqual(getNativeBarAppearance(root, 'rgb(255, 255, 255)'), { color: '#04433d', style: 'DARK' });
+  root.dataset.startupActive = 'false';
+  assert.deepEqual(getNativeBarAppearance(root, 'rgb(255, 255, 255)'), { color: '#ffffff', style: 'LIGHT' });
 });

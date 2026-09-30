@@ -23,3 +23,15 @@
 @keyframes startup-reveal { 0%, 76% { opacity: 1; } 100% { opacity: 0; } }
 @keyframes startup-pattern-in { 0%, 18% { opacity: 0; transform: translateY(24px); } 52%, 100% { opacity: .28; transform: translateY(0); } }
 @media (prefers-reduced-motion: reduce) { .startup-splash { display: none; } }
+
+.startup-splash[data-hold="true"] { z-index: 1001; animation: none; }
+.startup-splash[data-hold="true"] .startup-brand { animation-name: startup-grow-hold; }
+@keyframes startup-grow-hold {
+  0% { opacity: 0; transform: scale(.12); }
+  12% { opacity: 1; }
+  48%, 100% { opacity: 1; transform: scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .startup-splash[data-hold="true"] { display: grid; }
+  .startup-splash[data-hold="true"] .startup-brand { animation: none; }
+}

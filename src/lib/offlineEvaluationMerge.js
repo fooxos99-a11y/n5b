@@ -83,6 +83,6 @@ export function mergeCommittedOfflineEvaluation(evaluation, sessions = [], actio
           : {}),
       }))
       // The task list decides visibility using actual completion and remaining work.
-      .filter((student) => !['absent', 'excused'].includes(student.attendanceStatus)),
+      .filter((student) => student.canSetAttendance || !['absent', 'excused'].includes(student.attendanceStatus)),
   };
 }

@@ -23,7 +23,7 @@ export default function useNativeSystemBars() {
     const resume = () => { void sync.request(true); };
     const observer = new MutationObserver(schedule);
     // SiteProvider applies its palette through inline CSS variables after a class change.
-    observer.observe(root, { attributes: true, attributeFilter: ['class', 'style', 'data-native-surface'] });
+    observer.observe(root, { attributes: true, attributeFilter: ['class', 'style', 'data-native-surface', 'data-startup-active'] });
     window.addEventListener('pageshow', resume);
     const listener = App.addListener('appStateChange', ({ isActive }) => { if (isActive) resume(); });
     schedule();

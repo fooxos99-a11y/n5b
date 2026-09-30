@@ -10386,7 +10386,7 @@ app.get('/api/supervisors/:id/quran-evaluation', async (req, res, next) => {
         .filter((student) => {
           const attendanceStatus = attendanceByStudent.get(Number(student.id)) || '';
           if (readingStudentIds.has(Number(student.id))) return true;
-          if (['absent', 'excused'].includes(attendanceStatus)) return false;
+          if (['absent', 'excused'].includes(attendanceStatus)) return teacherAttendanceMode;
           if (!['present', 'late'].includes(attendanceStatus)) return teacherAttendanceMode;
           return activeTaskStudentIds.has(Number(student.id))
             || attemptedStudentIds.has(Number(student.id))
