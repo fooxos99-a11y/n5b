@@ -1,14 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Archive, CheckCircle2, Plus, RotateCcw, Trash2, Users } from 'lucide-react';
-import { DashboardDatePicker } from '@/components/dashboard/DashboardControls';
+import NarrationCreateDialog from '@/components/dashboard/NarrationCreateDialog';
 import DashboardMobileHeaderActions from '@/components/dashboard/DashboardMobileHeaderActions';
 import NarrationStudentPanel from '@/components/dashboard/NarrationStudentPanel';
 import DashboardLoader from '@/components/dashboard/DashboardLoader';
-import CommitteeMultiSelect from '@/components/dashboard/CommitteeMultiSelect';
-import { FormField, FormGrid, ManagementEmpty, ManagementPanel } from '@/components/dashboard/layout/ManagementPanel';
+import { FormField, ManagementEmpty, ManagementPanel } from '@/components/dashboard/layout/ManagementPanel';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
 import {
@@ -17,10 +15,8 @@ import {
   syncOfflineActions,
 } from '@/services/offlineOperationsService';
 import { studentsApi } from '@/services/studentsApi';
-import { getBusinessDate } from '../../../shared/business-date.js';
 import { isMistakeMark } from '../../../shared/recitation-mark-types.js';
 
-const today = getBusinessDate;
 const controlClassName = 'h-11 w-full min-w-0';
 const dialogClassName = 'bg-card [font-family:var(--font-ui)]';
 const getAccountId = () => Number(localStorage.getItem('wajeh_supervisor_id') || 0);
@@ -45,7 +41,6 @@ const NarrationDaySection = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [isEnding, setIsEnding] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [form, setForm] = useState({ name: '', startDate: today(), endDate: today(), committeeIds: ['all'] });
 
   const loadEvent = useCallback(async (id) => {
     if (!id) { setEvent(null); return; }
@@ -98,9 +93,8 @@ const NarrationDaySection = () => {
     return [...items.entries()].map(([id, name]) => ({ id, name }));
   }, [activeStudents]);
   const narrationSummary = useMemo(() => summarizeStudents(activeStudents), [activeStudents]);
-  const createEvent = async () => {
+  const createEvent = async (form) => {
     setIsSaving(true);
-    setCreateOpen(false);
     try {
       const result = await studentsApi.createNarrationEvent({
         ...form,
@@ -109,12 +103,13 @@ const NarrationDaySection = () => {
       });
       setArchiveId('');
       toast({ title: 'فُتح يوم السرد', description: `أضيف ${result.studentsCount} طالب وجارٍ إرسال رسالة البداية.` });
-      const rows = await studentsApi.getNarrationEvents();
-      setEvents(rows);
-      await loadEvent(result.id);
-    } catch (error) {
-      setCreateOpen(true);
-      toast({ title: 'تعذر فتح يوم السرد', description: error.message, variant: 'destructive' });
+      try {
+        const rows = await studentsApi.getNarrationEvents();
+        setEvents(rows);
+        await loadEvent(result.id);
+      } catch (error) {
+        toast({ title: 'فُتح السرد، وتعذر تحديث القائمة', description: error.message, variant: 'destructive' });
+      }
     } finally {
       setIsSaving(false);
     }
@@ -397,24 +392,7 @@ const NarrationDaySection = () => {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className={dialogClassName} dir="rtl">
-          <DialogHeader><DialogTitle>فتح يوم سرد</DialogTitle></DialogHeader>
-          <FormGrid className="grid-cols-2 py-2">
-            <div className="col-span-2">
-              <FormField label="اسم يوم السرد" htmlFor="narration-event-name">
-                <Input id="narration-event-name" aria-label="اسم يوم السرد" className="h-11" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
-              </FormField>
-            </div>
-            <FormField label="البداية"><DashboardDatePicker value={form.startDate} max={form.endDate} onChange={(startDate) => setForm({ ...form, startDate })} ariaLabel="بداية يوم السرد" /></FormField>
-            <FormField label="النهاية"><DashboardDatePicker value={form.endDate} min={form.startDate} onChange={(endDate) => setForm({ ...form, endDate })} ariaLabel="نهاية يوم السرد" /></FormField>
-            <div className="col-span-2">
-              <FormField label="الحلقات"><CommitteeMultiSelect committees={committees} value={form.committeeIds} onChange={(committeeIds) => setForm({ ...form, committeeIds })} /></FormField>
-            </div>
-          </FormGrid>
-          <DialogFooter><Button variant="outline" onClick={() => setCreateOpen(false)}>إلغاء</Button><Button onClick={createEvent} disabled={isSaving || !form.name || !form.committeeIds.length}>فتح</Button></DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <NarrationCreateDialog open={createOpen} onOpenChange={setCreateOpen} committees={committees} onCreate={createEvent} />
 
       <Dialog open={endOpen} onOpenChange={(value) => { if (!isEnding) setEndOpen(value); }}>
         <DialogContent className={dialogClassName} dir="rtl">

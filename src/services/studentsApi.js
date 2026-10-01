@@ -251,6 +251,8 @@ export const studentsApi = {
     body: JSON.stringify({}),
   }),
   getNarrationEvents: () => request('/narration-events'),
+  getNarrationPreparation: () => request('/narration-events/preparation'),
+  previewNarrationRanges: (ranges) => request('/narration-events/preview-ranges', { method: 'POST', body: JSON.stringify({ ranges }) }),
   getNarrationEvent: (eventId) => request(`/narration-events/${eventId}`),
   getNarrationPartAyahs: (eventId, partId) => request(`/narration-events/${eventId}/parts/${partId}/ayahs`),
   deleteNarrationEvent: (eventId) => request(`/narration-events/${eventId}`, { method: 'DELETE' }),

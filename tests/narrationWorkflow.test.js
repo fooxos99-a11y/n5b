@@ -40,7 +40,7 @@ test('narration supports exclusive all-committees or multiple selected committee
     read('../src/components/dashboard/CommitteeMultiSelect.jsx'),
     read('../server/index.js'),
   ]);
-  assert.match(section, /committeeIds: \['all'\]/);
+  assert.match(await read('../src/components/dashboard/NarrationCreateDialog.jsx'), /committeeIds: \['all'\]/);
   assert.match(section, /جاري تحميل يوم السرد/);
   assert.match(selector, /onChange\?\.\(\['all'\]\)/);
   assert.match(selector, /<CheckboxOption/);

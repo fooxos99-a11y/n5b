@@ -1,4 +1,5 @@
 import { planScheduleDates } from './services/planScheduleDates.js';
+import { normalizeNarrationRanges, prepareNarrationAssignments } from './services/narrationPreparation.js';
 import { assertCommitteeNameAvailable, transferStudentCommittee } from './services/committeeMaintenance.js';
 import { assertStudentIdentityAvailable } from './services/studentIdentity.js';
 import { rememberResetGradeKeys } from './services/gradePointReset.js';
@@ -6244,6 +6245,37 @@ app.get('/api/narration-events', requireNarrationAccess, async (req, res, next) 
   } catch (error) { next(error); }
 });
 
+app.get('/api/narration-events/preparation', requireNarrationAccess, async (req, res, next) => {
+  try {
+    const supervisor = req.auth.role === 'supervisor';
+    const [students] = await db().query(`SELECT s.id, s.name, s.committee_id AS committeeId, c.name AS committeeName
+      FROM students s LEFT JOIN committees c ON c.id = s.committee_id
+      ${supervisor ? 'WHERE EXISTS (SELECT 1 FROM supervisor_committees sc WHERE sc.supervisor_id = ? AND sc.committee_id = s.committee_id)' : ''}
+      ORDER BY s.name`, supervisor ? [req.auth.id] : []);
+    res.json(students);
+  } catch (error) { next(error); }
+});
+
+function narrationRangeDependencies(connection) {
+  let juzRangesPromise;
+  return {
+    readAyah: (surah, ayah) => getQuranAyah(connection, surah, ayah),
+    mergeRanges: ranges => mergeQuranRanges(connection, ranges),
+    measureFaces: async range => {
+      juzRangesPromise ||= getQuranJuzRanges(connection);
+      const parts = [];
+      await collectNarrationJuzParts([range], await juzRangesPromise, parts, connection);
+      return parts.reduce((sum, part) => sum + Number(part.faces || 0), 0);
+    },
+  };
+}
+
+app.post('/api/narration-events/preview-ranges', requireNarrationAccess, async (req, res, next) => {
+  try {
+    res.json(await normalizeNarrationRanges(req.body.ranges, narrationRangeDependencies(db())));
+  } catch (error) { next(error); }
+});
+
 app.get('/api/narration-events/:id', requireNarrationAccess, async (req, res, next) => {
   try {
     const event = await getNarrationEvent(Number(req.params.id), req.auth);
@@ -6347,9 +6379,10 @@ app.post('/api/narration-events', requireNarrationAccess, async (req, res, next)
       `SELECT s.id, s.name, s.committee_id AS committeeId, c.name AS committeeName FROM students s LEFT JOIN committees c ON c.id = s.committee_id ${filters.length ? 'WHERE ' + filters.join(' AND ') : ''} ORDER BY s.name`,
       params
     );
+    const assignments = await prepareNarrationAssignments(req.body.mode, req.body.assignments, students, narrationRangeDependencies(connection));
     const juzRanges = await getQuranJuzRanges(connection);
     let included = 0;
-    included = await createNarrationStudentEntries({ students, connection, startDate, juzRanges, created, included });
+    included = await createNarrationStudentEntries({ students, connection, startDate, juzRanges, created, included, assignments });
     await connection.commit();
     const event = await getNarrationEvent(created.insertId, req.auth);
     if (event) void sendNarrationMessages(event, { type: 'start' }).catch(() => undefined);
@@ -9171,9 +9204,11 @@ function countNarrationWarnings(evaluationMode, normalizedWordMarks, req) {
 }
 
 /** Snapshot each eligible student range within the narration event transaction. */
-async function createNarrationStudentEntries({ students, connection, startDate, juzRanges, created, included }) {
+async function createNarrationStudentEntries({ students, connection, startDate, juzRanges, created, included, assignments = null }) {
   for (const student of students) {
-    const memorized = await mergeQuranRanges(connection, await getStudentMemorizedRanges(connection, student.id, { beforeDate: addUtcDays(startDate, 1) }));
+    if (assignments && !assignments.has(Number(student.id))) continue;
+    const memorized = assignments ? assignments.get(Number(student.id))
+      : await mergeQuranRanges(connection, await getStudentMemorizedRanges(connection, student.id, { beforeDate: addUtcDays(startDate, 1) }));
     const parts = [];
     await collectNarrationJuzParts(memorized, juzRanges, parts, connection);
     if (!parts.length) continue;

@@ -1,5 +1,6 @@
 import ErrorState from '@/components/ui/error-state';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { getSiteConfig } from '@/site/siteConfigs';
 import { Check, CheckCircle2, Clipboard, Copy, X, XCircle } from 'lucide-react';
 import LoadingSpinner from '@/components/ui/loading-spinner';
 import { Button } from '@/components/ui/button';
@@ -48,7 +49,7 @@ const RegistrationRequestsSection = () => {
   const [testResults, setTestResults] = useState({});
   const [busyKey, setBusyKey] = useState('');
 
-  const registrationLink = useMemo(() => `${window.location.origin}/register`, []);
+  const registrationLink = new URL('/register', getSiteConfig().publicUrl).href;
 
   const loadData = async () => {
     const [requestData, committeeData] = await Promise.all([
