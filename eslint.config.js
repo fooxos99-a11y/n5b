@@ -17,6 +17,10 @@ export default [
   },
   js.configs.recommended,
   {
+    files: ['shared/vendor/braces-safe/**/*.js'],
+    languageOptions: { sourceType: 'commonjs', globals: globals.node },
+  },
+  {
     files: ['src/**/*.{js,jsx}', 'server/**/*.js', 'scripts/**/*.mjs', 'tests/**/*.js', '*.js'],
     languageOptions: {
       ecmaVersion: 'latest',
