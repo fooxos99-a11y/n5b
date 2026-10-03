@@ -12996,7 +12996,8 @@ async function buildOverviewReport({ from, startDate: requestedStartDate, date, 
 
     const rangeDates = getDatesInRange(startDate, endDate);
     // Attendance is expected on the weekly program's attendance days (the grading policy's work days).
-    const attendanceWeekDays = (await loadGradingPolicy(reportDb)).weeklyProgram.workDays.map(Number);
+    const reportProgramPolicy = (await loadGradingPolicy(reportDb)).weeklyProgram;
+    const attendanceWeekDays = reportProgramPolicy.workDays.map(Number);
     const attendanceDates = await planScheduleDates(reportDb, startDate, minDateOnly(endDate, today), attendanceWeekDays);
 
     const [[totals]] = await reportDb.query(`
@@ -13365,7 +13366,8 @@ async function buildOverviewReport({ from, startDate: requestedStartDate, date, 
       },
       committeeIndicators,
       planPerformance: await loadQuranPlanPerformance(reportDb, {
-        from: startDate, to: minDateOnly(endDate, addUtcDays(today, -1)), workDays: attendanceWeekDays,
+        from: startDate, to: minDateOnly(endDate, today), workDays: attendanceWeekDays,
+        readingDays: reportProgramPolicy.readingDays.map(Number),
         expand: range => expandQuranTraversalRange(queryExecutor || db(), range),
       }),
       studentLevels: await loadStudentLevels({

@@ -69,6 +69,20 @@ const ReportsSection = ({
   const cachedReport = useCallback((key, loader) => loadOfflineSnapshot(accountId, `reports:${key}`, loader, { actorRole }), [accountId, actorRole]);
 
   useEffect(() => {
+    if (archiveId || !isOnline || !canViewStandardReports) return undefined;
+    const refresh = () => { if (document.visibilityState === 'visible') setRetry(value => value + 1); };
+    const timer = window.setInterval(refresh, 60_000);
+    const events = ['focus', 'online', 'nukhab-quran-execution-updated', 'dashboard-undo-completed'];
+    events.forEach(event => window.addEventListener(event, refresh));
+    document.addEventListener('visibilitychange', refresh);
+    return () => {
+      window.clearInterval(timer);
+      events.forEach(event => window.removeEventListener(event, refresh));
+      document.removeEventListener('visibilitychange', refresh);
+    };
+  }, [archiveId, isOnline, canViewStandardReports]);
+
+  useEffect(() => {
     let active = true;
     Promise.all([
       canViewStandardReports && !teacherScoped ? cachedReport('scoped-committees', () => studentsApi.getReportCommittees()) : Promise.resolve([]),

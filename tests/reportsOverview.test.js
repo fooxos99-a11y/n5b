@@ -126,7 +126,10 @@ test('teachers record self reading in the recitation session, reading-only days 
   assert.match(dialog, />\s*لم يقرأ\s*</);
   assert.match(dialog, />\s*حفظ القراءة\s*</);
   // Attendance counts the work days; self reading counts the reading days.
-  assert.match(server, /const attendanceWeekDays = \(await loadGradingPolicy\(reportDb\)\)\.weeklyProgram\.workDays\.map\(Number\);/);
+  assert.match(server, /const reportProgramPolicy = \(await loadGradingPolicy\(reportDb\)\)\.weeklyProgram;/);
+  assert.match(server, /const attendanceWeekDays = reportProgramPolicy\.workDays\.map\(Number\);/);
+  assert.match(server, /readingDays: reportProgramPolicy\.readingDays\.map\(Number\)/);
+  assert.match(server, /from: startDate, to: minDateOnly\(endDate, today\), workDays: attendanceWeekDays/);
   assert.match(metrics, /countTile\('أحزاب القراءة الذاتية', readingDone\)/);
   assert.match(metrics, /percentStat\('نسبة إتقان الحفظ', row\.segments\?\.grade, row\.segments\?\.max\)/);
 });
