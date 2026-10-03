@@ -14,13 +14,14 @@ export default function StudentWeeklySessionResult({ week, component, today }) {
   const score = week.grade?.[section];
   const day = week.grade?.policy?.[section]?.sessionDay;
   const period = sessionPeriod(week.start, day);
-  const attendanceRecorded = detail && detail.attendanceRecorded !== false;
+  const attendanceStatus = sessionAttendanceStatus(detail);
+  const attendanceRecorded = attendanceStatus !== null;
   return <section className="student-session-part" aria-label={track ? 'جلسة المسار' : 'الجلسة الأسبوعية'}>
     <header><div><h4>{track ? 'جلسة المسار' : 'الجلسة الأسبوعية'}</h4>
       <small>{formatHijriDate(period.start)} — {formatHijriDate(period.end)}</small></div>
       {score?.recorded && <GradeScore grade={score.grade} max={score.max} />}
     </header>
-    <p className="mt-2 text-xs text-muted-foreground">{attendanceRecorded ? ATTENDANCE_LABELS[sessionAttendanceStatus(detail)] : period.start > today ? 'لم تبدأ الجلسة' : 'بانتظار تسجيل الحضور'}</p>
+    <p className="mt-2 text-xs text-muted-foreground">{attendanceRecorded ? ATTENDANCE_LABELS[attendanceStatus] : period.start > today ? 'لم تبدأ الجلسة' : 'بانتظار تسجيل الحضور'}</p>
     {track && detail?.segments?.length > 0 && <div className="student-session-records">{detail.segments.map((segment, index) => <div key={index}>
       <h5 className="font-bold">{segment.source === 'review' ? 'مقطع المراجعة' : 'مقطع الربط'} {index + 1}</h5>
       {segment.range && <p>{formatQuranRangeText({ startSurah: segment.range.fromSurah, startAyah: segment.range.fromAyah, endSurah: segment.range.toSurah, endAyah: segment.range.toAyah })}</p>}

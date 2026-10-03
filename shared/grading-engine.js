@@ -154,8 +154,8 @@ export function evaluateReading(rawPolicy, { completed = false, requiredFaces, e
 export function evaluateAttendance(rawPolicy, status) {
   const policy = normalizeGradingPolicy(rawPolicy);
   const values = policy.weeklyProgram.attendance;
-  const key = Object.hasOwn(values, status) ? status : 'absent';
-  return { component: 'attendance', status: key, max: values.present, passed: key !== 'absent', grade: values[key] };
+  const key = Object.hasOwn(values, status) ? status : null;
+  return { component: 'attendance', status: key, max: values.present, passed: key !== null && key !== 'absent', grade: key ? values[key] : 0 };
 }
 
 export function evaluateTrackSession(rawPolicy, input = {}) {

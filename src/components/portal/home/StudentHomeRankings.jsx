@@ -19,15 +19,15 @@ export default function StudentHomeRankings({ studentId, settings, onReady }) {
     loadStudentHomeRankings(studentId, { settings }).then((next) => { if (active) setState(next); }).catch(() => { if (active) setError('تعذر تحميل الترتيب.'); }).finally(() => { if (active) onReady?.(true); });
     return () => { active = false; };
   }, [version, studentId, settings, onReady]);
-  const items = [{ value: 'students', label: 'أفضل الطلاب', visible: state?.settings.studentRankingsVisible !== false }, { value: 'families', label: 'أفضل الحلقات', visible: state?.settings.familyRankingsVisible !== false }].filter((item) => item.visible);
+  const items = [{ value: 'students', label: 'أفضل الطلاب', visible: state?.settings.studentRankingsVisible !== false }, { value: 'families', label: 'أفضل الحلقات', visible: state?.settings.familyRankingsVisible !== false }, { value: 'complexes', label: 'أفضل المجمعات', visible: state?.settings.familyRankingsVisible !== false }].filter((item) => item.visible);
   if (state && !items.length) return null;
   const selected = items.some((item) => item.value === tab) ? tab : items[0]?.value;
   const retry = <StudentHomeStatus message="تعذر تحديث الترتيب." onRetry={() => setVersion((value) => value + 1)} />;
   const panel = (key) => {
-  if (state[key === 'students' ? 'studentError' : 'familyError']) {
+  if (state[({ students: 'studentError', families: 'familyError', complexes: 'complexError' })[key]]) {
     return retry;
   }
-  return <StudentRankingList limit={expanded ? Infinity : 5} rows={state[key]} family={key === 'families'} studentId={studentId} showPoints={state.settings.rankingPointsVisible !== false} />;
+  return <StudentRankingList limit={expanded ? Infinity : 5} rows={state[key]} family={key !== 'students'} studentId={studentId} showPoints={state.settings.rankingPointsVisible !== false} />;
 };
   const _resolveConditional = () => {
     if (error) {

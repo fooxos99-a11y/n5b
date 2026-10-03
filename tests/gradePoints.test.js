@@ -138,6 +138,17 @@ test('attendance stores no attendance points and earns only its attendance grade
   assert.ok(state.ledger.has('grade:daily:1:2026-09-20:attendance'));
 });
 
+test('unrecorded weekly attendance is stored as unrecorded rather than implicit absence', async () => {
+  const { state, connection } = memoryDatabase();
+  for (const component of ['track', 'weekly']) {
+    const result = await recordWeeklyComponent(connection, { studentId: 1, weekStart: '2026-09-20', component, attendanceRecorded: false });
+    assert.equal(result.attendanceStatus, null);
+    assert.equal(result.attendanceRecorded, false);
+    assert.equal(result.grade, 0);
+  }
+  assert.equal(state.ledger.size, 0);
+});
+
 test('the grade points migration widens point columns and rebuilds the ledger from recorded grades only', async () => {
   const queries = [];
   const steps = [];

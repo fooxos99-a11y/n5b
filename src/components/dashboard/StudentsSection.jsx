@@ -131,7 +131,7 @@ const StudentsSection = () => {
       return;
     }
 
-    if (!studentForm.loginNumber.trim() || (dialog === 'add' && !studentForm.password)) {
+    if (!studentForm.loginNumber.trim() || !studentForm.password) {
       toast({ title: 'أدخل رقم الدخول وكلمة المرور.', variant: 'destructive' });
       return;
     }
@@ -381,8 +381,7 @@ const StudentsSection = () => {
                   <Input id="student-guardian-phone" aria-label="جوال ولي الأمر" inputMode="tel" value={studentForm.guardianPhone} onChange={event => setStudentForm({ ...studentForm, guardianPhone: event.target.value })} />
                 </FormField>
                 <FormField label={dialog === 'edit' ? 'كلمة مرور جديدة' : 'كلمة المرور'} htmlFor="student-password">
-                  <PasswordInput id="student-password" required={dialog === 'add'} autoComplete="new-password" value={studentForm.password} onChange={(event) => setStudentForm({ ...studentForm, password: event.target.value })} />
-                  {dialog === 'edit' && <p className="text-xs text-muted-foreground">اتركها فارغة للإبقاء على كلمة المرور الحالية.</p>}
+                  <PasswordInput id="student-password" required autoComplete="new-password" value={studentForm.password} onChange={(event) => setStudentForm({ ...studentForm, password: event.target.value })} />
                 </FormField>
                 <FormField label="رقم الهوية" htmlFor="student-national-id">
                   <Input id="student-national-id" aria-label="رقم الهوية" inputMode="numeric" value={studentForm.nationalId} onChange={(event) => setStudentForm({ ...studentForm, nationalId: event.target.value })} />

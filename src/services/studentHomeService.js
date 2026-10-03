@@ -23,10 +23,11 @@ export const loadStudentMemorized = (studentId) => loadOfflineSnapshot(studentId
 
 export async function loadStudentHomeRankings(studentId, { settings: providedSettings } = {}) {
   const settings = providedSettings || await loadPublicSettingsCached({ refresh: true });
-  const [students, families] = await Promise.allSettled([
+  const [students, families, complexes] = await Promise.allSettled([
     settings.studentRankingsVisible === false ? [] : loadOfflineSnapshot(studentId, 'student:rankings', () => studentsApi.getStudentRankings({ committeeId: 'all' }), { actorRole: 'student' }),
     settings.familyRankingsVisible === false ? [] : loadOfflineSnapshot(studentId, 'student:family-rankings', () => studentsApi.getFamilyRankings(), { actorRole: 'student' }),
+    settings.familyRankingsVisible === false ? [] : loadOfflineSnapshot(studentId, 'student:complex-rankings', () => studentsApi.getComplexRankings(), { actorRole: 'student' }),
   ]);
   const rows = (result) => result.status === 'fulfilled' && Array.isArray(result.value) ? result.value.filter((row) => row?.name).map((row, index) => ({ ...row, rank: Number(row.rank || index + 1) })) : [];
-  return { settings, students: rows(students), families: rows(families), studentError: students.status === 'rejected', familyError: families.status === 'rejected' };
+  return { settings, students: rows(students), families: rows(families), complexes: rows(complexes), studentError: students.status === 'rejected', familyError: families.status === 'rejected', complexError: complexes.status === 'rejected' };
 }

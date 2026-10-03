@@ -297,7 +297,7 @@ export function createGradingRouter({ db, today }) {
         await deleteWeeklyComponent(db(), { studentId, weekStart, component, actor });
         return res.json({ ok: true, result: null });
       }
-      const attendanceStatus = sessionAttendanceStatus(req.body);
+      const attendanceStatus = sessionAttendanceStatus({ attendanceStatus: req.body.attendanceStatus, attended: req.body.attended });
       const attended = canTestSession({ attendanceStatus });
       let segments = component === 'track' ? normalizeSegments(req.body.segments) : [];
       if (segments.some(item => !Number.isInteger(item.hesitations) || item.hesitations < 0 || item.hesitations > 1000)) return invalid(res, 'عدد الترددات يجب أن يكون عددًا صحيحًا من 0 إلى 1000.');

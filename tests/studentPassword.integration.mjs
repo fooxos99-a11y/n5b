@@ -4,6 +4,8 @@ import '../server/loadEnvironment.js';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import mysql from 'mysql2/promise';
+import { loadComplexRankings } from '../server/services/complexRankings.js';
+import { sessionAttendanceCountsSql } from '../server/services/sessionAttendanceSql.js';
 const database = `nukhab_password_test_${Date.now()}`;
 const platform = `${database}_platform`;
 const port = 3097;
@@ -28,9 +30,10 @@ try {
  }
  assert.ok(ready,'Isolated API starts');
  await connection.query(`USE \`${database}\``);
- const [committee]=await connection.query("INSERT INTO committees (name) VALUES ('حلقة اختبار اصطناعية')");
+ const [complex] = await connection.query("INSERT INTO complexes (name) VALUES ('مجمع اختبار اصطناعي')");
+ const [committee]=await connection.query("INSERT INTO committees (name, complex_id) VALUES ('حلقة اختبار اصطناعية', ?)", [complex.insertId]);
  const manager=await api('/auth/login',{loginNumber:'987654321'});
- const student={name:'طالب اختبار اصطناعي',loginNumber:'7654321',committeeId:committee.insertId,guardianPhone:'',nationalId:''};
+ const student={name:'طالب اختبار اصطناعي',loginNumber:'7654321',complexId:complex.insertId,committeeId:committee.insertId,guardianPhone:'',nationalId:''};
  await api('/students',student,manager.token,422);
  const created=await api('/students',{...student,password:'12'},manager.token,201);
  assert.equal(created.password,undefined);assert.equal(created.passwordHash,undefined);assert.equal(created.password_hash,undefined);
@@ -40,11 +43,14 @@ try {
  await api('/auth/login',{loginNumber:student.loginNumber,password:'wrong'},undefined,401);
  const loggedIn=await api('/auth/login',{loginNumber:student.loginNumber,password:'12'});
  assert.equal(loggedIn.role,'student');
- await api(`/students/${created.id}`,{...student,password:''},manager.token,200,'PUT');
+ for (const password of [undefined, '', null, 123]) {
+  await api(`/students/${created.id}`,{...student,password},manager.token,422,'PUT');
+ }
+ await api(`/students/${created.id}`,{...student,password:'ab'},loggedIn.token,403,'PUT');
  await api('/auth/login',{loginNumber:student.loginNumber,password:'12'});
  await api(`/students/${created.id}`,{...student,password:'ab'},manager.token,200,'PUT');
  await api('/auth/login',{loginNumber:student.loginNumber,password:'12'},undefined,401);
- await api('/auth/login',{loginNumber:student.loginNumber,password:'ab'});
+ const activeStudent = await api('/auth/login',{loginNumber:student.loginNumber,password:'ab'});
  const [[sessions]]=await connection.query("SELECT COUNT(*) AS count FROM auth_sessions WHERE user_role='student' AND user_id=?",[created.id]);
  assert.equal(sessions.count,1,'Password change revokes previous sessions');
  await api('/students/bulk',{students:[{...student,loginNumber:'7654322'}]},manager.token,422);
@@ -52,7 +58,25 @@ try {
  await api('/auth/login',{loginNumber:'7654322',password:'x'});
  const [[count]]=await connection.query('SELECT COUNT(*) AS count FROM students');
  assert.equal(count.count,2,'Failed additions leave no student records');
- globalThis.console.log('PASS: real MySQL and API create, bulk, missing/wrong/short password, update, preserved password and session revocation');
+ await connection.query('UPDATE committees SET complex_id = ?, points = 60 WHERE id = ?', [complex.insertId, committee.insertId]);
+ await connection.query('UPDATE students SET points = CASE WHEN id = ? THEN 20 ELSE 40 END', [created.id]);
+ const [emptyComplex] = await connection.query("INSERT INTO complexes (name) VALUES ('مجمع فارغ اصطناعي')");
+ const ranked = await loadComplexRankings(connection, 'total');
+ assert.equal(ranked.find(row => row.id === complex.insertId).points, 60, 'Circle points are not multiplied by student count');
+ assert.equal(ranked.find(row => row.id === emptyComplex.insertId).points, 0);
+ const averageRanked = await loadComplexRankings(connection, 'average');
+ assert.equal(averageRanked.find(row => row.id === complex.insertId).points, 30, 'Average uses all students');
+ const visible = await api('/rankings/complexes', undefined, activeStudent.token, 200, 'GET');
+ assert.ok(visible.some(row => row.id === complex.insertId && row.studentsCount === 2));
+ assert.deepEqual(await api('/rankings/complexes', undefined, undefined, 200, 'GET'), visible);
+ await connection.query('CREATE TEMPORARY TABLE session_attendance_check (attended INT, detail_json JSON)');
+ for (const detail of [{ attendanceStatus: null, attendanceRecorded: false }, { attendanceStatus: 'absent', attendanceRecorded: false }, { attendanceStatus: 'absent', attendanceRecorded: true }, { attendanceStatus: 'excused', attendanceRecorded: true }]) {
+  await connection.query('INSERT INTO session_attendance_check VALUES (0, ?)', [JSON.stringify(detail)]);
+ }
+ const [[attendanceCounts]] = await connection.query(`SELECT ${sessionAttendanceCountsSql()} FROM session_attendance_check`);
+ assert.equal(Number(attendanceCounts.absent), 1, 'Only explicitly recorded absence counts');
+ globalThis.console.log('PASS: real MySQL and API create, bulk, required passwords on edit, denied student edits, failed-edit rollback and session revocation');
+ globalThis.console.log('PASS: real MySQL complex ranking totals/averages, empty complexes, student/public endpoint and unrecorded session attendance');
 } finally {
  child.kill();
  await new Promise(resolve=>{if(child.exitCode!==null)return resolve();child.once('exit',resolve);setTimeout(resolve,3000);});

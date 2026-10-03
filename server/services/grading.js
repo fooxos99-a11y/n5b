@@ -236,6 +236,7 @@ export async function recordWeeklyComponent(queryExecutor, { studentId, weekStar
   const result = component === 'track'
     ? evaluateTrackSession(policy, { attended, attendanceStatus, segments })
     : evaluateWeeklySession(policy, { attended, attendanceStatus });
+  result.attendanceRecorded = attendanceRecorded && result.attendanceStatus !== null;
   const [role, id] = actorOf(actor);
   await withGradeTransaction(queryExecutor, async (connection) => {
     await connection.query('SELECT id FROM students WHERE id = ? FOR UPDATE', [studentId]);
@@ -243,8 +244,8 @@ export async function recordWeeklyComponent(queryExecutor, { studentId, weekStar
     if (compensation) {
       if (compensationId && Number(compensation.id) !== compensationId) throw Object.assign(new Error('تعذر مطابقة التعويض.'), { status: 409 });
       const full = evaluateTrackSession(policy, { attendanceStatus: 'present', segments: [] });
-      if (!attendanceRecorded) result.attendanceGrade = 0;
-      Object.assign(result, { attendanceRecorded, operationType: 'compensation', compensationId: Number(compensation.id),
+      if (!result.attendanceRecorded) result.attendanceGrade = 0;
+      Object.assign(result, { operationType: 'compensation', compensationId: Number(compensation.id),
         segments: full.segments.map(row => ({ ...row, recorded: false, compensated: true, grade: row.max })),
         grade: Math.round((result.attendanceGrade + full.segments.reduce((sum, row) => sum + row.max, 0)) * 100) / 100 });
     }

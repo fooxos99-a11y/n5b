@@ -9,6 +9,7 @@ import { resolveMemorizedReading } from './selfReadingAmount.js';
 import { loadCompensatedPlanRanges } from './compensationPlanCredit.js';
 import { addDays } from './grading.js';
 import { loadEligibleCompensationDays } from './compensationEligibility.js';
+import { sessionAttendanceStatus } from '../../shared/session-attendance.js';
 
 const invalid = message => Object.assign(new Error(message), { status: 422, statusCode: 422 });
 const conflict = message => Object.assign(new Error(message), { status: 409, statusCode: 409 });
@@ -84,7 +85,8 @@ export async function recordDayCompensation(connection, { studentId, date, today
   const compensationId = Number(inserted.insertId);
   if (scope === 'track') {
     await recordWeeklyComponent(connection, { studentId, weekStart: period, component: 'track',
-      attendanceStatus: weeklyDetail?.attendanceStatus || (weekly?.attended ? 'present' : 'absent'), actor, compensationId, attendanceRecorded: Boolean(weekly) });
+      attendanceStatus: sessionAttendanceStatus(weeklyDetail || (weekly ? { attended: Boolean(weekly.attended) } : null)), actor, compensationId,
+      attendanceRecorded: Boolean(weekly) && weeklyDetail?.attendanceRecorded !== false });
   } else {
     for (const component of components) {
       await upsertDailyGrade(connection, { studentId, date, policy, actor, compensationId,
@@ -133,14 +135,14 @@ export async function cancelDayCompensation(connection, { id, actor, reason }) {
   if (row.scope === 'track') {
     const [[current]] = await connection.query("SELECT detail_json AS detail FROM student_weekly_components WHERE student_id = ? AND week_start = ? AND component = 'track'", [row.student_id, row.period]);
     const currentDetail = parse(current?.detail);
-    const attendanceStatus = currentDetail?.attendanceStatus || 'absent';
+    const attendanceStatus = sessionAttendanceStatus(currentDetail);
     const old = parse(before.weekly?.detail_json);
     if (!before.weekly && currentDetail?.attendanceRecorded === false) {
       await connection.query("DELETE FROM student_weekly_components WHERE student_id = ? AND week_start = ? AND component = 'track'", [row.student_id, row.period]);
       await syncGradePoints(connection, { studentId: row.student_id, date: row.period, dedupeKey: `grade:weekly:${row.student_id}:${row.period}:track`, points: 0, reason: 'إلغاء التعويض', actor });
     } else {
       await recordWeeklyComponent(connection, { studentId: row.student_id, weekStart: row.period, component: 'track',
-        attendanceStatus, segments: old?.segments || [], actor });
+        attendanceStatus, segments: old?.segments || [], attendanceRecorded: attendanceStatus !== null, actor });
     }
   } else {
     const policy = await loadGradingPolicyForDate(connection, row.date);

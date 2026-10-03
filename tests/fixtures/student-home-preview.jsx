@@ -24,8 +24,9 @@ const weekStart = shiftDateOnly(date, -new Date(`${date}T00:00:00Z`).getUTCDay()
 const policy = normalizeGradingPolicy({ trackSession: { sessionDay: 0 }, weeklySession: { sessionDay: 0 } });
 const dailyReading = evaluateReading(policy, { completed: true, requiredFaces: 10 });
 Object.assign(dailyReading, { range: { startSurah: 2, startAyah: 25, endSurah: 2, endAyah: 29, startSurahName: 'البقرة', endSurahName: 'البقرة' } });
-const trackDetail = evaluateTrackSession(policy, { attendanceStatus: 'late', segments: [{ mistakes: 1 }, { warnings: 2 }] });
-const weeklyDetail = evaluateWeeklySession(policy, { attendanceStatus: 'present' });
+const attendanceUnrecorded = new URLSearchParams(location.search).has('unrecorded');
+const trackDetail = attendanceUnrecorded ? null : evaluateTrackSession(policy, { attendanceStatus: 'late', segments: [{ mistakes: 1 }, { warnings: 2 }] });
+const weeklyDetail = attendanceUnrecorded ? null : evaluateWeeklySession(policy, { attendanceStatus: 'present' });
 const weeklyGrades = [0, -7].map(offset => {
   const start = shiftDateOnly(weekStart, offset);
   const days = Array.from({ length: 7 }, (_, index) => ({ date: shiftDateOnly(start, index), weekday: index, reading: index === 0 ? { grade: dailyReading.grade } : null }));
@@ -77,6 +78,7 @@ globalThis.fetch = async (input, init) => {
   if (path.endsWith('/quran-saved')) data = [{ juz: 1, label: 'الجزء الأول', progressPercent: 27, savedRanges: [range, { ...range, fromAyah: 35, toAyah: 39, fromPage: 7, toPage: 7 }] }, { juz: 30, label: 'الجزء الثلاثون', progressPercent: 100, savedRanges: [{ fromPage: 604, toPage: 604, fromSurah: 114, toSurah: 114, fromSurahName: 'الناس', toSurahName: 'الناس', fromAyah: 1, toAyah: 6 }] }];
   if (path.endsWith('/rankings/students')) data = names.map((name, index) => ({ id: index === 1 ? 'preview-student' : index, name, committeeName: 'حلقة الإتقان', points: 4200 - 550 * index, rank: index + 1 }));
   if (path.endsWith('/rankings/families')) data = ['الإتقان', 'الهدى', 'الفرقان', 'النور', 'البيان', 'الريان', 'الماهر', 'الترتيل'].map((name, index) => ({ id: index, name: `حلقة ${name}`, points: 12000 - 500 * index, rank: index + 1 }));
+  if (path.endsWith('/rankings/complexes')) data = ['الإتقان', 'الهدى', 'الفرقان', 'النور', 'البيان', 'الريان', 'الماهر', 'الترتيل'].map((name, index) => ({ id: index, name: `مجمع ${name}`, points: 20000 - 500 * index, rank: index + 1 }));
   return new Response(JSON.stringify(data), { status: 200, headers: { 'Content-Type': 'application/json' } });
 };
 function CallCheck() {

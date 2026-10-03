@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { evaluateTrackSession, evaluateWeeklySession } from '../shared/grading-engine.js';
+import { evaluateAttendance, evaluateTrackSession, evaluateWeeklySession } from '../shared/grading-engine.js';
 import { gradingMaxima, gradingPolicyErrors, normalizeGradingPolicy } from '../shared/grading-policy.js';
 import { canTestSession, sessionAttendanceStatus } from '../shared/session-attendance.js';
 
@@ -10,6 +10,22 @@ test('session status retains legacy attendance and permits late students to test
   for (const attendanceStatus of ['present', 'late', 'excused', 'absent']) {
     assert.equal(canTestSession({ attendanceStatus }), ['present', 'late'].includes(attendanceStatus));
   }
+});
+
+test('unrecorded attendance never defaults to absence, even for a compensated session', () => {
+  for (const input of [undefined, null, {}, { attended: null }, { attendanceStatus: '' }, { attendanceStatus: 'invalid' }, { attendanceRecorded: false, attended: false, attendanceStatus: 'absent' }]) {
+    assert.equal(sessionAttendanceStatus(input), null);
+    assert.equal(canTestSession(input), false);
+    for (const evaluate of [evaluateTrackSession, evaluateWeeklySession]) {
+      const result = evaluate({}, input || {});
+      assert.equal(result.attendanceStatus, null);
+      assert.equal(result.grade, 0);
+    }
+  }
+  for (const status of [undefined, null, '', 'invalid']) {
+    assert.equal(evaluateAttendance({}, status).status, null);
+  }
+  assert.equal(evaluateAttendance({}, 'absent').status, 'absent');
 });
 
 test('each session awards its configured attendance grade and keeps the present maximum', () => {

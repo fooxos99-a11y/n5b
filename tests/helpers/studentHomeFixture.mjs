@@ -37,5 +37,6 @@ export function studentHomeResponse(path, { date, range, tasks, savedFailure, bo
   }
   if (path.includes('/rankings/students')) body = Array.from({ length: 8 }, (_, i) => ({ id: 990 + i, name: ['عبدالله محمد عبدالرحمن السليمان', 'طالب الاختبار', 'خالد سليمان'][i % 3], committeeName: 'حلقة الإتقان', rank: i + 1, points: 1800 - 50 * i }));
   if (path.includes('/rankings/families')) body = Array.from({ length: 8 }, (_, i) => ({ id: i + 1, name: `حلقة الإتقان ${i + 1}`, rank: i + 1, points: 12000 - 500 * i }));
+  if (path.includes('/rankings/complexes')) body = Array.from({ length: 8 }, (_, i) => ({ id: i + 1, name: `مجمع الإتقان ${i + 1}`, rank: i + 1, points: 20000 - 500 * i }));
   return { json: body };
 }

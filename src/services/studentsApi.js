@@ -398,6 +398,7 @@ export const studentsApi = {
     body: JSON.stringify(payload),
   }),
   getFamilyRankings: () => request(`/rankings/families?_fresh=${PUBLIC_RANKINGS_CACHE_VERSION}`),
+  getComplexRankings: () => request(`/rankings/complexes?_fresh=${PUBLIC_RANKINGS_CACHE_VERSION}`),
   getStudentRankings: ({ committeeId = 'all' } = {}) => {
     const params = new URLSearchParams();
     if (committeeId) params.set('committeeId', committeeId);

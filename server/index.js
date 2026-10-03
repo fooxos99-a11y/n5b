@@ -183,6 +183,7 @@ import {
 import { enforcePointsFeatureDependencies } from '../shared/points-feature-settings.js';
 import { normalizeTeacherPointTypes } from '../shared/teacher-point-types.js';
 import { normalizeFamilyRankingMode, rankFamilies } from '../shared/family-rankings.js';
+import { loadComplexRankings } from './services/complexRankings.js';
 import {
   MANUAL_FAIL_RATING_KEY,
   evaluateRecitationRow,
@@ -521,7 +522,7 @@ const publicApiRules = [
   ['POST', /^\/registration\/public$/],
   ['GET', /^\/homepage-stats$/],
   ['GET', /^\/committees$/],
-  ['GET', /^\/rankings\/(?:families|students)$/],
+  ['GET', /^\/rankings\/(?:families|students|complexes)$/],
 ];
 
 function isPublicApiRequest(req) {
@@ -8548,6 +8549,16 @@ app.get('/api/rankings/families', async (_req, res, next) => {
   }
 });
 
+app.get('/api/rankings/complexes', async (_req, res, next) => {
+  try {
+    const settings = await loadSettings();
+    if (!settings.familyRankingsVisible) return res.status(404).json({ message: 'ترتيب المجمعات غير مفعّل حالياً.' });
+    res.json(await loadComplexRankings(db(), settings.familyRankingMode));
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get('/api/supervisors', async (req, res, next) => {
   try {
     const params = [];
@@ -11831,13 +11842,8 @@ app.put('/api/students/:id', requirePermission('students'), async (req, res, nex
       `,
       [name, cleanLoginNumber, cleanNationalId, guardianPhone, validatedCommitteeId, phone, req.params.id]
     );
-    const passwordChanged = req.body.password !== undefined && req.body.password !== '';
-    if (passwordChanged) {
-      await connection.query('UPDATE students SET password_hash = ? WHERE id = ?', [await hashStudentPassword(req.body.password), req.params.id]);
-    }
-    if (passwordChanged || String(current.loginNumber || '').trim() !== cleanLoginNumber) {
-      await revokeAuthSessionsForUser(connection, 'student', req.params.id);
-    }
+    await connection.query('UPDATE students SET password_hash = ? WHERE id = ?', [await hashStudentPassword(req.body.password), req.params.id]);
+    await revokeAuthSessionsForUser(connection, 'student', req.params.id);
     if (adjustment) {
       const today = getSaudiDateTimeParts().date;
       const effectiveDelta = await applyStudentPointDelta(
@@ -14004,7 +14010,8 @@ async function buildProgressReport({
           attended,
           late: attendanceCounts.late,
           excused: attendanceCounts.excused,
-          absent: Math.max(0, expectedAttendance - attended),
+          absent: attendanceCounts.absent,
+          notRecorded: Math.max(0, expectedAttendance - attended - attendanceCounts.absent),
           percentage: progressPercentage(attended, expectedAttendance),
         },
         tasks,
