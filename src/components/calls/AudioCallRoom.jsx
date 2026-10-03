@@ -1,5 +1,6 @@
 import AudioCallControls from './AudioCallControls';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Camera, CameraOff, Mic, MicOff, MonitorPlay, PhoneCall, User, X } from 'lucide-react';
 import { AudioPresets, Room, RoomEvent, Track } from 'livekit-client';
 import { Button } from '@/components/ui/button';
@@ -69,7 +70,7 @@ const getScreenShareErrorDescription = (error) => {
   return 'تعذر بدء بث الشاشة. حاول مرة أخرى أو استخدم متصفحًا آخر.';
 };
 
-const AudioCallRoom = ({ roomInfo, isOwner, minimized = false, onRestore, onLeave, onClosed }) => {
+const AudioCallRoom = ({ roomInfo, isOwner, minimized = false, displayTarget, onRestore, onLeave, onClosed }) => {
   const { toast } = useToast();
   const livekitRoomRef = useRef(null);
   const audioContainerRef = useRef(null);
@@ -422,7 +423,8 @@ const AudioCallRoom = ({ roomInfo, isOwner, minimized = false, onRestore, onLeav
     );
   };
   // Keep playback mounted while loading, minimizing or restoring the call.
-  return <><div ref={audioContainerRef} className="hidden" aria-hidden="true" />{renderCall()}</>;
+  const callView = renderCall();
+  return <><div ref={audioContainerRef} className="hidden" aria-hidden="true" />{displayTarget && !minimized ? createPortal(callView, displayTarget) : callView}</>;
 };
 
 export default AudioCallRoom;

@@ -16,6 +16,7 @@ import StudentHomeHeader from './StudentHomeHeader';
 import StudentTodayCard from './StudentTodayCard';
 import StudentHomeRankings from './StudentHomeRankings';
 import StudentHomeWindow from './StudentHomeWindow';
+import LazyAudioCallRoom from '@/components/calls/LazyAudioCallRoom';
 import './student-home.css';
 
 const Sessions = lazy(() => import('./StudentSessions'));
@@ -47,6 +48,8 @@ function StudentHomeContent({ studentId, onLogout }) {
   const { view: requestedView, open: navigate, back } = useStudentHomeNavigation();
   const mobile = useMediaQuery('(max-width: 899px)');
   const [target, setTarget] = useState(null);
+  const [activeCallRoom, setActiveCallRoom] = useState(null);
+  const [callDisplayTarget, setCallDisplayTarget] = useState(null);
 
   const [sessionTab, setSessionTab] = useState('evaluation');
   const [openJuzs, setOpenJuzs] = useState({});
@@ -93,8 +96,13 @@ function StudentHomeContent({ studentId, onLogout }) {
         {(view === 'sessions' || (view === 'mushaf' && sessionVisited)) && <div hidden={view !== 'sessions'}><Sessions studentId={studentId} plan={plan} today={today} onRead={read} tab={sessionTab} onTabChange={setSessionTab} openJuzs={openJuzs} onJuzToggle={setOpenJuzs} /></div>}
         {view === 'mushaf' && <Mushaf studentId={studentId} initialTarget={target} onBack={leaveReader} />}
         {view === 'store' && <Store embedded />}
-        {view === 'calls' && <Calls />}
+        {view === 'calls' && <Calls activeRoom={activeCallRoom} onJoinRoom={setActiveCallRoom} onDisplayTarget={setCallDisplayTarget} />}
       </Suspense></PageLoadingBoundary>
     </StudentHomeWindow>}
+    {activeCallRoom && <div className="[&>button.fixed]:bottom-24 sm:[&>button.fixed]:bottom-5">
+      <LazyAudioCallRoom roomInfo={activeCallRoom} isOwner={activeCallRoom.isOwner}
+        displayTarget={callDisplayTarget} minimized={view !== 'calls' || !callDisplayTarget}
+        onRestore={() => open('calls')} onLeave={() => setActiveCallRoom(null)} onClosed={() => setActiveCallRoom(null)} />
+    </div>}
   </div>;
 }

@@ -1,12 +1,13 @@
+import '../../src/index.css';
 import { computeWeeklyGrade, evaluateReading, evaluateWeeklySession, evaluateTrackSession } from '../../shared/grading-engine.js';
 import { normalizeGradingPolicy } from '../../shared/grading-policy.js';
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from '../../src/lib/router';
 import StudentHome from '../../src/components/portal/home/StudentHome';
 import { Toaster } from '../../src/components/ui/toaster';
 import { getBusinessDate, shiftDateOnly } from '../../shared/business-date.js';
-import '../../src/index.css';
+import { Room } from './call-audio-livekit.js';
 
 if (!import.meta.env.DEV || !['localhost', '127.0.0.1'].includes(location.hostname) || location.port !== '3003') throw new Error('Preview requires the isolated local port 3003');
 document.title = 'معاينة الطالب — بيانات تجريبية';
@@ -34,6 +35,10 @@ const weeklyGrades = [0, -7].map(offset => {
 });
 const notifications = [1, 2].map(id => ({ id, title: `إشعار الاختبار ${id}`, body: 'خبر للطالب', createdAt: `${date}T12:00:00`, isRead: false }));
 const nativeFetch = globalThis.fetch.bind(globalThis);
+const callDirectory = { livekitConfigured: true, rooms: [
+  { id: 1, name: 'مكالمة الاختبار', status: 'open', studentPresent: false, participants: [] },
+  { id: 2, name: 'مكالمة فيها طالب', status: 'open', studentPresent: true, participants: [{ name: 'طالب تجريبي' }] },
+] };
 globalThis.fetch = async (input, init) => {
   const url = new URL(typeof input === 'string' ? input : input.url, location.href);
   if (!url.pathname.includes('/api/')) {
@@ -41,8 +46,17 @@ globalThis.fetch = async (input, init) => {
     return nativeFetch(input, init);
   }
   const path = url.pathname;
+  if (path.endsWith('/calls/events')) {
+    const body = new ReadableStream({ start(controller) {
+      controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(callDirectory)}\n\n`));
+      init?.signal?.addEventListener('abort', () => controller.close(), { once: true });
+    } });
+    return new Response(body, { headers: { 'Content-Type': 'text/event-stream' } });
+  }
   await delayPreviewRankings(path);
   let data = [];
+  if (path.endsWith('/calls')) data = callDirectory;
+  if (/\/calls\/\d+\/token$/.test(path)) data = { serverUrl: 'wss://local-test.invalid', token: 'synthetic' };
   if (path.endsWith('/notifications')) data = notifications;
   if (path.endsWith('/notifications/read')) {
     if (new URLSearchParams(location.search).has('notificationsFail')) return new Response(JSON.stringify({ message: 'تعذر تحديث حالة القراءة.' }), { status: 503, headers: { 'Content-Type': 'application/json' } });
@@ -65,7 +79,12 @@ globalThis.fetch = async (input, init) => {
   if (path.endsWith('/rankings/families')) data = ['الإتقان', 'الهدى', 'الفرقان', 'النور', 'البيان', 'الريان', 'الماهر', 'الترتيل'].map((name, index) => ({ id: index, name: `حلقة ${name}`, points: 12000 - 500 * index, rank: index + 1 }));
   return new Response(JSON.stringify(data), { status: 200, headers: { 'Content-Type': 'application/json' } });
 };
-createRoot(document.getElementById('root')).render(<BrowserRouter><StudentHome studentId="preview-student" executionEnabled onLogout={() => location.reload()} /><Toaster /></BrowserRouter>);
+function CallCheck() {
+  const [, refresh] = useState(0);
+  useEffect(() => { const timer = setInterval(() => refresh(value => value + 1), 250); return () => clearInterval(timer); }, []);
+  return <output className="fixed bottom-0 right-0 z-[80] bg-white p-1 text-xs" aria-label="إحصاءات اتصال الاختبار">غرف {Room.instances.length} · اتصالات {Room.instances.reduce((sum, room) => sum + room.connections, 0)} · خروج {Room.instances.reduce((sum, room) => sum + room.disconnections, 0)}</output>;
+}
+createRoot(document.getElementById('root')).render(<BrowserRouter><StudentHome studentId="preview-student" executionEnabled onLogout={() => location.reload()} />{new URLSearchParams(location.search).has('calls') && <CallCheck />}<Toaster /></BrowserRouter>);
 
 
 /** Simulate delayed rankings only when the preview explicitly requests the scenario. */
