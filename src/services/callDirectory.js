@@ -42,6 +42,6 @@ export function subscribeCallDirectory({ onData, onError }) {
       retryTimer = window.setTimeout(connect, 3000);
     }
   };
-  connect();
+  void connect();
   return () => { controller.abort(); window.clearTimeout(retryTimer); };
 }

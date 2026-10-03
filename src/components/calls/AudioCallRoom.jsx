@@ -238,10 +238,12 @@ const AudioCallRoom = ({ roomInfo, isOwner, minimized = false, displayTarget, on
         if (mounted) setIsConnecting(false);
       }
     };
-    connect();
+    void connect();
     return () => {
       mounted = false;
-      room.disconnect();
+      void room.disconnect().catch(() => {
+        toast({ title: 'تعذر إنهاء الاتصال بالمكالمة', variant: 'destructive' });
+      });
       livekitRoomRef.current = null;
       activeScreenIdentityRef.current = '';
       for (const [track, element] of audioElements) { track.detach(element); element.remove(); }

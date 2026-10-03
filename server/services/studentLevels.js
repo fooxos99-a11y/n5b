@@ -63,7 +63,7 @@ export function rangeIntervals(index, range = {}) {
 /** Per juz: coverage and the first date all its verses were covered, ignoring later copies. */
 export function studentJuzStatus(index, pieces = []) {
   const covered = new Uint8Array(index.size);
-  const firstCoveredOn = Array(index.size).fill(null);
+  const firstCoveredOn = new Array(index.size).fill(null);
   const touched = pieces.map(({ range, date }) => ({ date: date || null, intervals: rangeIntervals(index, range) }));
   for (const { date, intervals } of touched) {
     for (const [first, last] of intervals) {

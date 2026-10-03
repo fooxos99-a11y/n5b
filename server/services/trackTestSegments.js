@@ -36,7 +36,7 @@ export function createTrackTestAttempts({ now = Date.now, pick = randomInt } = {
   const sign = payload => createHmac('sha256', key).update(payload).digest();
   return {
     async prepare(connection, { studentId, weekStart, today, policy, auth }) {
-      const end = [addDays(weekStart, 6), today].sort()[0];
+      const end = [addDays(weekStart, 6), today].sort((a, b) => a.localeCompare(b))[0];
       const [tasks] = await connection.query(`SELECT task_type AS source, DATE_FORMAT(task_date, '%Y-%m-%d') AS date,
         from_surah AS fromSurah, from_ayah AS fromAyah, to_surah AS toSurah, to_ayah AS toAyah
         FROM student_quran_tasks WHERE student_id = ? AND task_date BETWEEN ? AND ? AND task_type IN ('link', 'review')

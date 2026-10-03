@@ -67,7 +67,7 @@ const idbTransactionDone = (transaction) => new Promise((resolve, reject) => {
 /** Plan identity of a session's tasks, so a changed plan starts a separate session. */
 const recitationPlanKey = (tasks = []) => [...new Set((tasks || [])
   .map((task) => `${Number(task.planId || 0)}:${Math.max(1, Number(task.planVersion || 1))}`))]
-  .sort()
+  .sort((a, b) => a < b ? -1 : Number(a > b))
   .join('|');
 
 class OfflineRecitationStore {

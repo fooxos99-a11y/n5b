@@ -1,6 +1,9 @@
+import { join } from 'node:path';
+import { createTemporaryArtifactDirectory } from './helpers/temporaryArtifacts.mjs';
 import assert from 'node:assert/strict';
 import process from 'node:process';
 import { chromium } from 'playwright';
+const artifactDirectory = createTemporaryArtifactDirectory();
 const browser = await chromium.launch();
 try {
   for (const width of [360, 768, 1440]) {
@@ -24,7 +27,7 @@ try {
     const bounds = await dialog.boundingBox();
     assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= width);
     assert.ok(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth));
-    await page.screenshot({ path: `${process.env.TEMP}/nukhab-level-rings-${width}.png`, animations: 'disabled' });
+    await page.screenshot({ path: join(artifactDirectory, `nukhab-level-rings-${width}.png`), animations: 'disabled' });
     await page.close();
     globalThis.console.log(`Level rings: hover, touch, distinct colors and layout passed at ${width}px.`);
   }

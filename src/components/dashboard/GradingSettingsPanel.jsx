@@ -148,7 +148,7 @@ const FieldError = ({ id, message }) => (message
   : null);
 
 const NumberField = ({ field, draft, errors, onChange }) => {
-  const id = `grading-${field.path.replace(/\./g, '-')}`;
+  const id = `grading-${field.path.replaceAll('.', '-')}`;
   const error = errors[field.path];
   return (
     <div className="space-y-1.5">

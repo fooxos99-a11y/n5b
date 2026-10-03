@@ -44,7 +44,8 @@ try {
     await pool.query('INSERT INTO attendance_records(student_id,record_date,status,points) VALUES(?,?,?,?)', [id,date,status,id / 10]);
     await recordAttendanceGrade(pool, { studentId: id, date, status, actor });
   }
-  const app = express(); app.use(express.json());
+  const app = express();
+  app.disable('x-powered-by'); app.use(express.json());
   app.use((req,res,next) => {
     req.auth = { role: req.get('x-test-role') || 'supervisor', id: Number(req.get('x-test-id') || 7), name: 'مشرف اختبار' };
     return runWithDatabase(database, {}, next);
@@ -121,7 +122,7 @@ try {
       const before=await attendanceSnapshot(id);
       if (id===3) {
         const concurrent=await Promise.all([compensate(id),compensate(id)]);
-        assert.deepEqual(concurrent.map(row=>row.status).sort(),[201,409]);
+        assert.deepEqual(concurrent.map(row=>row.status).sort((a,b)=>a-b),[201,409]);
       } else assert.equal((await compensate(id)).status,201);
       assert.deepEqual(await attendanceSnapshot(id),before);
       assert.equal((await compensate(id)).status,409);

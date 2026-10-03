@@ -1,8 +1,11 @@
+import { join } from 'node:path';
+import { createTemporaryArtifactDirectory } from './helpers/temporaryArtifacts.mjs';
 import assert from 'node:assert/strict';
 import process from 'node:process';
 import { URL } from 'node:url';
 import { chromium } from 'playwright';
 import { normalizeGradingPolicy } from '../shared/grading-policy.js';
+const artifactDirectory = createTemporaryArtifactDirectory();
 const base=process.env.PORTAL_TEST_URL || 'http://127.0.0.1:3107';
 const browser=await chromium.launch();
 try {
@@ -24,7 +27,7 @@ try {
     });
     const screenshot=async name=>{
       assert.equal(await page.evaluate(()=>globalThis.document.documentElement.scrollWidth>globalThis.innerWidth),false);
-      await page.screenshot({path:`${process.env.TEMP}/nukhab-layout-${name}-${width}.png`,animations:'disabled'});
+      await page.screenshot({path:join(artifactDirectory, `nukhab-layout-${name}-${width}.png`),animations:'disabled'});
     };
     await page.goto(`${base}/tests/fixtures/scoped-ui.html?section=news-editor`);
     await page.getByRole('button',{name:'إضافة خبر',exact:true}).click();

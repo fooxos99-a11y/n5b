@@ -236,7 +236,9 @@ export async function buildGradingOverview(reportDb, { from, to, quranFaces = {}
 function countWeekDays(from, to, weekDays = []) {
   const days = new Set((weekDays || []).map(Number));
   let count = 0;
-  for (let date = new Date(`${from}T00:00:00Z`), end = new Date(`${to}T00:00:00Z`); date <= end; date.setUTCDate(date.getUTCDate() + 1)) {
+  const end = Date.parse(`${to}T00:00:00Z`);
+  for (let timestamp = Date.parse(`${from}T00:00:00Z`); timestamp <= end; timestamp += 86400000) {
+    const date = new Date(timestamp);
     if (days.has(date.getUTCDay())) count += 1;
   }
   return count;

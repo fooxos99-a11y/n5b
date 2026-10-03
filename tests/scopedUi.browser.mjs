@@ -1,6 +1,9 @@
+import { join } from 'node:path';
+import { createTemporaryArtifactDirectory } from './helpers/temporaryArtifacts.mjs';
 import assert from 'node:assert/strict';
 import process from 'node:process';
 import { chromium } from 'playwright';
+const artifactDirectory = createTemporaryArtifactDirectory();
 const base = process.env.PORTAL_TEST_URL || 'http://127.0.0.1:3107';
 const browser = await chromium.launch();
 try {
@@ -15,7 +18,7 @@ try {
     };
     const fits = async () => {
       assert.equal(await page.evaluate(() => globalThis.document.documentElement.scrollWidth > globalThis.innerWidth), false);
-      await page.screenshot({path: `${process.env.TEMP}/nukhab-scoped-${currentSection}-${width}.png`, fullPage: true, animations: 'disabled'});
+      await page.screenshot({path: join(artifactDirectory, `nukhab-scoped-${currentSection}-${width}.png`), fullPage: true, animations: 'disabled'});
     };
     await visit('levels');
     await page.getByRole('heading', {name: 'الخريجين', exact: true}).waitFor();
@@ -80,7 +83,7 @@ try {
     assert.equal(submissions, 1);
     await fits();
     assert.deepEqual(errors, []);
-    await page.screenshot({path: `${process.env.TEMP}/nukhab-registration-${width}.png`});
+    await page.screenshot({path: join(artifactDirectory, `nukhab-registration-${width}.png`)});
     await page.close();
     globalThis.console.log(`Scoped UI passed at ${width}px`);
   }

@@ -297,7 +297,8 @@ function narrationMetric(narration = {}, inCommittee, filtered) {
   };
 }
 
-function teacherPointsMetric(list = { loading: true, rows: [] }, inCommittee) {
+function teacherPointsMetric(list, inCommittee) {
+  list ??= { loading: true, rows: [] };
   const allRows = list.rows || [];
   const allIncreases = allRows.filter((row) => row.type === 'increase').length;
   const rows = allRows.filter((row) => inCommittee(row.committeeName));

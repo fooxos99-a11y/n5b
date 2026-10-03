@@ -93,7 +93,7 @@ const StudentMushafSection = ({ studentId, onBack, initialTarget = null }) => {
         if (active) setIsInitializing(false);
       }
     };
-    initialize();
+    void initialize();
     return () => { active = false; };
   }, [initialTarget, indexLoadVersion, readerStorageId, studentId, toast]);
 
@@ -123,7 +123,7 @@ const StudentMushafSection = ({ studentId, onBack, initialTarget = null }) => {
         }
       }
     };
-    loadPage();
+    void loadPage();
     return () => { active = false; };
   }, [index, loadVersion, page, readerStorageId, toast]);
 

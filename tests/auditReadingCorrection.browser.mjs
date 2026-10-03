@@ -34,7 +34,7 @@ try {
     await page.getByRole('dialog').waitFor({ state: 'hidden' });
     assert.equal(writes[0].sessions[0].tasks[0].payload.correctionOf, '9ce68b0e-749e-4da1-8e6e-58d7f52b7a3d');
     assert.equal(writes[0].sessions[0].tasks[0].payload.mistakeCount, 0);
-    await page.evaluate(async () => { globalThis.auditOperations = await import('/src/services/offlineOperationsService.js'); });
+    await page.evaluate(async () => { globalThis.auditOperations = await import('../../src/services/offlineOperationsService.js'); });
     await page.context().setOffline(true);
     const pending = await page.evaluate(async date => {
       const operations = globalThis.auditOperations;

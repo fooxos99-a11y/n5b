@@ -32,6 +32,7 @@ try {
   await pool.query("INSERT INTO app_settings(setting_key,setting_value) VALUES('seasonalHolidays','[{\"startDate\":\"2026-10-03\",\"endDate\":\"2026-10-03\"}]') ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)");
   await recordReadingGrade(pool, { studentId: 3, date: '2026-09-30', completed: true, requiredFaces: 10, actor: { role: 'manager', id: 1 } });
   const app = express();
+  app.disable('x-powered-by');
   app.use(express.json());
   app.use((req, _res, next) => {
     req.auth = { role: req.get('x-test-role') || 'manager', id: Number(req.get('x-test-id') || 1) };

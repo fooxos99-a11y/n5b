@@ -111,7 +111,7 @@ export default function TrackSessionSection() {
                 value={detail && detail.attendanceRecorded !== false ? sessionAttendanceStatus(detail) : null}
                 onChange={(attendanceStatus) => {
                   if (tested && !canTestSession({ attendanceStatus })) setPendingAttendance({ student, attendanceStatus });
-                  else setAttendance(student, attendanceStatus);
+                  else void setAttendance(student, attendanceStatus);
                 }}
                 disabled={!editable || busy}
               />

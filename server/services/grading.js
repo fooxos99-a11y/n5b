@@ -406,7 +406,7 @@ export async function computeStudentSessionGrades(queryExecutor, { studentId, da
     UNION SELECT DATE_FORMAT(week_start, '%Y-%m-%d') AS date FROM student_weekly_components WHERE student_id = ? AND week_start <= ?`,
   [studentId, today, studentId, today]);
   const weekStarts = [...new Set([today, ...dates, ...recordDates.map(row => row.date)]
-    .filter(date => isGradingDate(date) && date <= today).map(weekStartOf))].sort();
+    .filter(date => isGradingDate(date) && date <= today).map(weekStartOf))].sort((a, b) => a.localeCompare(b));
   const data = await loadWeeklyGradeRows(queryExecutor, [studentId], weekStarts);
   return weekStarts.map(weekStart => weeklyGradesFromRows([studentId], weekStart, today, data).get(studentId)).reverse();
 }

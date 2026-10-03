@@ -8,6 +8,7 @@ import { normalizeNumericInput } from '@/lib/numericInput';
 
 export default function StudentBulkTable({ students, committees, disabled, onChange, onRemove }) {
   const complexes = [...new Map(committees.filter(row => row.complexId).map(row => [String(row.complexId), { id: String(row.complexId), name: row.complexName }])).values()];
+  // This overflow region needs keyboard focus so arrow keys can scroll the wide table.
   return <div className="max-h-[60vh] min-w-0 overflow-auto rounded-xl border border-border" role="region" aria-label="مراجعة الطلاب قبل الإضافة" tabIndex={0}>
     <table className="w-full min-w-[1050px] border-collapse text-right text-sm">
       <thead className="sticky top-0 z-10 bg-muted"><tr>

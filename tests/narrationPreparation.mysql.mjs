@@ -23,6 +23,9 @@ try {
   await scoped.query("INSERT INTO committees VALUES (5,'حلقة أ'),(6,'حلقة ب')");
   await scoped.query("INSERT INTO students VALUES (9,'طالب أ',5),(10,'طالب ب',6)");
   await scoped.query('INSERT INTO supervisor_committees VALUES (3,5)');
+  // Security review: only the fixed repository source below is evaluated;
+  // request bodies, environment values and database content are never code.
+  // The explicit context exposes only test doubles and connection-local tables.
   const source = await readFile(new URL('../server/index.js', import.meta.url), 'utf8');
   const routes = new Map();
   let canReadMemorized = false;
@@ -43,7 +46,8 @@ try {
   vm.runInContext(source.slice(source.indexOf("app.get('/api/narration-events/preparation'"), source.indexOf('function narrationRangeDependencies(')), context);
   vm.runInContext(source.slice(source.indexOf("app.post('/api/narration-events/preview-ranges'"), source.indexOf("app.get('/api/narration-events/:id'")), context);
   vm.runInContext(source.slice(source.indexOf("app.post('/api/narration-events',"), source.indexOf("app.put('/api/narration-events/:eventId/parts")), context);
-  const invoke = async (path, body, auth = { role: 'manager', id: 1 }) => {
+  const invoke = async (path, body, auth) => {
+    auth ??= { role: 'manager', id: 1 };
     let status = 200, result, allowed = false;
     const res = { status: code => { status = code; return res; }, json: value => { result = value; } };
     const req = { auth, body };

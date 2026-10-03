@@ -12,3 +12,9 @@ export function buildRegistrationLink({ origin, basePath = '/', publicUrl, nativ
 export function isRegistrationEntry(search = '') {
   return new globalThis.URLSearchParams(search).get('registration') === '1';
 }
+
+// Tenant identifiers are opaque database keys, never URLs or request syntax.
+export function normalizeSiteRegistrationNumber(value) {
+  const number = typeof value === 'string' ? value.trim() : '';
+  return /^[A-Za-z0-9_-]{1,32}$/.test(number) ? number : '';
+}

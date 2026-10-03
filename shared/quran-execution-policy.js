@@ -45,7 +45,10 @@ export function normalizeQuranExecutionSource(value, fallback = 'student') {
  * Students never execute their tasks: every task (memorization, review, link and repetition)
  * is executed and evaluated by the teacher, whatever older stored settings say.
  */
-export function getQuranTaskExecutionSource() {
+export function getQuranTaskExecutionSource(_settings, _taskType) {
+  // Retain the legacy call contract; execution now always belongs to the teacher.
+  void _settings;
+  void _taskType;
   return 'teacher';
 }
 

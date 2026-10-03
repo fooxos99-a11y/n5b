@@ -44,9 +44,9 @@ try {
     const submit=body=>invoke(publicPath,'post',{body});
     const accept=(id,body={},auth=manager)=>invoke(acceptPath,'post',{auth,params:{id:String(id)},body:{loginNumber:String(600000+id),password:'test-password',testResults:{'juz-1':'passed','juz-2':'failed'},...body}});
     const options=(await invoke(publicPath,'get')).body;
-    assert.deepEqual(options.complexes.map(row=>row.name).sort(),['مجمع النور','مجمع الفرقان','مجمع بلا حلقات'].sort());
-    assert.deepEqual(options.committees.map(row=>Number(row.id)).sort(),[7,8]);
-    assert.ok(options.committees.every(row=>Object.keys(row).sort().join(',')==='complexId,id,name'));
+    assert.deepEqual(options.complexes.map(row=>row.name).sort((a,b)=>a.localeCompare(b,'ar')),['مجمع النور','مجمع الفرقان','مجمع بلا حلقات'].sort((a,b)=>a.localeCompare(b,'ar')));
+    assert.deepEqual(options.committees.map(row=>Number(row.id)).sort((a,b)=>a-b),[7,8]);
+    assert.ok(options.committees.every(row=>Object.keys(row).sort((a,b)=>a.localeCompare(b)).join(',')==='complexId,id,name'));
     for(const override of [{complexId:null},{committeeId:null},{complexId:2},{committeeId:9},{committeeId:'7x'},{committeeId:999}]) {
       await assert.rejects(submit({...person,...override}),{statusCode:422});
     }
@@ -76,7 +76,7 @@ try {
     assert.equal((await accept(request.id)).statusCode,404);
     const next=(await submit({...person,name:'طالب ثان'})).body;
     const results=await Promise.all([accept(next.id,{complexId:2,committeeId:8}),accept(next.id,{complexId:2,committeeId:8})]);
-    assert.deepEqual(results.map(row=>row.statusCode).sort(),[201,404]);
+    assert.deepEqual(results.map(row=>row.statusCode).sort((a,b)=>a-b),[201,404]);
     assert.equal(results.find(row=>row.statusCode===201).body.student.committeeId,8);
     const moved=(await submit({...person,name:'طالب حلقة منقولة',complexId:2,committeeId:8})).body;
     await pool.query('UPDATE committees SET complex_id=1 WHERE id=8');

@@ -26,7 +26,7 @@ const NukhabPublicHero = ({
               width="640"
               height="640"
               decoding="async"
-              fetchpriority="high"
+              fetchPriority="high"
             />
           </div>
         )}

@@ -26,6 +26,7 @@ try {
     (1,3,?,'link',2,4,2,1,2,29),(1,3,?,'review',5,6,2,30,2,48)`, [date,date]);
   await saveGradingPolicy(pool, { trackSession: { attendanceLate: 3, attendanceExcused: 2, segments: [{ source: 'link', max: 3 }, { source: 'review', max: 7 }, { source: 'link', max: 4 }] }, weeklySession: { attendanceLate: 7, attendanceExcused: 4 } });
   const app = express();
+  app.disable('x-powered-by');
   app.use(express.json());
   app.use((req,_res,next) => {
     const role = req.get('x-test-role');

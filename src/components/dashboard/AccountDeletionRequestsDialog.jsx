@@ -38,7 +38,7 @@ const AccountDeletionRequestsDialog = ({ triggerClassName }) => {
 
   const handleOpenChange = (nextOpen) => {
     setOpen(nextOpen);
-    if (nextOpen) loadRequests();
+    if (nextOpen) void loadRequests();
   };
 
   const updateRequest = async (request, status) => {

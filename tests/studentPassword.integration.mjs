@@ -43,9 +43,10 @@ try {
  await api('/auth/login',{loginNumber:student.loginNumber,password:'wrong'},undefined,401);
  const loggedIn=await api('/auth/login',{loginNumber:student.loginNumber,password:'12'});
  assert.equal(loggedIn.role,'student');
- for (const password of [undefined, '', null, 123]) {
-  await api(`/students/${created.id}`,{...student,password},manager.token,422,'PUT');
- }
+ await api(`/students/${created.id}`,student,manager.token,422,'PUT');
+ await api(`/students/${created.id}`,{...student,password:''},manager.token,422,'PUT');
+ await api(`/students/${created.id}`,{...student,password:null},manager.token,422,'PUT');
+ await api(`/students/${created.id}`,{...student,password:123},manager.token,422,'PUT');
  await api(`/students/${created.id}`,{...student,password:'ab'},loggedIn.token,403,'PUT');
  await api('/auth/login',{loginNumber:student.loginNumber,password:'12'});
  await api(`/students/${created.id}`,{...student,password:'ab'},manager.token,200,'PUT');
@@ -70,9 +71,8 @@ try {
  assert.ok(visible.some(row => row.id === complex.insertId && row.studentsCount === 2));
  assert.deepEqual(await api('/rankings/complexes', undefined, undefined, 200, 'GET'), visible);
  await connection.query('CREATE TEMPORARY TABLE session_attendance_check (attended INT, detail_json JSON)');
- for (const detail of [{ attendanceStatus: null, attendanceRecorded: false }, { attendanceStatus: 'absent', attendanceRecorded: false }, { attendanceStatus: 'absent', attendanceRecorded: true }, { attendanceStatus: 'excused', attendanceRecorded: true }]) {
-  await connection.query('INSERT INTO session_attendance_check VALUES (0, ?)', [JSON.stringify(detail)]);
- }
+ const attendanceCases = [{ attendanceStatus: null, attendanceRecorded: false }, { attendanceStatus: 'absent', attendanceRecorded: false }, { attendanceStatus: 'absent', attendanceRecorded: true }, { attendanceStatus: 'excused', attendanceRecorded: true }];
+ await connection.query('INSERT INTO session_attendance_check VALUES ?', [attendanceCases.map(detail => [0, JSON.stringify(detail)])]);
  const [[attendanceCounts]] = await connection.query(`SELECT ${sessionAttendanceCountsSql()} FROM session_attendance_check`);
  assert.equal(Number(attendanceCounts.absent), 1, 'Only explicitly recorded absence counts');
  globalThis.console.log('PASS: real MySQL and API create, bulk, required passwords on edit, denied student edits, failed-edit rollback and session revocation');

@@ -19,6 +19,9 @@ try {
   await scoped.query("INSERT INTO narration_events (id,name,start_date,end_date,created_by_role,created_by_name) VALUES (7,'تجربة','2026-09-29','2026-09-29','manager','مدير التجربة')");
   await scoped.query("INSERT INTO narration_event_students (id,event_id,student_id,student_name,committee_id) VALUES (11,7,100,'طالب التجربة',5),(12,7,101,'طالب آخر',5)");
   await scoped.query('INSERT INTO narration_event_parts (id,event_student_id,juz_number,start_surah,start_ayah,start_page,end_surah,end_ayah,end_page) VALUES (51,11,1,1,1,1,2,5,2),(52,11,1,2,10,3,2,20,4),(53,11,2,2,142,22,2,150,23),(54,12,1,1,1,1,2,5,2)');
+  // Security review: only the fixed repository source below is evaluated;
+  // request bodies, environment values and database content are never code.
+  // The explicit context exposes only test doubles and connection-local tables.
   const source=await readFile(new URL('../server/index.js',import.meta.url),'utf8');
   const routes=new Map(), pointWrites=[];
   let allow=true;
@@ -30,7 +33,8 @@ try {
     getNarrationEvent:async()=>null,isMistakeMark:type=>['mistake','lahn'].includes(type),
   });
   vm.runInContext(source.slice(source.indexOf('async function refreshNarrationStudentResult('),source.indexOf("app.post('/api/narration-events/:id/archive'")),context);
-  const invoke=async(path,params,body,auth={role:'manager',id:1,name:'أحمد المدير'})=>{
+  const invoke=async(path,params,body,auth)=>{
+    auth ??= {role:'manager',id:1,name:'أحمد المدير'};
     let result,status=200;
     const res={status:code=>{status=code;return res;},json:value=>{result=value;}};
     await routes.get(path)({params,body,auth},res,error=>{throw error;});

@@ -411,7 +411,7 @@ const StudentsSection = () => {
                       placeholder="عدد الدرجات"
                       value={studentForm.gradeAdjustmentAmount}
                       onKeyDown={(event) => { if (['-', '+', 'e', 'E'].includes(event.key)) event.preventDefault(); }}
-                      onChange={(event) => setStudentForm({ ...studentForm, gradeAdjustmentAmount: event.target.value.replace(/-/g, '') })}
+                      onChange={(event) => setStudentForm({ ...studentForm, gradeAdjustmentAmount: event.target.value.replaceAll('-', '') })}
                     />
                   </div>
                   {gradeAdjustment.error && <p id="student-grade-adjustment-error" role="alert" className="text-xs font-bold text-destructive">{gradeAdjustment.error}</p>}

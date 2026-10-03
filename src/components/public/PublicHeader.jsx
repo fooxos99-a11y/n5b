@@ -35,7 +35,7 @@ const PublicHeader = ({ site, hasSession = false, onOpenAccount }) => {
             src={logoSource}
             alt={`شعار ${site.name}`}
             decoding="sync"
-            fetchpriority="high"
+            fetchPriority="high"
             className="h-[4.25rem] w-[4.6rem] object-contain sm:h-[5rem] sm:w-[5.4rem]"
           />
         </div>

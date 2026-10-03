@@ -34,7 +34,7 @@ try {
   await page.getByRole('button',{name:'إغلاق',exact:true}).click();
   await page.getByRole('button',{name:'بدأ التسميع',exact:true}).click();await page.getByRole('button',{name:'المصحف',exact:true}).click();
   await page.waitForFunction(()=>globalThis.narrationFixture.loads.length>=2);
-  assert.deepEqual(await page.evaluate(()=>globalThis.narrationFixture.loads.map(item=>item.partId).sort()),[51,52]);
+  assert.deepEqual(await page.evaluate(()=>globalThis.narrationFixture.loads.map(item=>item.partId).sort((a,b)=>a-b)),[51,52]);
   assert.deepEqual(errors,[]);await page.close();
  }
 }finally{await browser.close();}

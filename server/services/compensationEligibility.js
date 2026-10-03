@@ -6,8 +6,8 @@ import { parseGradingPolicy, trackSegmentDefinitions } from '../../shared/gradin
 /** Session dates come from settings; only approved excuses after the first plan are candidates. */
 export function eligibleCompensationDays({ firstPlanDate, lowerBound, today, sessionDay, candidates, compensatedPeriods, holidays, scope, policyForDate }) {
   if (!firstPlanDate || sessionDay == null) return [];
-  const start = [firstPlanDate, lowerBound].filter(Boolean).sort().at(-1);
-  return [...new Set(candidates)].sort().filter(date => {
+  const start = [firstPlanDate, lowerBound].filter(Boolean).sort((a, b) => a.localeCompare(b)).at(-1);
+  return [...new Set(candidates)].sort((a, b) => a.localeCompare(b)).filter(date => {
     if (date < start || date > today || weekdayOf(date) !== sessionDay || isSeasonalHoliday(date, holidays)) return false;
     if (compensatedPeriods.has(scope === 'track' ? weekStartOf(date) : date)) return false;
     const policy = policyForDate(date);
@@ -45,7 +45,7 @@ export async function loadEligibleCompensationDays(connection, { studentIds, sco
   for (const student of students) {
     const id = Number(student.id);
     result.set(id, eligibleCompensationDays({ firstPlanDate: student.firstPlanDate,
-      lowerBound: [student.joined, ...settings.map(row => row.value)].filter(Boolean).sort().at(-1),
+      lowerBound: [student.joined, ...settings.map(row => row.value)].filter(Boolean).sort((a, b) => a.localeCompare(b)).at(-1),
       today, sessionDay, scope, holidays, candidates: excuses.filter(row => Number(row.studentId) === id).map(row => row.date),
       compensatedPeriods: new Set(credits.filter(row => Number(row.studentId) === id).map(row => row.period)),
       policyForDate: date => policies.get(weekStartOf(date)) || policy }));

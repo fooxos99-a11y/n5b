@@ -84,7 +84,7 @@ test('retry source stays available across dates while completed local actions le
   assert.doesNotMatch(server, /nazem/i);
   assert.match(mushaf, /requestId: `\$\{saveRequestId\}:\$\{task\.id\}`/);
   assert.doesNotMatch(evaluation, /RecitationRetryConfirmationDialog|retryCandidate|تأكيد إعادة التسميع/);
-  assert.match(evaluation, /const openRecitation = \(student\) => \{\s*prepareRecitation\(student\);\s*\}/);
+  assert.match(evaluation, /const openRecitation = \(student\) => \{\s*void prepareRecitation\(student\);\s*\}/);
   assert.doesNotMatch(evaluation, /setInterval\(refreshLocal, 10_000\)/);
   assert.doesNotMatch(evaluation, /nazem/i);
 });

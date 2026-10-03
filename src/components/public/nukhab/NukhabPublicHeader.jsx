@@ -21,7 +21,7 @@ const NukhabPublicHeader = ({
           alt={`شعار ${site.name}`}
           className="h-11 w-12 shrink-0 object-contain sm:h-12 sm:w-14"
           decoding="sync"
-          fetchpriority="high"
+          fetchPriority="high"
         />
         <span className="hidden min-w-0 border-r border-border pr-3 lg:block">
           <span className="block text-sm font-black leading-5 text-foreground">{site.publicHeaderTitle || site.name}</span>

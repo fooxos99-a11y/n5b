@@ -15,7 +15,7 @@ const PublicHeroSection = ({ site }) => (
           src={resolveAssetUrl(site.whiteLogo || site.lockupLogo || site.logo)}
           alt={`شعار ${site.name}`}
           decoding="sync"
-          fetchpriority="high"
+          fetchPriority="high"
           className="h-auto w-[min(58vw,14.5rem)] object-contain drop-shadow-[0_0_30px_rgba(255,255,255,.2)] sm:w-[min(38vw,19rem)] lg:w-[21rem]"
         />
       {site.organizationName && (

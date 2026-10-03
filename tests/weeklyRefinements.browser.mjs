@@ -1,8 +1,11 @@
+import { join } from 'node:path';
+import { createTemporaryArtifactDirectory } from './helpers/temporaryArtifacts.mjs';
 import assert from 'node:assert/strict';
 import process from 'node:process';
 import { URL } from 'node:url';
 import { chromium } from 'playwright';
 import { normalizeGradingPolicy } from '../shared/grading-policy.js';
+const artifactDirectory = createTemporaryArtifactDirectory();
 const base = process.env.PORTAL_TEST_URL || 'http://127.0.0.1:3107';
 const browser = await chromium.launch();
 try {
@@ -29,7 +32,7 @@ try {
     const visit = section => page.goto(`${base}/tests/fixtures/weekly-refinements.html?section=${section}`);
     const fits = async section => {
       assert.equal(await page.evaluate(() => globalThis.document.documentElement.scrollWidth > globalThis.innerWidth), false);
-      await page.screenshot({path:`${process.env.TEMP}/nukhab-weekly-${section}-${width}.png`, fullPage:true, animations:'disabled'});
+      await page.screenshot({path:join(artifactDirectory, `nukhab-weekly-${section}-${width}.png`), fullPage:true, animations:'disabled'});
     };
     for (const section of ['weekly', 'track']) {
       await visit(section);

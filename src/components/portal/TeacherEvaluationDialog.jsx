@@ -209,7 +209,7 @@ const TeacherEvaluationDialog = ({ supervisorId, open = false, onOpenChange, inl
   };
 
   const openRecitation = (student) => {
-    prepareRecitation(student);
+    void prepareRecitation(student);
   };
 
   // Persist reading before delivery so a lost connection cannot discard the teacher outcome.

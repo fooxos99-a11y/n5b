@@ -41,7 +41,7 @@ const DashboardSidebarContent = ({
           src={sidebarLogo}
           alt={`شعار ${title}`}
           decoding="sync"
-          fetchpriority="high"
+          fetchPriority="high"
           className="h-full w-full object-contain"
         />
       </div>

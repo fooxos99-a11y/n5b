@@ -510,9 +510,9 @@ test('loading surfaces share one indicator and startup does not wait for every f
   assert.match(appText, /const AccountPortal = lazy\(\(\) => import\('@\/pages\/AccountPortal'\)\)/);
   assert.match(appText, /const WajehDashboard = lazy\(\(\) => import\('@\/pages\/WajehDashboard'\)\)/);
   assert.doesNotMatch(heroText, /<motion\.img/);
-  assert.match(heroText, /<img[\s\S]+?decoding="sync"[\s\S]+?fetchpriority="high"/);
-  assert.match(publicHeaderText, /decoding="sync"[\s\S]+?fetchpriority="high"/);
-  assert.match(sidebarText, /decoding="sync"[\s\S]+?fetchpriority="high"/);
+  assert.match(heroText, /<img[\s\S]+?decoding="sync"[\s\S]+?fetchPriority="high"/);
+  assert.match(publicHeaderText, /decoding="sync"[\s\S]+?fetchPriority="high"/);
+  assert.match(sidebarText, /decoding="sync"[\s\S]+?fetchPriority="high"/);
   assert.doesNotMatch(sourceText, /\bLoader2\b/);
   assert.doesNotMatch(mainText, /waitForUiFont|UI_FONT_TIMEOUT_MS/);
   assert.match(mainText, /mountApp\(\);\s*scheduleServiceWorkerSetup\(\);/);

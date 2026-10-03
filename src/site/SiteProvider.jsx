@@ -5,7 +5,7 @@ import {
   getTenantRegistrationNumber,
 } from '@/services/apiBase';
 import { preloadSiteBrandAssets } from '@/lib/preloadBrandAssets';
-import { isRegistrationEntry } from '../../shared/registration-link';
+import { isRegistrationEntry, normalizeSiteRegistrationNumber } from '../../shared/registration-link';
 
 const SiteContext = createContext(getSiteConfig());
 
@@ -61,7 +61,9 @@ export function SiteProvider({ children }) {
       const queryRegistration = new URLSearchParams(window.location.search).get('registrationNumber')?.trim();
       const publicRegistration = isRegistrationEntry(window.location.search)
         || /\/register\/?$/.test(window.location.pathname);
-      const registrationNumber = queryRegistration || (publicRegistration ? '' : getTenantRegistrationNumber());
+      const registrationNumber = normalizeSiteRegistrationNumber(
+        queryRegistration || (publicRegistration ? '' : getTenantRegistrationNumber()),
+      );
       const query = registrationNumber
         ? `?registrationNumber=${encodeURIComponent(registrationNumber)}`
         : '';

@@ -90,7 +90,7 @@ const AccountPortal = () => {
         setIsLoading(false);
       }
     };
-    load();
+    void load();
   }, [cachedSettings, hasDashboard, isOnline, session.role, session.studentId, session.token, toast]);
 
   useEffect(() => {

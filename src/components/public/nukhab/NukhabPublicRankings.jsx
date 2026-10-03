@@ -143,7 +143,7 @@ const NukhabPublicRankings = () => {
         if (mounted) setState({ loading: false, settings: null, students: [], families: [] });
       }
     };
-    load();
+    void load();
     return () => { mounted = false; };
   }, []);
 
