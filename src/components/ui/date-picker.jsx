@@ -4,6 +4,11 @@ import { Button } from '@/components/ui/button';
 import LoadingSpinner from '@/components/ui/loading-spinner';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
+import { getSaudiCalendarDate } from '../../../shared/business-date.js';
+import {
+  addCalendarDays, dateOnly, formatHijriDate, hijriMonthRange,
+  hijriMonthStart, hijriParts, parseDateOnly, shiftHijriMonth,
+} from '../../../shared/hijri-calendar';
 
 const weekDays = [
   { value: 6, label: 'س' },
@@ -15,25 +20,10 @@ const weekDays = [
   { value: 5, label: 'ج' },
 ];
 
-const parseDate = (value) => {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ''));
-  return match ? new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]))) : null;
-};
-
-const dateOnly = (date) => date.toISOString().slice(0, 10);
-const monthStart = (date) => new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
-const addMonths = (date, amount) => new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + amount, 1));
-const monthKey = (date) => dateOnly(monthStart(date)).slice(0, 7);
-const monthEndValue = (date) => dateOnly(new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)));
-
-const formatSelectedDate = (value, placeholder) => {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ''));
-  if (!match) return placeholder;
-  return `${Number(match[3])} / ${Number(match[2])} / ${match[1]}`;
-};
-
 const DatePicker = ({
   value,
+  id,
+  disabled = false,
   onChange,
   min,
   max,
@@ -43,16 +33,18 @@ const DatePicker = ({
   loadAvailableDates,
   unavailableNote,
 }) => {
-  const selectedDate = parseDate(value);
+  const selectedDate = parseDateOnly(value);
   const [open, setOpen] = useState(false);
-  const [visibleMonth, setVisibleMonth] = useState(() => monthStart(selectedDate || new Date()));
+  const [visibleMonth, setVisibleMonth] = useState(() => hijriMonthStart(selectedDate || parseDateOnly(getSaudiCalendarDate())));
   const [datesByMonth, setDatesByMonth] = useState({});
   const [loadingMonth, setLoadingMonth] = useState('');
-  const key = monthKey(visibleMonth);
+  const key = dateOnly(visibleMonth);
+
+  useEffect(() => { if (disabled) setOpen(false); }, [disabled]);
 
   useEffect(() => {
-    const nextSelectedDate = parseDate(value);
-    if (nextSelectedDate) setVisibleMonth(monthStart(nextSelectedDate));
+    const nextSelectedDate = parseDateOnly(value);
+    if (nextSelectedDate) setVisibleMonth(hijriMonthStart(nextSelectedDate));
   }, [value]);
 
   useEffect(() => {
@@ -60,8 +52,8 @@ const DatePicker = ({
     let active = true;
     setLoadingMonth(key);
     loadAvailableDates({
-      from: `${key}-01`,
-      to: monthEndValue(visibleMonth),
+      from: key,
+      to: hijriMonthRange(visibleMonth).to,
     }).then((dates) => {
       if (active) {
         setDatesByMonth((current) => ({
@@ -82,31 +74,29 @@ const DatePicker = ({
   const cells = useMemo(() => {
     const firstDay = visibleMonth.getUTCDay();
     const leading = weekDays.findIndex((day) => day.value === firstDay);
-    const daysInMonth = new Date(Date.UTC(
-      visibleMonth.getUTCFullYear(),
-      visibleMonth.getUTCMonth() + 1,
-      0,
-    )).getUTCDate();
+    const daysInMonth = hijriMonthRange(visibleMonth).days;
     return [
       ...Array.from({ length: leading }, () => null),
       ...Array.from({ length: daysInMonth }, (_, index) => (
-        new Date(Date.UTC(visibleMonth.getUTCFullYear(), visibleMonth.getUTCMonth(), index + 1))
+        addCalendarDays(visibleMonth, index)
       )),
     ];
   }, [visibleMonth]);
 
   const availableDates = datesByMonth[key];
-  const monthLabel = new Intl.DateTimeFormat('ar-SA-u-ca-gregory', {
+  const monthLabel = formatHijriDate(visibleMonth, {
+    day: undefined,
     month: 'long',
     year: 'numeric',
-    timeZone: 'UTC',
-  }).format(visibleMonth);
+  });
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={(nextOpen) => setOpen(!disabled && nextOpen)}>
       <PopoverTrigger asChild>
         <Button
           type="button"
+          id={id}
+          disabled={disabled}
           variant="outline"
           aria-label={ariaLabel}
           className={cn(
@@ -114,20 +104,20 @@ const DatePicker = ({
             className,
           )}
         >
-          <span className="truncate tabular-nums" dir="ltr">{formatSelectedDate(value, placeholder)}</span>
+          <span className="truncate tabular-nums">{formatHijriDate(value) || placeholder}</span>
           <CalendarDays className="h-4 w-4 shrink-0 text-muted-foreground" />
         </Button>
       </PopoverTrigger>
       <PopoverContent align="center" className="w-[min(21rem,calc(100vw-1rem))] p-2 sm:p-3" dir="rtl">
         <div className="mb-3 flex items-center justify-between">
-          <Button type="button" size="icon" variant="ghost" className="h-11 w-11" onClick={() => setVisibleMonth((month) => addMonths(month, -1))} aria-label="الشهر السابق">
+          <Button type="button" size="icon" variant="ghost" className="h-11 w-11" onClick={() => setVisibleMonth((month) => shiftHijriMonth(month, -1))} aria-label="الشهر السابق">
             <ChevronRight className="h-4 w-4" />
           </Button>
           <div className="flex min-h-10 items-center gap-2 text-sm font-black text-foreground">
             {loadingMonth === key && <LoadingSpinner className="text-primary" />}
             {monthLabel}
           </div>
-          <Button type="button" size="icon" variant="ghost" className="h-11 w-11" onClick={() => setVisibleMonth((month) => addMonths(month, 1))} aria-label="الشهر التالي">
+          <Button type="button" size="icon" variant="ghost" className="h-11 w-11" onClick={() => setVisibleMonth((month) => shiftHijriMonth(month, 1))} aria-label="الشهر التالي">
             <ChevronLeft className="h-4 w-4" />
           </Button>
         </div>
@@ -148,7 +138,7 @@ const DatePicker = ({
                 key={dateValue}
                 type="button"
                 disabled={disabled}
-                aria-label={dateValue}
+                aria-label={formatHijriDate(date, { month: 'long' })}
                 aria-pressed={isSelected}
                 onClick={() => {
                   onChange(dateValue);
@@ -162,7 +152,7 @@ const DatePicker = ({
                   isSelected && 'bg-primary !text-white hover:bg-primary hover:!text-white',
                 )}
               >
-                {date.getUTCDate()}
+                {hijriParts(date).day}
               </button>
             );
           })}

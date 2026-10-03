@@ -8,7 +8,7 @@ import { normalizeGradingPolicy } from '../shared/grading-policy.js';
 import { buildOverviewRankings } from '../server/services/overviewRankings.js';
 import { publicErrorMessage } from '../server/services/publicErrors.js';
 
-test('academic ranking compares percentages rather than raw totals or circle size', async () => {
+test('students rank by total grades while circles compare percentages rather than circle size', async () => {
   const answers = [[], [{ id: 1, name: 'أ' }, { id: 2, name: 'ب' }], [], []];
   const db = { student: () => '1', committee: () => '1', staff: () => '1', query: async () => [answers.shift()] };
   const result = await buildOverviewRankings(db, { from: '2026-09-20', to: '2026-09-26', grades: {
@@ -17,7 +17,7 @@ test('academic ranking compares percentages rather than raw totals or circle siz
       { id: 2, name: 'طالب ثان', committeeName: 'ب', grade: 18, max: 20 },
     ] },
   } });
-  assert.deepEqual(result.bestStudents.map(row => [row.id, row.percentage]), [[2, 90], [1, 40]]);
+  assert.deepEqual(result.bestStudents.map(row => [row.id, row.grade]), [[1, 40], [2, 18]]);
   assert.deepEqual(result.bestCommittees.map(row => row.id), [2, 1]);
 });
 

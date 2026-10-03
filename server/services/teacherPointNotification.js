@@ -9,9 +9,9 @@ export async function notifyTeacherPointAdjustment(connection, {
       (title, body, dedupe_key, recipient_type, created_by_role, created_by_id, created_by_name)
      VALUES (?, ?, ?, 'specific', 'supervisor', ?, ?)
      ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)`,
-    [increase ? 'إضافة من المعلم' : 'خصم من المعلم',
-      `${increase ? 'أضاف' : 'خصم'} المعلم ${actor.name || 'المعلم'} ${points} نقطة. السبب: ${reason}`,
-      `teacher-points:${transactionId}`, actor.id, actor.name || 'المعلم'],
+    [increase ? 'إضافة من مشرف المسار' : 'خصم من مشرف المسار',
+      `${increase ? 'أضاف' : 'خصم'} مشرف المسار ${actor.name || 'مشرف المسار'} ${points} نقطة. السبب: ${reason}`,
+      `teacher-points:${transactionId}`, actor.id, actor.name || 'مشرف المسار'],
   );
   const notificationId = Number(notification.insertId);
   await connection.query(

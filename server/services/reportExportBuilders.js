@@ -1,3 +1,4 @@
+import { drawGradingAuditPdf } from './gradingAuditPdf.js';
 import ExcelJS from 'exceljs';
 import { siteName } from '../siteConfig.js';
 import PDFDocument from 'pdfkit';
@@ -187,7 +188,7 @@ const addOverviewSheets = (workbook, report, { reportTitle = 'تقرير الإ�
   const summaryCards = [
     ['الطلاب', Number(totals.studentsCount || 0)],
     ['الحلق', Number(totals.familiesCount || 0)],
-    ['المعلمون والمقرئون', Number(totals.supervisorsCount || 0)],
+    ['مشرفو المسارات والمقرئون', Number(totals.supervisorsCount || 0)],
     ['أوجه الحفظ', Number(quranFaces.memorization || 0)],
     ['أوجه المراجعة', Number(quranFaces.review || 0)],
     ['أوجه الربط', Number(quranFaces.link || 0)],
@@ -219,6 +220,15 @@ const addOverviewSheets = (workbook, report, { reportTitle = 'تقرير الإ�
     cell.numFmt = '#,##0';
   });
   summary.views = [{ rightToLeft: true, showGridLines: false }];
+
+  const audit = workbook.addWorksheet('سجل التعويض');
+  audit.addRow(['الطالب', 'الحلقة', 'النوع', 'اليوم المعوض', 'نفذه', 'وقت التسجيل', 'مرجع الاستئذان', 'الحالة', 'ألغاه', 'وقت الإلغاء', 'سبب الإلغاء']);
+  (grades.compensations || []).forEach(row => audit.addRow([row.studentName, row.committeeName, row.scope === 'track' ? 'جلسة المسار' : 'البرنامج الأسبوعي', row.date, row.actorName, row.recordedAt, row.excuseReference, row.cancelledAt ? 'ملغى' : 'تعويض', row.cancelledByName, row.cancelledAt, row.cancellationReason]));
+  styleModernReportSheet(audit, { title: 'سجل التعويض', widths: [26, 22, 20, 16, 24, 24, 35, 14, 24, 24, 35], rightAlignedColumns: [1, 2, 7, 11] });
+  const evaluations = workbook.addWorksheet('تقييم المقاطع');
+  evaluations.addRow(['الطالب', 'الحلقة', 'الأخطاء', 'التنبيهات', 'الترددات', 'المقاطع المعوضة']);
+  (grades.trackSession?.studentsList || []).forEach(row => evaluations.addRow([row.name, row.committeeName, Number(row.segments?.mistakes || 0), Number(row.segments?.warnings || 0), Number(row.segments?.hesitations || 0), Number(row.segments?.compensated || 0)]));
+  styleModernReportSheet(evaluations, { title: 'تقييم المقاطع', widths: [26, 22, 16, 16, 16, 20], rightAlignedColumns: [1, 2] });
 
   const committees = workbook.addWorksheet('مؤشرات الحلق');
   committees.addRow([
@@ -398,7 +408,7 @@ const writeArabicText = (doc, value, x, y, options = {}) => {
   });
 };
 
-const buildTablePdf = ({ title, period, summary = [], columns, rows, siteName, fontPair }) => new Promise((resolve, reject) => {
+const buildTablePdf = ({ title, period, summary = [], columns, rows, siteName, fontPair, gradingDetails }) => new Promise((resolve, reject) => {
   const chunks = [];
   const doc = new PDFDocument({ size: 'A4', layout: 'landscape', margin: 28, bufferPages: true });
   let regularFont = 'Helvetica';
@@ -478,6 +488,13 @@ const buildTablePdf = ({ title, period, summary = [], columns, rows, siteName, f
   if (!rows.length) {
     writeArabicText(doc, 'لا توجد بيانات.', margin, y + 28, { width: contentWidth, align: 'center', font: boldFont, size: 16, color: '#64748b' });
   }
+  if (gradingDetails) drawGradingAuditPdf(doc, {
+    grades: gradingDetails, regularFont, boldFont, margin, contentWidth, pageHeight: doc.page.height,
+    addPage: sectionTitle => {
+      doc.addPage(); drawHeader();
+      writeArabicText(doc, sectionTitle, margin, 78, { width: contentWidth, font: boldFont, size: 13 });
+    },
+  });
   const pageRange = doc.bufferedPageRange();
   for (let pageIndex = pageRange.start; pageIndex < pageRange.start + pageRange.count; pageIndex += 1) {
     doc.switchToPage(pageIndex);
@@ -532,6 +549,7 @@ export function buildArchivePdf(archive, options = {}) {
       ['أوجه الحفظ', Number(quranFaces.memorization || 0)],
       ['أوجه المراجعة', Number(quranFaces.review || 0)],
     ],
+    gradingDetails: archive?.overviewReport?.grades,
     columns,
     rows,
     ...options,

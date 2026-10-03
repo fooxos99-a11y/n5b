@@ -1,7 +1,7 @@
 import AudioCallControls from './AudioCallControls';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Camera, CameraOff, Mic, MicOff, MonitorPlay, PhoneCall, User, X } from 'lucide-react';
-import { Room, RoomEvent, Track } from 'livekit-client';
+import { AudioPresets, Room, RoomEvent, Track } from 'livekit-client';
 import { Button } from '@/components/ui/button';
 import IconActionButton from '@/components/ui/icon-action-button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
@@ -75,6 +75,7 @@ const AudioCallRoom = ({ roomInfo, isOwner, minimized = false, onRestore, onLeav
   const audioContainerRef = useRef(null);
   const screenContainerRef = useRef(null);
   const activeScreenIdentityRef = useRef('');
+  const onLeaveRef = useRef(onLeave);
   const [participants, setParticipants] = useState([]);
   const [isConnecting, setIsConnecting] = useState(true);
   const [isMuted, setIsMuted] = useState(false);
@@ -83,6 +84,8 @@ const AudioCallRoom = ({ roomInfo, isOwner, minimized = false, onRestore, onLeav
   const [isSharingScreen, setIsSharingScreen] = useState(false);
   const [activeScreenShare, setActiveScreenShare] = useState(null);
   const [isClosing, setIsClosing] = useState(false);
+
+  useEffect(() => { onLeaveRef.current = onLeave; }, [onLeave]);
 
   const closeScreenShareView = useCallback(() => {
     activeScreenIdentityRef.current = '';
@@ -142,27 +145,37 @@ const AudioCallRoom = ({ roomInfo, isOwner, minimized = false, onRestore, onLeav
 
   useEffect(() => {
     let mounted = true;
-    const room = new Room({ adaptiveStream: true, dynacast: true });
+    const room = new Room({
+      adaptiveStream: true,
+      dynacast: true,
+      audioCaptureDefaults: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true, voiceIsolation: false },
+      publishDefaults: { audioPreset: AudioPresets.speech, forceStereo: false, red: true },
+    });
     const audioContainer = audioContainerRef.current;
     const screenContainer = screenContainerRef.current;
+    const audioElements = new Map();
     livekitRoomRef.current = room;
     const attachTrack = (track, publication, participant) => {
       if (track.kind === Track.Kind.Audio && audioContainer) {
-        const element = track.attach();
-        element.autoplay = true;
-        audioContainer.appendChild(element);
+        if (!audioElements.has(track)) {
+          const element = track.attach();
+          element.autoplay = true;
+          audioElements.set(track, element);
+          audioContainer.appendChild(element);
+        }
       }
       if (
         publication?.source === Track.Source.ScreenShare
         && activeScreenIdentityRef.current === participant?.identity
-        && screenContainer
+        && screenContainerRef.current
       ) {
-        screenContainer.replaceChildren(track.attach());
+        screenContainerRef.current.replaceChildren(track.attach());
       }
       syncParticipants();
     };
     const detachTrack = (track, publication, participant) => {
       track.detach().forEach((element) => element.remove());
+      audioElements.delete(track);
       if (
         publication?.source === Track.Source.ScreenShare
         && activeScreenIdentityRef.current === participant?.identity
@@ -211,12 +224,15 @@ const AudioCallRoom = ({ roomInfo, isOwner, minimized = false, onRestore, onLeav
     const connect = async () => {
       try {
         const credentials = await studentsApi.getCallToken(roomInfo.id);
+        if (!mounted) return;
         await room.connect(credentials.serverUrl, credentials.token, { autoSubscribe: true });
-        if (mounted) syncParticipants();
+        if (!mounted) { await room.disconnect(); return; }
+        syncParticipants();
       } catch (error) {
+        if (!mounted) return;
         console.error('LiveKit room connection failed', error);
         toast({ title: 'تعذر دخول المكالمة', description: 'تعذر الاتصال بالغرفة الصوتية. تحقق من اتصال الإنترنت ثم حاول مرة أخرى.', variant: 'destructive' });
-        onLeave();
+        onLeaveRef.current();
       } finally {
         if (mounted) setIsConnecting(false);
       }
@@ -227,10 +243,12 @@ const AudioCallRoom = ({ roomInfo, isOwner, minimized = false, onRestore, onLeav
       room.disconnect();
       livekitRoomRef.current = null;
       activeScreenIdentityRef.current = '';
+      for (const [track, element] of audioElements) { track.detach(element); element.remove(); }
+      audioElements.clear();
       audioContainer?.replaceChildren();
       screenContainer?.replaceChildren();
     };
-  }, [closeScreenShareView, onLeave, roomInfo.id, syncParticipants, toast]);
+  }, [closeScreenShareView, roomInfo.id, syncParticipants, toast]);
 
   const toggleMicrophone = async () => {
     try {
@@ -310,99 +328,101 @@ const AudioCallRoom = ({ roomInfo, isOwner, minimized = false, onRestore, onLeav
     finally { setIsClosing(false); }
   };
 
-  if (isConnecting) {
+  const renderCall = () => {
+    if (isConnecting) {
+      if (minimized) {
+        return (
+          <button type="button" onClick={onRestore} className="fixed bottom-3 left-3 z-[60] flex w-[min(88vw,320px)] items-center gap-3 rounded-2xl border border-primary/30 bg-card/95 p-3 text-right shadow-2xl shadow-primary/20 backdrop-blur-xl sm:bottom-5 sm:left-5" dir="rtl">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary"><PhoneCall className="h-5 w-5 animate-pulse" /></span>
+            <span className="min-w-0"><span className="block truncate font-black text-foreground">{roomInfo.name}</span><span className="block text-xs font-bold text-muted-foreground">جاري الاتصال بالمكالمة...</span></span>
+          </button>
+        );
+      }
+      return <DashboardLoader className="min-h-[420px]" />;
+    }
+
     if (minimized) {
       return (
-        <button type="button" onClick={onRestore} className="fixed bottom-3 left-3 z-[60] flex w-[min(88vw,320px)] items-center gap-3 rounded-2xl border border-primary/30 bg-card/95 p-3 text-right shadow-2xl shadow-primary/20 backdrop-blur-xl sm:bottom-5 sm:left-5" dir="rtl">
-          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary"><PhoneCall className="h-5 w-5 animate-pulse" /></span>
-          <span className="min-w-0"><span className="block truncate font-black text-foreground">{roomInfo.name}</span><span className="block text-xs font-bold text-muted-foreground">جاري الاتصال بالمكالمة...</span></span>
-        </button>
+        <>
+          <button
+            type="button"
+            onClick={onRestore}
+            className="fixed bottom-3 left-3 z-[60] flex w-[min(88vw,340px)] items-center gap-3 rounded-2xl border border-primary/35 bg-card/95 p-3 text-right shadow-2xl shadow-primary/20 backdrop-blur-xl transition hover:border-primary/60 hover:bg-card sm:bottom-5 sm:left-5"
+            aria-label={`العودة إلى المكالمة ${roomInfo.name}`}
+            dir="rtl"
+          >
+            <span className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary">
+              <span className="absolute inset-0 animate-ping rounded-full bg-primary/10" />
+              <PhoneCall className="relative h-5 w-5" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate font-black text-foreground">{roomInfo.name}</span>
+              <span className="mt-0.5 block text-xs font-bold text-primary">المكالمة مستمرة · {participants.length} مشارك</span>
+            </span>
+            <span className="flex shrink-0 items-center gap-1.5 text-muted-foreground">
+              {isMuted ? <MicOff className="h-4 w-4 text-destructive" /> : <Mic className="h-4 w-4 text-primary" />}
+              {isCameraEnabled ? <Camera className="h-4 w-4 text-primary" /> : <CameraOff className="h-4 w-4" />}
+            </span>
+          </button>
+        </>
       );
     }
-    return <DashboardLoader className="min-h-[420px]" />;
-  }
 
-  if (minimized) {
     return (
       <>
-        <button
-          type="button"
-          onClick={onRestore}
-          className="fixed bottom-3 left-3 z-[60] flex w-[min(88vw,340px)] items-center gap-3 rounded-2xl border border-primary/35 bg-card/95 p-3 text-right shadow-2xl shadow-primary/20 backdrop-blur-xl transition hover:border-primary/60 hover:bg-card sm:bottom-5 sm:left-5"
-          aria-label={`العودة إلى المكالمة ${roomInfo.name}`}
-          dir="rtl"
-        >
-          <span className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary">
-            <span className="absolute inset-0 animate-ping rounded-full bg-primary/10" />
-            <PhoneCall className="relative h-5 w-5" />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block truncate font-black text-foreground">{roomInfo.name}</span>
-            <span className="mt-0.5 block text-xs font-bold text-primary">المكالمة مستمرة · {participants.length} مشارك</span>
-          </span>
-          <span className="flex shrink-0 items-center gap-1.5 text-muted-foreground">
-            {isMuted ? <MicOff className="h-4 w-4 text-destructive" /> : <Mic className="h-4 w-4 text-primary" />}
-            {isCameraEnabled ? <Camera className="h-4 w-4 text-primary" /> : <CameraOff className="h-4 w-4" />}
-          </span>
-        </button>
-        <div ref={audioContainerRef} className="hidden" aria-hidden="true" />
+        <Card className="border-primary/30 bg-card neon-glow" dir="rtl">
+        <CardHeader className="gap-4 border-b border-primary/20">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <h2 className="text-xl font-black text-foreground sm:text-2xl">{roomInfo.name}</h2>
+            <AudioCallControls isMuted={isMuted} isCameraEnabled={isCameraEnabled} isSharingScreen={isSharingScreen} isTogglingCamera={isTogglingCamera} isOwner={isOwner || roomInfo.canClose} isClosing={isClosing} toggleMicrophone={toggleMicrophone} toggleCamera={toggleCamera} toggleScreenShare={toggleScreenShare} leave={leave} closeRoom={closeRoom} />
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-5 pt-4 sm:pt-6">
+          <div className={activeScreenShare ? 'overflow-hidden rounded-lg border border-primary/20 bg-black' : 'hidden'}>
+            <div className="flex items-center justify-between bg-background/95 px-3 py-2 text-sm font-black text-foreground">
+              <span className="truncate">بث {activeScreenShare?.name}</span>
+              <IconActionButton label="إغلاق عرض البث" variant="ghost" onClick={closeScreenShareView} className="h-11 w-11 shrink-0">
+                <X className="h-4 w-4" />
+              </IconActionButton>
+            </div>
+            <div ref={screenContainerRef} className="flex aspect-video w-full items-center justify-center overflow-hidden bg-black [&>video]:h-full [&>video]:w-full [&>video]:object-contain" />
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {participants.map((participant) => (
+              <Card key={participant.identity} className={`overflow-hidden border-primary/15 bg-background/60 ${participant.isSpeaking ? 'ring-2 ring-primary' : ''}`}>
+                {participant.cameraPublication ? (
+                  <CameraVideo publication={participant.cameraPublication} isLocal={participant.isLocal} />
+                ) : (
+                  <div className="flex aspect-video w-full items-center justify-center bg-primary/5">
+                    <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary"><User className="h-6 w-6" /></span>
+                  </div>
+                )}
+                <CardContent className="flex min-h-24 flex-col items-center justify-center gap-2 p-3 text-center">
+                  <div className="flex min-w-0 max-w-full items-center justify-center gap-2">
+                    <div className="truncate font-black text-foreground">{participant.name}</div>
+                    {participant.hasScreenShare && (
+                      <Button type="button" variant="secondary" size="sm" onClick={() => showScreenShare(participant.identity)} className="h-7 shrink-0 gap-1 px-2 text-xs text-primary" aria-label={`مشاهدة بث ${participant.name}`}>
+                        <MonitorPlay className="h-3.5 w-3.5" />
+                        بث
+                      </Button>
+                    )}
+                  </div>
+                  <div className="flex items-center justify-center gap-2 text-xs font-bold text-muted-foreground">
+                    <span>{participant.isLocal ? 'أنت' : 'متصل'}</span>
+                    {participant.isMuted ? <MicOff className="h-4 w-4 text-destructive" /> : <Mic className="h-4 w-4 text-primary" />}
+                    {participant.cameraPublication ? <Camera className="h-4 w-4 text-primary" /> : <CameraOff className="h-4 w-4 text-muted-foreground" />}
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </CardContent>
+        </Card>
       </>
     );
-  }
-
-  return (
-    <>
-      <Card className="border-primary/30 bg-card neon-glow" dir="rtl">
-      <CardHeader className="gap-4 border-b border-primary/20">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <h2 className="text-xl font-black text-foreground sm:text-2xl">{roomInfo.name}</h2>
-          <AudioCallControls isMuted={isMuted} isCameraEnabled={isCameraEnabled} isSharingScreen={isSharingScreen} isTogglingCamera={isTogglingCamera} isOwner={isOwner || roomInfo.canClose} isClosing={isClosing} toggleMicrophone={toggleMicrophone} toggleCamera={toggleCamera} toggleScreenShare={toggleScreenShare} leave={leave} closeRoom={closeRoom} />
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-5 pt-4 sm:pt-6">
-        <div className={activeScreenShare ? 'overflow-hidden rounded-lg border border-primary/20 bg-black' : 'hidden'}>
-          <div className="flex items-center justify-between bg-background/95 px-3 py-2 text-sm font-black text-foreground">
-            <span className="truncate">بث {activeScreenShare?.name}</span>
-            <IconActionButton label="إغلاق عرض البث" variant="ghost" onClick={closeScreenShareView} className="h-11 w-11 shrink-0">
-              <X className="h-4 w-4" />
-            </IconActionButton>
-          </div>
-          <div ref={screenContainerRef} className="flex aspect-video w-full items-center justify-center overflow-hidden bg-black [&>video]:h-full [&>video]:w-full [&>video]:object-contain" />
-        </div>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {participants.map((participant) => (
-            <Card key={participant.identity} className={`overflow-hidden border-primary/15 bg-background/60 ${participant.isSpeaking ? 'ring-2 ring-primary' : ''}`}>
-              {participant.cameraPublication ? (
-                <CameraVideo publication={participant.cameraPublication} isLocal={participant.isLocal} />
-              ) : (
-                <div className="flex aspect-video w-full items-center justify-center bg-primary/5">
-                  <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary"><User className="h-6 w-6" /></span>
-                </div>
-              )}
-              <CardContent className="flex min-h-24 flex-col items-center justify-center gap-2 p-3 text-center">
-                <div className="flex min-w-0 max-w-full items-center justify-center gap-2">
-                  <div className="truncate font-black text-foreground">{participant.name}</div>
-                  {participant.hasScreenShare && (
-                    <Button type="button" variant="secondary" size="sm" onClick={() => showScreenShare(participant.identity)} className="h-7 shrink-0 gap-1 px-2 text-xs text-primary" aria-label={`مشاهدة بث ${participant.name}`}>
-                      <MonitorPlay className="h-3.5 w-3.5" />
-                      بث
-                    </Button>
-                  )}
-                </div>
-                <div className="flex items-center justify-center gap-2 text-xs font-bold text-muted-foreground">
-                  <span>{participant.isLocal ? 'أنت' : 'متصل'}</span>
-                  {participant.isMuted ? <MicOff className="h-4 w-4 text-destructive" /> : <Mic className="h-4 w-4 text-primary" />}
-                  {participant.cameraPublication ? <Camera className="h-4 w-4 text-primary" /> : <CameraOff className="h-4 w-4 text-muted-foreground" />}
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      </CardContent>
-      </Card>
-      <div ref={audioContainerRef} className="hidden" aria-hidden="true" />
-    </>
-  );
+  };
+  // Keep playback mounted while loading, minimizing or restoring the call.
+  return <><div ref={audioContainerRef} className="hidden" aria-hidden="true" />{renderCall()}</>;
 };
 
 export default AudioCallRoom;

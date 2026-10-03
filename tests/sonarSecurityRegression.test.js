@@ -1,3 +1,4 @@
+import { gradingPermissionForComponent } from '../shared/dashboard-permissions.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -10,7 +11,7 @@ function loadHelper(name, dependencies = {}) {
   const start = server.indexOf(`function ${name}(`);
   assert.ok(start >= 0, `Missing helper ${name}`);
   const end = server.indexOf('\n}', start) + 2;
-  const context = vm.createContext(dependencies);
+  const context = vm.createContext({ gradingPermissionForComponent, ...dependencies });
   vm.runInContext(server.slice(start, end), context);
   return context[name];
 }

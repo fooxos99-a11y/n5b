@@ -2,6 +2,7 @@ import { URL } from 'node:url';
 import assert from 'node:assert/strict';
 import console from 'node:console';
 import { chromium } from 'playwright';
+import { formatHijriDate } from '../shared/hijri-calendar.js';
 
 const base = 'http://127.0.0.1:3017';
 const date = '2026-09-22';
@@ -62,10 +63,10 @@ try {
     assert.equal(request.searchParams.get('from'), date);
     assert.equal(request.searchParams.get('to'), date);
     await page.getByRole('button', { name: 'التاريخ من', exact: true }).click();
-    await page.getByRole('button', { name: '2026-09-21', exact: true }).click();
+    await page.getByRole('button', { name: formatHijriDate('2026-09-21', { month: 'long' }), exact: true }).click();
     await page.waitForRequest(req => req.url().includes('/reports/supervisors?') && req.url().includes('from=2026-09-21'));
     await page.getByRole('button', { name: 'التاريخ إلى', exact: true }).click();
-    await page.getByRole('button', { name: '2026-09-23', exact: true }).click();
+    await page.getByRole('button', { name: formatHijriDate('2026-09-23', { month: 'long' }), exact: true }).click();
     await page.waitForRequest(req => req.url().includes('/reports/supervisors?') && req.url().includes('to=2026-09-23'));
     if (width < 1024) {
       const order = await page.locator('#dashboard-header-filters').evaluate(node => globalThis.getComputedStyle(node).order);

@@ -1,6 +1,6 @@
 export const notificationRoleLabels = Object.freeze({
   student: 'الطلاب',
-  supervisor: 'المعلمون',
+  supervisor: 'مشرفو المسارات',
   admin: 'الإداريون',
   manager: 'مديرو المجمع',
 });

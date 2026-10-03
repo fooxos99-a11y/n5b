@@ -1,7 +1,10 @@
+import { loadCompensationAudit } from './compensationReports.js';
 import { createOverviewReportScope } from './overviewReportScope.js';
 import { loadGradingPolicy, weekStartOf } from './grading.js';
 import { facesReadStatistics } from '../../shared/grading-engine.js';
 import { loadExpectedGrades, includeUnrecordedGrades } from './expectedGrades.js';
+import { studyDateSql, studyWeekSql } from './seasonalHolidays.js';
+import { sessionAttendanceCountsSql } from './sessionAttendanceSql.js';
 
 const SESSION_COMPONENTS = new Set(['track', 'weekly']);
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
@@ -23,14 +26,13 @@ export async function buildGradingSessionReport(connection, { component, from, t
   const [rows] = await scope.query(
     `SELECT s.id, s.name, c.name AS committeeName,
        COUNT(w.id) AS recordedWeeks,
-       COALESCE(SUM(w.attended = 1), 0) AS attended,
-       COALESCE(SUM(w.attended = 0), 0) AS absent,
+       ${sessionAttendanceCountsSql('w')},
        COALESCE(SUM(w.grade), 0) AS grade,
        COALESCE(SUM(w.max_grade), 0) AS max
      FROM students s
      LEFT JOIN committees c ON c.id = s.committee_id
      LEFT JOIN student_weekly_components w
-       ON w.student_id = s.id AND w.component = ? AND w.week_start BETWEEN ? AND ?
+       ON w.student_id = s.id AND w.component = ? AND ${studyWeekSql('w.week_start')} AND w.week_start BETWEEN ? AND ?
      WHERE ${scope.student('s.id')}
      GROUP BY s.id, s.name, c.name
      ORDER BY c.name, s.name`,
@@ -39,15 +41,23 @@ export async function buildGradingSessionReport(connection, { component, from, t
   const policy = await loadGradingPolicy(scope);
   const expected = await loadExpectedGrades(scope, { from, to, policy });
   const completeRows = includeUnrecordedGrades(expected, rows, component);
+  const compensations = await loadCompensationAudit(scope, from, to);
+  const [details] = component === 'track' ? await scope.query(`SELECT student_id AS studentId, detail_json AS detail
+    FROM student_weekly_components WHERE component = 'track' AND week_start BETWEEN ? AND ? AND ${scope.student('student_id')}`, [weekStartOf(from), to]) : [[]];
+  const segmentResults = trackSegments(details);
   return {
     period: { from, to },
+    compensations: compensations.filter(row => row.scope === (component === "track" ? "track" : "program")),
     rows: completeRows.map((row) => ({
       id: Number(row.id),
       name: row.name,
       committeeName: row.committeeName || '',
       recordedWeeks: number(row.recordedWeeks),
+      segments: segmentResults.byStudent.get(String(row.id)) || emptySegments(),
       attended: number(row.attended),
       absent: number(row.absent),
+      late: number(row.late),
+      excused: number(row.excused),
       grade: number(row.grade),
       max: number(row.max),
       percentage: percentage(number(row.grade), number(row.max)),
@@ -66,7 +76,8 @@ function gradeBreakdown(rows = []) {
       name: row.name,
       committeeName: row.committeeName || '',
       ...(row.attendanceDays !== undefined ? { attendanceDays: number(row.attendanceDays) } : {}),
-      ...(row.attended !== undefined ? { attended: number(row.attended), absent: number(row.absent) } : {}),
+      ...(row.weeks !== undefined ? { expectedWeeks: number(row.weeks) } : {}),
+      ...(row.attended !== undefined ? { attended: number(row.attended), absent: number(row.absent), late: number(row.late), excused: number(row.excused) } : {}),
       grade,
       max,
       percentage: percentage(grade, max),
@@ -95,14 +106,14 @@ function gradeBreakdown(rows = []) {
 export async function buildGradingOverview(reportDb, { from, to, quranFaces = {} }) {
   const [[program]] = await reportDb.query(
     `SELECT COALESCE(SUM(grade), 0) AS grade, COALESCE(SUM(max_grade), 0) AS max, COUNT(DISTINCT student_id) AS students
-     FROM student_daily_grades WHERE grade_date BETWEEN ? AND ? AND ${reportDb.student('student_id')}`,
+     FROM student_daily_grades WHERE ${studyDateSql('grade_date')} AND grade_date BETWEEN ? AND ? AND ${reportDb.student('student_id')}`,
     [from, to],
   );
   const [sessionRows] = await reportDb.query(
-    `SELECT component, COUNT(*) AS recorded, COALESCE(SUM(attended = 1), 0) AS attended, COALESCE(SUM(attended = 0), 0) AS absent,
+    `SELECT component, COUNT(*) AS recorded, ${sessionAttendanceCountsSql()},
        COALESCE(SUM(grade), 0) AS grade, COALESCE(SUM(max_grade), 0) AS max
      FROM student_weekly_components
-     WHERE week_start BETWEEN ? AND ? AND ${reportDb.student('student_id')}
+     WHERE ${studyWeekSql('week_start')} AND week_start BETWEEN ? AND ? AND ${reportDb.student('student_id')}
      GROUP BY component`,
     [weekStartOf(from), to],
   );
@@ -115,7 +126,7 @@ export async function buildGradingOverview(reportDb, { from, to, quranFaces = {}
   const [[reading]] = await reportDb.query(
     `SELECT COALESCE(SUM(CAST(JSON_UNQUOTE(JSON_EXTRACT(detail_json, '$.requiredFaces')) AS DECIMAL(10,2))), 0) AS faces
      FROM student_daily_grades
-     WHERE component = 'reading' AND passed = 1 AND grade_date BETWEEN ? AND ? AND ${reportDb.student('student_id')}`,
+     WHERE component = 'reading' AND passed = 1 AND ${studyDateSql('grade_date')} AND grade_date BETWEEN ? AND ? AND ${reportDb.student('student_id')}`,
     [from, to],
   );
   const policy = await loadGradingPolicy(reportDb);
@@ -129,7 +140,7 @@ export async function buildGradingOverview(reportDb, { from, to, quranFaces = {}
     const row = sessionRows.find((item) => item.component === component) || {};
     const grade = number(row.grade);
     const max = rows.reduce((sum, student) => sum + student.max, 0);
-    return { recorded: number(row.recorded), attended: number(row.attended), absent: number(row.absent), grade, max, percentage: percentage(grade, max) };
+    return { recorded: number(row.recorded), attended: number(row.attended), absent: number(row.absent), late: number(row.late), excused: number(row.excused), expectedAttendance: rows.reduce((sum, student) => sum + number(student.weeks), 0), grade, max, percentage: percentage(grade, max) };
   };
   const programGrade = number(program.grade);
   // Per-student rows let the reports page show the distribution by circle and each student's result.
@@ -139,18 +150,18 @@ export async function buildGradingOverview(reportDb, { from, to, quranFaces = {}
      FROM student_daily_grades g
      JOIN students s ON s.id = g.student_id
      LEFT JOIN committees c ON c.id = s.committee_id
-     WHERE g.grade_date BETWEEN ? AND ? AND ${reportDb.student('g.student_id')}
+     WHERE ${studyDateSql('g.grade_date')} AND g.grade_date BETWEEN ? AND ? AND ${reportDb.student('g.student_id')}
      GROUP BY s.id, s.name, c.id, c.name`,
     [from, to],
   );
   const [sessionStudentRows] = await reportDb.query(
     `SELECT w.component, s.id, s.name, c.id AS committeeId, c.name AS committeeName,
-       COALESCE(SUM(w.attended = 1), 0) AS attended, COALESCE(SUM(w.attended = 0), 0) AS absent,
+       ${sessionAttendanceCountsSql('w')},
        COALESCE(SUM(w.grade), 0) AS grade, COALESCE(SUM(w.max_grade), 0) AS max
      FROM student_weekly_components w
      JOIN students s ON s.id = w.student_id
      LEFT JOIN committees c ON c.id = s.committee_id
-     WHERE w.week_start BETWEEN ? AND ? AND ${reportDb.student('w.student_id')}
+     WHERE ${studyWeekSql('w.week_start')} AND w.week_start BETWEEN ? AND ? AND ${reportDb.student('w.student_id')}
      GROUP BY w.component, s.id, s.name, c.id, c.name`,
     [weekStartOf(from), to],
   );
@@ -158,14 +169,15 @@ export async function buildGradingOverview(reportDb, { from, to, quranFaces = {}
   const [trackDetailRows] = await reportDb.query(
     `SELECT student_id AS studentId, detail_json AS detail
      FROM student_weekly_components
-     WHERE component = 'track' AND week_start BETWEEN ? AND ? AND ${reportDb.student('student_id')}`,
+     WHERE component = 'track' AND ${studyWeekSql('week_start')} AND week_start BETWEEN ? AND ? AND ${reportDb.student('student_id')}`,
     [weekStartOf(from), to],
   );
   const [readingStudentRows] = await reportDb.query(
     `SELECT student_id AS studentId, COUNT(*) AS days,
+       COALESCE(SUM(CAST(JSON_UNQUOTE(JSON_EXTRACT(detail_json, '$.hizbCount')) AS UNSIGNED)), 0) AS hizbs,
        COALESCE(SUM(CAST(JSON_UNQUOTE(JSON_EXTRACT(detail_json, '$.requiredFaces')) AS DECIMAL(10,2))), 0) AS faces
      FROM student_daily_grades
-     WHERE component = 'reading' AND passed = 1 AND grade_date BETWEEN ? AND ? AND ${reportDb.student('student_id')}
+     WHERE component = 'reading' AND passed = 1 AND ${studyDateSql('grade_date')} AND grade_date BETWEEN ? AND ? AND ${reportDb.student('student_id')}
      GROUP BY student_id`,
     [from, to],
   );
@@ -186,7 +198,9 @@ export async function buildGradingOverview(reportDb, { from, to, quranFaces = {}
   const sessionBreakdown = (component) => gradeBreakdown(sessionRowsFor(component));
   const track = trackSegments(trackDetailRows);
   const trackBreakdown = sessionBreakdown('track');
+  const compensations = await loadCompensationAudit(reportDb, from, to);
   return {
+    compensations,
     weeklyProgram: { grade: programGrade, max: programMax, percentage: percentage(programGrade, programMax), students: number(program.students), ...programBreakdown },
     weeklySession: { ...session('weekly', sessionRowsFor('weekly')), ...sessionBreakdown('weekly') },
     trackSession: {
@@ -207,7 +221,8 @@ export async function buildGradingOverview(reportDb, { from, to, quranFaces = {}
       expectedDays: countWeekDays(from, to, policy.weeklyProgram.readingDays),
       expectedByStudent: Object.fromEntries(expected.map(row => [String(row.id), row.readingDays])),
       days: readingStudentRows.reduce((total, row) => total + number(row.days), 0),
-      byStudent: Object.fromEntries(readingStudentRows.map((row) => [String(row.studentId), { days: number(row.days), faces: number(row.faces) }])),
+      hizbs: readingStudentRows.reduce((total, row) => total + number(row.hizbs), 0),
+      byStudent: Object.fromEntries(readingStudentRows.map((row) => [String(row.studentId), { days: number(row.days), faces: number(row.faces), hizbs: number(row.hizbs) }])),
     },
     facesRead: {
       ...facesRead,
@@ -227,7 +242,7 @@ function countWeekDays(from, to, weekDays = []) {
   return count;
 }
 
-const emptySegments = () => ({ tested: 0, total: 0, mistakes: 0, warnings: 0, grade: 0, max: 0 });
+const emptySegments = () => ({ tested: 0, total: 0, mistakes: 0, warnings: 0, hesitations: 0, grade: 0, max: 0, compensated: 0 });
 
 /** Sums the stored track-session segments per student and overall. */
 function trackSegments(rows = []) {
@@ -243,10 +258,17 @@ function trackSegments(rows = []) {
     for (const segment of Array.isArray(detail?.segments) ? detail.segments : []) {
       for (const target of [entry, totals]) {
         target.total += 1;
+        if (segment.compensated) {
+          target.compensated += 1;
+          target.grade += number(segment.grade);
+          target.max += number(segment.max);
+          continue;
+        }
         if (!segment.recorded) continue;
         target.tested += 1;
         target.mistakes += number(segment.mistakes);
         target.warnings += number(segment.warnings);
+        target.hesitations += number(segment.hesitations);
         target.grade += number(segment.grade);
         target.max += number(segment.max);
       }

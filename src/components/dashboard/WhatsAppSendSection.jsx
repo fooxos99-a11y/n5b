@@ -54,7 +54,7 @@ const WhatsAppSendSection = () => {
       toast({ title: 'تعذر تحميل الحلقات', description: error.message, variant: 'destructive' });
     });
     studentsApi.getSupervisors().then(setSupervisors).catch((error) => {
-      toast({ title: 'تعذر تحميل المعلمين', description: error.message, variant: 'destructive' });
+      toast({ title: 'تعذر تحميل مشرفي المسارات', description: error.message, variant: 'destructive' });
     });
   }, [toast]);
 
@@ -62,7 +62,7 @@ const WhatsAppSendSection = () => {
     let cancelled = false;
 
     const loadStudents = async () => {
-      if (recipientType !== 'students') {
+      if (recipientType === 'supervisors') {
         setIsLoading(false);
         return;
       }
@@ -90,7 +90,7 @@ const WhatsAppSendSection = () => {
   }, [familyId, recipientType, toast]);
 
   const visibleRecipients = useMemo(() => {
-    if (recipientType === 'students') return students;
+    if (recipientType !== 'supervisors') return students;
     return supervisors;
   }, [recipientType, students, supervisors]);
 
@@ -148,7 +148,7 @@ const WhatsAppSendSection = () => {
     try {
       const result = await studentsApi.sendWhatsAppMessages({
         recipientType,
-        studentIds: recipientType === 'students' ? selectedIds : [],
+        studentIds: recipientType !== 'supervisors' ? selectedIds : [],
         supervisorIds: recipientType === 'supervisors' ? selectedIds : [],
         message,
         attachment,
@@ -280,11 +280,11 @@ const WhatsAppSendSection = () => {
           <MessageRecipientFilters
             recipientType={recipientType}
             onRecipientTypeChange={updateRecipientType}
-            roles={[{ value: 'students', label: 'الطلاب' }, { value: 'supervisors', label: 'المعلمين' }]}
+            roles={[{ value: 'students', label: 'الطلاب' }, { value: 'guardians', label: 'أولياء الأمور' }, { value: 'supervisors', label: 'مشرفي المسارات' }]}
             committeeId={familyId}
             onCommitteeChange={setFamilyId}
             committees={families}
-            showCommittees={recipientType === 'students'}
+            showCommittees={recipientType !== 'supervisors'}
           >
             <Button
               type="button"
@@ -348,8 +348,8 @@ const WhatsAppSendSection = () => {
               recipients={visibleRecipients} selectedCount={selectedIds.length} allSelected={allSelected}
               onToggleAll={toggleAll} onToggle={(recipient) => toggleRecipient(recipient.id)}
               isSelected={(recipient) => selectedIds.includes(Number(recipient.id))} getKey={(recipient) => recipient.id} loading={isLoading}
-              renderDetails={(recipient) => <div className="mt-1 flex flex-wrap gap-2 text-sm text-muted-foreground"><span className="text-primary">{formatPhone(recipientType === 'students' ? recipient.guardianPhone : recipient.phone)}</span>{recipientType === 'supervisors' && recipient.jobTitle ? <span>{recipient.jobTitle}</span> : null}</div>}
-              renderBadge={() => <>{recipientType === 'students' ? <MessageCircle className="h-5 w-5" /> : <Users className="h-5 w-5" />}<span>{recipientType === 'students' ? 'رقم الجوال' : 'معلم'}</span></>}
+              renderDetails={(recipient) => <div className="mt-1 flex flex-wrap gap-2 text-sm text-muted-foreground"><span className="text-primary">{formatPhone(recipientType === 'guardians' ? recipient.guardianPhone : recipient.phone)}</span>{recipientType === 'supervisors' && recipient.jobTitle ? <span>{recipient.jobTitle}</span> : null}</div>}
+              renderBadge={() => <>{recipientType !== 'supervisors' ? <MessageCircle className="h-5 w-5" /> : <Users className="h-5 w-5" />}<span>{recipientType === 'guardians' ? 'ولي الأمر' : recipientType === 'students' ? 'الطالب' : 'مشرف المسار'}</span></>}
             />
           </div>
         </div>

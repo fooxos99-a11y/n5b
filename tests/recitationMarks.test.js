@@ -5,7 +5,7 @@ import { normalizeSelectedAyahMarks, normalizeSelectedWordMarks } from '../serve
 test('ayah marks reject out-of-task verses and nonfinite counts, and preserve bounded aggregation', () => {
   const allowed = new Map([['1:1', {}]]), marks = new Map();
   normalizeSelectedAyahMarks([{ surah: 1, ayah: 1, mistakeCount: 2.9, warningCount: -1 }, { surah: 1, ayah: 1, mistakeCount: 1 }], allowed, marks, 1000);
-  assert.deepEqual(marks.get('1:1'), { surah: 1, ayah: 1, mistakeCount: 3, warningCount: 0 });
+  assert.deepEqual(marks.get('1:1'), { surah: 1, ayah: 1, mistakeCount: 3, warningCount: 0, hesitationCount: 0 });
   for (const mark of [{ surah: 2, ayah: 1 }, { surah: 1, ayah: 1, mistakeCount: 'not a number' }, { surah: 1, ayah: 1, warningCount: Infinity }]) {
     assert.throws(() => normalizeSelectedAyahMarks([mark], allowed, new Map(), 1000), { statusCode: 422 });
   }

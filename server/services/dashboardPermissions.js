@@ -1,35 +1,9 @@
+import { DASHBOARD_PERMISSION_KEYS, SUPERVISOR_BASE_PERMISSIONS, normalizeDashboardGrants } from '../../shared/dashboard-permissions.js';
 import { db } from '../db.js';
 import { requireUndoPermission } from './undoJournal.js';
 
-export const DASHBOARD_PERMISSION_KEYS = [
-  'manualAttendance',
-  'staffAttendance',
-  'registrationRequests',
-  'students',
-  'studentPlans',
-  'narrationDay',
-  'calls',
-  'quranEvaluation',
-  'grades',
-  'families',
-  'supervisors',
-  'administrators',
-  'notifications',
-  'reports',
-  'whatsappSend',
-  'settings',
-  'store',
-];
-
-const DASHBOARD_PERMISSION_SET = new Set(DASHBOARD_PERMISSION_KEYS);
-
-export function cleanDashboardPermissions(permissions = []) {
-  return [...new Set(
-    (Array.isArray(permissions) ? permissions : [])
-      .map((permission) => String(permission || '').trim())
-      .filter((permission) => DASHBOARD_PERMISSION_SET.has(permission))
-  )];
-}
+export { DASHBOARD_PERMISSION_KEYS };
+export const cleanDashboardPermissions = normalizeDashboardGrants;
 
 export function cleanAdministratorDashboardPermissions(permissions = []) {
   return cleanDashboardPermissions(permissions).filter((permission) => permission !== 'quranEvaluation');
@@ -53,9 +27,8 @@ export async function getSupervisorDashboardPermissions(supervisorId) {
   const role = rows[0]?.role || '';
   const permissions = cleanDashboardPermissions(rows.map((row) => row.permissionKey));
   if (role === 'reciter') return ['quranEvaluation'];
-  return role === 'admin'
-    ? cleanAdministratorDashboardPermissions(permissions)
-    : permissions;
+  if (role === 'supervisor') return cleanDashboardPermissions([...SUPERVISOR_BASE_PERMISSIONS, ...permissions]);
+  return role === 'admin' ? cleanAdministratorDashboardPermissions(permissions) : [];
 }
 
 export async function hasSupervisorDashboardPermission(supervisorId, permissionKeys) {

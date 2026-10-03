@@ -108,7 +108,7 @@ test('expired tasks are updated by bounded primary keys with completion rechecke
       return [scan++ === 0 ? [{ id: 1 }, { id: 2 }] : []];
     }
     assert.match(sql, /WHERE id IN \(\?,\?\)/);
-    assert.match(sql, /teacher_completed IS NULL AND task_date < \?/);
+    assert.match(sql, /teacher_completed IS NULL[\s\S]*AND task_date < \?/);
     writes.push(params);
     return [{ affectedRows: 1 }];
   } }, '2026-09-06');

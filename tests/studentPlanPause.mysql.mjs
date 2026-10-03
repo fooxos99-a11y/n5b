@@ -1,0 +1,110 @@
+import '../server/loadEnvironment.js';
+import process from 'node:process';
+import console from 'node:console';
+import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+import mysql from 'mysql2/promise';
+import { initDatabase, runWithDatabase } from '../server/db.js';
+import { app, ensureStudentPlanTasks, getActivePlanForStudent, loadSettings, rateSupervisorQuranTaskHandler } from '../server/index.js';
+import { createStudentPlanPauseRouter } from '../server/routes/studentPlanPauseRoutes.js';
+import { loadStudentPlanPause, saveStudentPlanPause } from '../server/services/studentPlanPause.js';
+import { saveGradingPolicy, computeStudentsWeeklyGrades, weekStartOf } from '../server/services/grading.js';
+import { loadTeacherReading, saveTeacherReading } from '../server/services/selfReading.js';
+import { saveStudentAttendance } from '../server/services/studentAttendance.js';
+import { expireQuranTasks } from '../server/services/expireQuranTasks.js';
+import { studyDateSql, studyWeekSql } from '../server/services/seasonalHolidays.js';
+import { getBusinessDate, shiftDateOnly } from '../shared/business-date.js';
+
+assert.ok(['localhost','127.0.0.1'].includes(process.env.MYSQL_HOST));
+assert.equal(process.env.MYSQL_DATABASE,'nukhab_local');
+const database = `nukhab_pause_${randomUUID().replaceAll('-','').slice(0,16)}`;
+const response = () => ({statusCode:200,status(value){this.statusCode=value;return this;},set(){return this;},json(value){this.body=value;return this;}});
+let pool;
+try {
+  pool = await initDatabase(database,{seedDefaultData:false});
+  await runWithDatabase(database,{},async()=>{
+    const date=getBusinessDate(), start=shiftDateOnly(date,-10), pauseStart=shiftDateOnly(date,-3);
+    const actor={role:'manager',id:1,name:'Test'};
+    await saveGradingPolicy(pool,{generalMargin:0,weeklyProgram:{workDays:[0,1,2,3,4,5,6]}});
+    await pool.query("INSERT INTO committees(id,name) VALUES(1,'Test')");
+    for(const [id,role] of [[7,'supervisor'],[8,'admin'],[9,'admin']]) await pool.query("INSERT INTO supervisors(id,name,login_number,national_id,phone,job_title,role) VALUES(?,'Test',?,'','','',?)",[id,`pause-test-${id}`,role]);
+    await pool.query("INSERT INTO supervisor_dashboard_permissions(supervisor_id,permission_key) VALUES(8,'studentPlans')");
+    await pool.query('INSERT INTO supervisor_committees(supervisor_id,committee_id) VALUES(7,1)');
+    await pool.query("INSERT INTO students(id,name,login_number,national_id,guardian_phone,committee_id) VALUES(3,'Test','pause-test','','',1)");
+    await pool.query(`INSERT INTO student_quran_plans(id,student_id,start_date,start_page,end_page,start_surah,start_ayah,end_surah,end_ayah,
+      next_memorization_page,next_review_page,status,reading_faces) VALUES(1,3,?,1,604,1,1,114,6,1,1,'active',10)`,[start]);
+    let plan=await getActivePlanForStudent(pool,3);
+    await ensureStudentPlanTasks(pool,plan,start,await loadSettings());
+    const [[old]]=await pool.query("SELECT id,from_surah AS surah,from_ayah AS ayah FROM student_quran_tasks WHERE task_date=? AND task_type='memorization' LIMIT 1",[start]);
+    assert.ok(old);
+    const router=createStudentPlanPauseRouter({db:()=>pool,requireRead:(_req,_res,next)=>next()});
+    const put=router.stack.find(item=>item.route?.methods.put).route.stack.at(-1).handle;
+    const call=async(auth,body)=>{const res=response();let error;await put({auth,body},res,e=>{error=e;});if(error)throw error;return res;};
+    for(const auth of [{role:'student',id:3},{role:'supervisor',id:7},{role:'admin',id:9},{role:'reciter',id:7},{}]) {
+      assert.equal((await call(auth,{paused:true,revision:0})).statusCode,403);
+    }
+    await assert.rejects(call(actor,{paused:'true',revision:0}),{status:422});
+    assert.equal((await loadStudentPlanPause(pool)).revision,0);
+    const changed=await saveStudentPlanPause(pool,{paused:true,revision:0,date:pauseStart,actor});
+    assert.equal(changed.paused,true);
+    assert.equal((await call(actor,{paused:true,revision:0})).body.revision,1);
+    await assert.rejects(call(actor,{paused:false,revision:0}),{status:409});
+    const settings=await loadSettings();
+    await ensureStudentPlanTasks(pool,plan,date,settings);
+    await ensureStudentPlanTasks(pool,plan,shiftDateOnly(date,2),settings);
+    const [[newTasks]]=await pool.query('SELECT COUNT(*) AS count FROM student_quran_tasks WHERE task_date>=?',[pauseStart]);
+    assert.equal(Number(newTasks.count),0);
+    await expireQuranTasks(pool,date);
+    const [[pending]]=await pool.query('SELECT student_status AS status FROM student_quran_tasks WHERE id=?',[old.id]);
+    assert.equal(pending.status,'pending');
+    assert.deepEqual(await loadTeacherReading(pool,{supervisorId:7,date}),{readingDay:false,students:[]});
+    await assert.rejects(saveTeacherReading(pool,{supervisorId:7,studentId:3,date,completed:true}),{status:422});
+    await assert.rejects(saveTeacherReading(pool,{supervisorId:7,studentId:3,date:shiftDateOnly(date,1),completed:true}),{status:422});
+    await assert.rejects(saveStudentAttendance(pool,{studentId:3,date,status:'absent'},settings),{status:422});
+    const deniedEvaluation=response();let evaluationError;
+    await rateSupervisorQuranTaskHandler({auth:{role:'supervisor',id:7},params:{id:'7',taskId:String(old.id)},body:{}},deniedEvaluation,e=>{evaluationError=e;});
+    if(evaluationError)throw evaluationError;
+    assert.equal(deniedEvaluation.statusCode,422);
+    const todayRoute=app.router.stack.find(item=>item.route?.path==='/api/students/:id/quran-today').route.stack.at(-1).handle;
+    const todayResponse=response();let todayError;
+    await todayRoute({auth:{role:'student',id:3},params:{id:'3'}},todayResponse,e=>{todayError=e;});
+    if(todayError)throw todayError;
+    assert.equal(todayResponse.body.isPlanPaused,true);
+    assert.deepEqual(todayResponse.body.tasks,[]);
+    assert.equal(todayResponse.body.plan.planPaused,true);
+    const [[excluded]]=await pool.query(`SELECT ${studyDateSql('date')} AS study FROM (SELECT ? AS date) d`,[date]);
+    assert.equal(Number(excluded.study),0);
+    const week=weekStartOf(date), weekBefore=shiftDateOnly(week,-7);
+    // Add a closed stopped week to exercise both SQL predicates and weekly grade denominators.
+    const state=await loadStudentPlanPause(pool);
+    state.periods.unshift({startDate:shiftDateOnly(weekBefore,-7),endDate:shiftDateOnly(weekBefore,-1)});
+    await pool.query("UPDATE app_settings SET setting_value=? WHERE setting_key='studentPlanPause'",[JSON.stringify(state)]);
+    const [[excludedWeek]]=await pool.query(`SELECT ${studyWeekSql('week_start')} AS study FROM (SELECT ? AS week_start) w`,[shiftDateOnly(weekBefore,-7)]);
+    assert.equal(Number(excludedWeek.study),0);
+    const grades=await computeStudentsWeeklyGrades(pool,{studentIds:[3],weekStart:shiftDateOnly(weekBefore,-7)});
+    assert.equal(grades.get(3).weeklyProgram.max,0);
+    const pausedToday=todayResponse.body.plan;
+    const resumed=await call({role:'admin',id:8},{paused:false,revision:1});
+    assert.equal(resumed.body.paused,false);
+    const last=(await loadStudentPlanPause(pool)).periods.at(-1);
+    assert.equal(last.endDate,shiftDateOnly(date,-1));
+    plan=await getActivePlanForStudent(pool,3);
+    assert.equal(plan.id,1);
+    await ensureStudentPlanTasks(pool,plan,date,await loadSettings());
+    const [[next]]=await pool.query("SELECT from_surah AS surah,from_ayah AS ayah FROM student_quran_tasks WHERE task_date=? AND task_type='memorization' LIMIT 1",[date]);
+    assert.deepEqual(next,{surah:old.surah,ayah:old.ayah});
+    const runningToday=response();let resumeError;
+    await todayRoute({auth:{role:'student',id:3},params:{id:'3'}},runningToday,e=>{resumeError=e;});
+    if(resumeError)throw resumeError;
+    assert.ok(runningToday.body.todayAmounts.length>0);
+    assert.equal(runningToday.body.plan.delayedFaces,pausedToday.delayedFaces+1);
+    const duplicates=await Promise.all([saveStudentPlanPause(pool,{paused:true,revision:2,actor}),saveStudentPlanPause(pool,{paused:true,revision:2,actor})]);
+    assert.deepEqual(duplicates.map(row=>row.revision),[3,3]);
+    assert.equal((await loadStudentPlanPause(pool)).periods.filter(row=>row.endDate===null).length,1);
+    console.log('Pause MySQL passed: authorized persistence, rejected roles/invalid/stale writes, stopped tasks and expiry, reading/attendance/evaluation guards, forecasts/weekly SQL, and same-plan resumption.');
+  });
+} finally {
+  await pool?.end();
+  const connection=await mysql.createConnection({host:process.env.MYSQL_HOST,port:Number(process.env.MYSQL_PORT)||3306,user:process.env.MYSQL_USER,password:process.env.MYSQL_PASSWORD});
+  try {assert.match(database,/^nukhab_pause_[a-f0-9]{16}$/);await connection.query(`DROP DATABASE IF EXISTS \`${database}\``);} finally {await connection.end();}
+}

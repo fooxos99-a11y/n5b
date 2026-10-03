@@ -44,6 +44,7 @@ const toNamePart = (value) =>
 const headerAliases = {
   name: ['اسم', 'الاسم', 'اسمالطالب', 'الطالب', 'student', 'studentname', 'name'],
   phone: ['جوال', 'الجوال', 'رقمالجوال', 'جوالوليالامر', 'رقمجوالوليالامر', 'هاتف', 'الهاتف', 'phone', 'mobile', 'guardianphone'],
+  studentPhone: ['جوالالطالب', 'رقمجوالالطالب', 'studentphone'],
   nationalId: ['identity', 'nationalid', 'id', '\u0647\u0648\u064a\u0629', '\u0627\u0644\u0647\u0648\u064a\u0629', '\u0631\u0642\u0645\u0627\u0644\u0647\u0648\u064a\u0629'],
   loginNumber: ['رقمالدخول', 'دخول', 'login', 'loginnumber'],
   password: ['كلمةالمرور', 'كلمهالمرور', 'الرمز', 'رمز', 'password'],
@@ -106,6 +107,8 @@ export const parseStudentRows = (rows, usedLoginNumbers, committees = []) => {
         password: (mapping.password === undefined ? '' : String(row[mapping.password] ?? '')) || loginNumber,
         nationalId,
         guardianPhone: phone,
+        phone: mapping.studentPhone === undefined ? '' : normalizePhone(row[mapping.studentPhone]),
+        complexId: String(committees.find(committee => String(committee.id) === committeeFromFile)?.complexId || ''),
         committeeId: committeeFromFile,
       };
     })

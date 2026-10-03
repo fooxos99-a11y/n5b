@@ -42,21 +42,22 @@ const evaluationTypeForTask = (task) => (
 );
 
 /** Mirror the server row evaluation: memorization per one face, review per one hizb, link as one amount. */
-const evaluateOfflineRecitation = (gradingPolicy, taskType, mistakes, warnings) => {
+const evaluateOfflineRecitation = (gradingPolicy, taskType, mistakes, warnings, hesitations) => {
   if (taskType === 'memorization') {
-    const result = evaluateMemorization(gradingPolicy, { faces: [{ mistakes, warnings }] });
+    const result = evaluateMemorization(gradingPolicy, { faces: [{ mistakes, warnings, hesitations }] });
     return { passed: !result.faces[0].failed, rawScore: result.faces[0].score };
   }
   if (taskType === 'review') {
-    const result = evaluateReview(gradingPolicy, { hizbs: [{ mistakes, warnings }] });
+    const result = evaluateReview(gradingPolicy, { hizbs: [{ mistakes, warnings, hesitations }] });
     return { passed: !result.hizbs[0].failed, rawScore: result.rawScore };
   }
-  const result = evaluateLink(gradingPolicy, { mistakes, warnings });
+  const result = evaluateLink(gradingPolicy, { mistakes, warnings, hesitations });
   return { passed: result.passed, rawScore: result.rawScore };
 };
 
 const offlineOutcome = (task, payload, gradingPolicy) => {
   if (!gradingPolicy) return null;
+  const hesitationCount = Number(payload.hesitationCount ?? payload.wordMarks?.filter((mark) => mark.markType === 'hesitation').length ?? 0);
   const warningCount = Number(payload.warningCount ?? payload.wordMarks?.filter((mark) => mark.markType === 'warning').length ?? 0);
   const mistakeCount = Number(payload.mistakeCount ?? payload.wordMarks?.filter((mark) => isMistakeMark(mark.markType)).length ?? 0);
   const evaluatedFaces = Math.max(
@@ -64,11 +65,11 @@ const offlineOutcome = (task, payload, gradingPolicy) => {
     Number(task.targetPages || 0) || Math.abs(Number(task.toPage || 0) - Number(task.fromPage || 0)) + 1,
   );
   if (payload.notMemorized) {
-    return { warningCount: 0, mistakeCount: 0, evaluatedFaces, score: 0, completed: false, notMemorized: true };
+    return { hesitationCount: 0, warningCount: 0, mistakeCount: 0, evaluatedFaces, score: 0, completed: false, notMemorized: true };
   }
-  const { passed, rawScore } = evaluateOfflineRecitation(gradingPolicy, task.taskType, mistakeCount, warningCount);
+  const { passed, rawScore } = evaluateOfflineRecitation(gradingPolicy, task.taskType, mistakeCount, warningCount, hesitationCount);
   const score = Math.max(0, Math.round(Number(rawScore) * 10000) / 100);
-  return { warningCount, mistakeCount, evaluatedFaces, score, completed: passed };
+  return { hesitationCount, warningCount, mistakeCount, evaluatedFaces, score, completed: passed };
 };
 
 import { subscribeRecitationResume } from '@/lib/recitationResume';
@@ -212,12 +213,13 @@ const TeacherEvaluationDialog = ({ supervisorId, open = false, onOpenChange, inl
   };
 
   // Persist reading before delivery so a lost connection cannot discard the teacher outcome.
-  const saveReading = async ({ completed, faces }) => {
+  const saveReading = async ({ completed }) => {
     if (!readingStudent) return;
     setIsSavingReading(true);
     try {
       const action = await commitOfflineOperation(supervisorId, 'self_reading', {
-        supervisorId, studentId: readingStudent.studentId, date: data?.date, completed, faces,
+        supervisorId, studentId: readingStudent.studentId, date: data?.date, completed,
+        amount: readingEntry?.amount,
       }, { dedupeKey: `reading:${supervisorId}:${readingStudent.studentId}:${data?.date}` });
       setData(await mergeOfflineReading(supervisorId, data));
       if (navigator.onLine !== false) {
@@ -300,10 +302,11 @@ const TeacherEvaluationDialog = ({ supervisorId, open = false, onOpenChange, inl
     setIsSavingCount(true);
     try {
       const taskPayloads = sortRecitationTasks(selectedStudent.tasks).map((task) => {
-        const counts = itemCounts[String(task.id)] || { warningCount: 0, mistakeCount: 0 };
+        const counts = itemCounts[String(task.id)] || { hesitationCount: 0, warningCount: 0, mistakeCount: 0 };
         const payload = {
           evaluationMode: 'count',
           warningCount: counts.warningCount,
+          hesitationCount: counts.hesitationCount || 0,
           mistakeCount: counts.mistakeCount,
           ...(task.taskType === 'memorization' && selectedStudent.repeatCount !== undefined
             ? { repeatCount: selectedStudent.repeatCount }
@@ -375,6 +378,8 @@ const TeacherEvaluationDialog = ({ supervisorId, open = false, onOpenChange, inl
         students={data?.students || []}
         quranChapters={quranChapters}
         isLoading={isLoading}
+        compensationDate={data?.date}
+        onDayCompensated={() => load({ fresh: true })}
         onRecite={openRecitation}
         reading={data?.reading || []}
         onReading={setReadingStudent}
@@ -452,6 +457,7 @@ const TeacherEvaluationDialog = ({ supervisorId, open = false, onOpenChange, inl
   const readingDialog = (
     <SelfReadingDialog
       entry={readingEntry}
+      chapters={quranChapters}
       studentName={readingStudent?.studentName || ''}
       isSaving={isSavingReading}
       onSave={saveReading}

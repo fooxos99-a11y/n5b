@@ -13,7 +13,7 @@ export default function StudentTodayCard({ model, loading, error, onRetry, onRea
     {error && <StudentHomeStatus message="تعذر تحديث خطة اليوم." onRetry={onRetry} />}
     {loading ? <div className="student-home-skeleton" aria-label="تحميل خطة اليوم" /> : <>
       <StudentReadAmounts groups={model.groups} onRead={onRead} />
-      {!model.groups.length && !error && <p className="student-home-empty">لا توجد مقادير لهذا اليوم.</p>}
+      {!model.groups.length && !error && <p className="student-home-empty">{model.planPaused ? 'الخطة متوقفة — لا يوجد إنجاز مطلوب اليوم.' : model.seasonalHoliday ? 'إجازة موسمية — لا يوجد إنجاز مطلوب اليوم.' : 'لا توجد مقادير لهذا اليوم.'}</p>}
     </>}
     <Button className="student-home-primary" onClick={() => onRead(model.groups.find((group) => group.type === 'memorization')?.target || model.groups[0]?.target || null)}><BookOpen size={19} />فتح المصحف<ArrowLeft className="student-home-arrow" size={18} /></Button>
   </section>;

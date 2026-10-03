@@ -9,3 +9,14 @@ export const PLAN_SAVE_MODES = Object.freeze({
 /** Daily self-reading amount (faces) proposed for a new plan. */
 export const DEFAULT_PLAN_READING_FACES = 10;
 export const MAX_PLAN_READING_FACES = 604;
+
+export const DEFAULT_PLAN_READING_HIZBS = 1;
+export const MAX_PLAN_READING_HIZBS = 60;
+export function validatePlanReadingHizbs(value) {
+  if (value === undefined || value === null) return null; // Legacy face-based plan.
+  const count = Number(value);
+  if (!Number.isInteger(count) || count < 1 || count > MAX_PLAN_READING_HIZBS) {
+    throw Object.assign(new Error('مقدار القراءة اليومية يجب أن يكون من حزب إلى 60 حزبًا.'), { status: 422, statusCode: 422 });
+  }
+  return count;
+}

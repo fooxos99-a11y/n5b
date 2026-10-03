@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-test('teacher dashboard exposes student plans while keeping other student administration hidden', async () => {
+test('supervisor dashboard preserves student plans and enables additional granted administration', async () => {
   const [dashboard, accountPortal, evaluationSection, routes] = await Promise.all([
     readFile(new URL('../src/pages/WajehDashboard.jsx', import.meta.url), 'utf8'),
     readFile(new URL('../src/pages/AccountPortal.jsx', import.meta.url), 'utf8'),
@@ -10,7 +10,8 @@ test('teacher dashboard exposes student plans while keeping other student admini
     readFile(new URL('../src/lib/sectionRoutes.js', import.meta.url), 'utf8'),
   ]);
 
-  assert.match(dashboard, /isSupervisor && \['manualAttendance', 'students'\]\.includes\(section\.key\)/);
+  assert.doesNotMatch(dashboard, /isSupervisor && \['manualAttendance', 'students'\]\.includes\(section\.key\)/);
+  assert.match(dashboard, /permissionKeys\.some\(\(key\) => dashboardPermissions\.includes\(key\)\)/);
   assert.match(dashboard, /isSupervisor && section\.key === 'studentPlans'\) return true/);
   assert.match(dashboard, /const supervisorSectionOrder[\s\S]*\['teacherPoints', 3\][\s\S]*\['reports', 4\][\s\S]*\['studentPlans', Number.POSITIVE_INFINITY\]/);
   assert.match(dashboard, /supervisorSectionOrder\.get\(first\.key\)/);
@@ -51,7 +52,7 @@ test('teacher attendance and reports are constrained to linked committees on the
   // Teachers get no circle selector and no archive; the server scopes every report to their circles.
   assert.match(reports, /canViewStandardReports && !teacherScoped \? cachedReport\('scoped-committees'/);
   assert.match(reports, /<SelectTrigger aria-label="الفترة"/);
-  assert.match(reports, /studentsApi\.getOverviewReport\(\{ from, to, committeeId: scopeCommittee \}\)/);
+  assert.match(reports, /studentsApi\.getOverviewReport\(\{ from, to, committeeId: scopeCommittee, complexId: scopeComplex \}\)/);
   for (const label of ['البرنامج الأسبوعي', 'الجلسة الأسبوعية', 'جلسة المسار', 'يوم السرد', 'مستويات الطلاب', 'عدد الحلقات']) {
     assert.match(metrics, new RegExp(`label: '${label}'`));
   }
@@ -105,7 +106,7 @@ test('teacher reports use a date range and call rooms lock to the linked committ
 
   // A named period (week, month, quarter, year) or a custom range chosen in a dialog.
   assert.match(periods, /week: 'هذا الأسبوع',\s*month: 'هذا الشهر',\s*quarter: 'هذا الربع',\s*year: 'هذه السنة',\s*custom: 'مخصص'/);
-  assert.match(reports, /const range = useMemo\(\(\) => \(archiveId \? null : reportRange\(period, custom\)\)/);
+  assert.match(reports, /const range = useMemo\(\(\) => \(archiveId \? null : reportRange\(period, custom, today\)\)/);
   assert.match(reports, /<DialogTitle>فترة مخصصة<\/DialogTitle>/);
   assert.match(server, /quranReferenceMode: settings\.quranReferenceMode === 'page' \? 'page' : 'ayah'/);
   assert.match(server, /const progressScoredTaskTypes = \['memorization', 'review', 'link'\]/);
@@ -115,7 +116,7 @@ test('teacher reports use a date range and call rooms lock to the linked committ
   assert.match(calls, /committeeSelectionLocked && committees\.length === 0/);
   assert.match(callRoutes, /r\.committee_id IS NULL/);
   assert.match(callRoutes, /COALESCE\(c\.name, 'غرفة عامة'\)/);
-  assert.match(callRoutes, /committeeSelectionLocked: req\.auth\?\.role === 'supervisor'/);
+  assert.match(callRoutes, /committeeSelectionLocked: req\.auth\.role === 'supervisor'/);
   assert.match(callRoutes, /req\.auth\?\.role === 'supervisor'[\s\S]*supervisorCommittees\[0\]\.id/);
 });
 
@@ -147,7 +148,7 @@ test('teacher recitation attendance reveals grouped actions without a page reloa
     readFile(new URL('../.env.nukhab', import.meta.url), 'utf8'),
   ]);
 
-  assert.match(dashboard, /\['manualAttendance', 'students'\]/);
+  assert.doesNotMatch(dashboard, /isSupervisor && \['manualAttendance', 'students'\]/);
   assert.match(dashboard, /!isSupervisor && section\.key === 'manualAttendance'/);
   assert.doesNotMatch(evaluation, /nazem/i);
   assert.match(evaluation, /teacherAttendanceMode/);

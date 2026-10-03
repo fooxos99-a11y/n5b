@@ -95,7 +95,7 @@ test('execution ownership and configured count limits are enforced on the server
     read('../src/components/portal/RepeatCountSelector.jsx'),
   ]);
   assert.match(migration, /execution_actor_role/);
-  assert.match(server, /سبق أن اعتمد المعلم تنفيذ هذه المهمة/);
+  assert.match(server, /سبق أن اعتمد مشرف المسار تنفيذ هذه المهمة/);
   assert.match(server, /execution_actor_role = 'student'/);
   assert.match(server, /execution_actor_role = 'teacher'/);
   assert.match(server, /settings\.allowRepeatCountEditing\) \{\s*return practiceCompletionCount\(req\.body\.repeatCount/);

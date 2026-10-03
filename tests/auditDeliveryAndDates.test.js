@@ -77,7 +77,7 @@ test('grade dates reject invalid, future, pre-enrollment and closed-term dates',
 test('expected grades count unrecorded students, skip future days and honor enrollment', async () => {
   const policy = normalizeGradingPolicy({});
   const answers = [[[ { id: 1, joined: '2026-09-20' }, { id: 2, joined: '2026-09-28' } ]], [[]]];
-  const db = { student: () => '1=1', query: async () => answers.shift() };
+  const db = { student: () => '1=1', query: async sql => sql.includes('AS holidays') || sql.includes('AS pause') ? [[]] : answers.shift() };
   const students = await loadExpectedGrades(db, { from: '2026-09-27', to: '2026-10-03', today: '2026-09-28', policy });
   const daily = policy.weeklyProgram.attendance.present + policy.weeklyProgram.memorizationDaily + policy.weeklyProgram.linkDaily + policy.weeklyProgram.reviewDaily + policy.weeklyProgram.readingDaily;
   assert.equal(students[0].programMax, daily * 2);

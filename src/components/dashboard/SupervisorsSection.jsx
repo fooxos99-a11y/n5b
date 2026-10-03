@@ -4,8 +4,9 @@ import { studentsApi } from '@/services/studentsApi';
 
 const SupervisorsSection = () => (
   <CommitteeStaffSection
-    singularLabel="المعلم"
-    pluralLabel="معلمون"
+    editablePermissions
+    singularLabel="مشرف المسار"
+    pluralLabel="مشرفو المسارات"
     loadStaff={studentsApi.getSupervisors}
     createStaff={studentsApi.createSupervisor}
     updateStaff={studentsApi.updateSupervisor}

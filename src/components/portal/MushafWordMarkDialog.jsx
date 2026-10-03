@@ -34,11 +34,12 @@ const MushafWordMarkDialog = ({ open, selectedText = '', canClear = false, onCan
           >
             {selectedText || 'الكلمات المحددة'}
           </div>
-          <div className={`grid gap-2 ${canClear ? 'grid-cols-2 min-[400px]:grid-cols-4' : 'grid-cols-3'}`}>
+          <div className={`grid gap-2 ${canClear ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-2'}`}>
             <Button type="button" variant="outline" onClick={() => save('warning')} className="h-12 gap-1.5 border-amber-400/50 bg-amber-400/5 px-2 text-amber-600 hover:bg-amber-400/15 hover:text-amber-700">
               <AlertTriangle className="h-4 w-4" />
               تنبيه
             </Button>
+            <Button type="button" variant="outline" onClick={() => save('hesitation')} className="h-12 border-sky-400/50 text-sky-600">تردد</Button>
             <Button type="button" variant="outline" onClick={() => save('mistake')} className="h-12 gap-1.5 border-red-400/50 bg-red-400/5 px-2 text-red-600 hover:bg-red-400/15 hover:text-red-700">
               <XCircle className="h-4 w-4" />
               خطأ

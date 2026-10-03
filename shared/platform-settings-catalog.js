@@ -22,7 +22,7 @@ export const platformSettingsGroups = [
       { key: 'holidayTaskTypes', label: 'مهام الإجازة', type: 'taskTypes', defaultValue: [] },
       { key: 'recitationSessionDays', label: 'أيام التسميع', type: 'weekDays', defaultValue: [0, 1, 2, 3, 4] },
       select('recitationAttendanceSource', 'مصدر حضور التسميع', 'supervisor', [
-        { value: 'supervisor', label: 'المشرف' }, { value: 'teacher', label: 'المعلم' },
+        { value: 'supervisor', label: 'المشرف' }, { value: 'teacher', label: 'مشرف المسار' },
       ]),
       select('quranReferenceMode', 'عرض مرجع القرآن', 'ayah', [
         { value: 'ayah', label: 'السورة والآية' }, { value: 'page', label: 'رقم الصفحة' },
@@ -59,9 +59,9 @@ export const platformSettingsGroups = [
       toggle('rankingPointsVisible', 'عرض نقاط الترتيب', true),
       toggle('storeEnabled', 'المتجر'),
       toggle('storePurchaseDeductsRanking', 'خصم شراء المتجر من الترتيب'),
-      toggle('teacherManualPointsEnabled', 'السماح للمعلم بالإضافة والخصم'),
-      number('teacherManualPointsTermLimit', 'حد المعلم في الفصل', 100),
-      { key: 'teacherPointTypes', label: 'أنواع إضافة وخصم المعلم', type: 'teacherPointTypes', defaultValue: [] },
+      toggle('teacherManualPointsEnabled', 'السماح لمشرف المسار بالإضافة والخصم'),
+      number('teacherManualPointsTermLimit', 'حد مشرف المسار في الفصل', 100),
+      { key: 'teacherPointTypes', label: 'أنواع إضافة وخصم مشرف المسار', type: 'teacherPointTypes', defaultValue: [] },
       number('maxSupervisorStudentPoints', 'حد نقاط المشرف للطالب', 10),
       number('maxSupervisorFamilyItemsPoints', 'حد نقاط المشرف للحلقة', 100),
       number('maxSupervisorDeductionPoints', 'حد خصم المشرف', 10),

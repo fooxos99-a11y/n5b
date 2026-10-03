@@ -18,12 +18,14 @@ export function normalizeSelectedAyahMarks(ayahMarksPayload, allowedByKey, marks
     }
     const rawMistakeCount = Number(rawMark?.mistakeCount || 0);
     const rawWarningCount = Number(rawMark?.warningCount || 0);
-    if (!Number.isFinite(rawMistakeCount) || !Number.isFinite(rawWarningCount)) {
+    const rawHesitationCount = Number(rawMark?.hesitationCount || 0);
+    if (!Number.isFinite(rawMistakeCount) || !Number.isFinite(rawWarningCount) || !Number.isInteger(rawHesitationCount) || rawHesitationCount < 0 || rawHesitationCount > markLimit) {
       throw Object.assign(new Error('عدد الأخطاء أو التنبيهات غير صحيح.'), { statusCode: 422 });
     }
-    const current = marksByKey.get(key) || { surah, ayah, mistakeCount: 0, warningCount: 0 };
+    const current = marksByKey.get(key) || { surah, ayah, mistakeCount: 0, warningCount: 0, hesitationCount: 0 };
     current.mistakeCount += Math.max(0, Math.min(markLimit, Math.trunc(rawMistakeCount)));
     current.warningCount += Math.max(0, Math.min(markLimit, Math.trunc(rawWarningCount)));
+    current.hesitationCount += rawHesitationCount;
     marksByKey.set(key, current);
   }
 }
@@ -64,8 +66,9 @@ export function normalizeSelectedWordMarks({ wordMarksPayload, wordIndexByLocati
       notes: String(rawMark?.notes || '').trim().slice(0, 500),
     });
     const key = `${startSurah}:${startAyah}`;
-    const current = marksByKey.get(key) || { surah: startSurah, ayah: startAyah, mistakeCount: 0, warningCount: 0 };
+    const current = marksByKey.get(key) || { surah: startSurah, ayah: startAyah, mistakeCount: 0, warningCount: 0, hesitationCount: 0 };
     if (isMistakeMark(markType)) current.mistakeCount += 1;
+    else if (markType === 'hesitation') current.hesitationCount += 1;
     else current.warningCount += 1;
     marksByKey.set(key, current);
   }

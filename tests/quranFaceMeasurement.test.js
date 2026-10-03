@@ -46,7 +46,7 @@ test('completion respects teacher rejection and accepts confirmed partial/studen
 import { readFileSync } from 'node:fs';
 import { up, down } from '../server/migrations/2026.09.09.5-quran-face-positions.js';
 
-test('report aggregation counts every memorization track as memorization and excludes repeat tasks from face totals',()=>{
+test('report aggregation separates memorization and mastery and excludes repeat tasks from face totals',()=>{
  const db=fixture();
  try {
   db.exec(`ALTER TABLE tasks RENAME TO student_quran_tasks;
@@ -60,9 +60,9 @@ test('report aggregation counts every memorization track as memorization and exc
   const source=readFileSync(new URL('../server/index.js',import.meta.url),'utf8');
   const start=source.indexOf('const [[quranFaceTotals]]');
   const begin=source.indexOf('`',start),end=source.indexOf('`,',begin);
-  const sql=new Function('quranTaskFacesSql','acceptedMemorizationSql','acceptedQuranExecutionSql','reportDb',`return ${source.slice(begin,end+1)};`)(quranRangeFacesSql('t','actual'),acceptedQuranExecutionSql,acceptedQuranExecutionSql,{student:()=> '1=1'});
+  const sql=new Function('quranTaskFacesSql','acceptedMemorizationSql','acceptedQuranExecutionSql','reportDb','studyDateSql','uncompensatedTaskSql',`return ${source.slice(begin,end+1)};`)(quranRangeFacesSql('t','actual'),acceptedQuranExecutionSql,acceptedQuranExecutionSql,{student:()=> '1=1'},()=> '1=1',()=> '1=1');
   const totals=db.prepare(sql).get('2026-09-09','2026-09-09');
-  assert.deepEqual({...totals},{memorizationFaces:1,reviewFaces:.5,linkFaces:.5});
+  assert.deepEqual({...totals},{memorizationFaces:.5,masteryFaces:.5,reviewFaces:.5,linkFaces:.5});
  }finally{db.close();}
 });
 

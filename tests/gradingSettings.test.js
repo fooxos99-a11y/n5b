@@ -49,19 +49,23 @@ test('grading settings group every policy field and summarize the maxima', async
   assert.doesNotMatch(panel, /الإحصائيات/);
   assert.match(panel, /Number\(row\.faces\)\.toLocaleString\('ar-SA'\)/);
   assert.match(panel, /if \(section === 'track'\)[\s\S]*trackFields\.map/);
-  assert.match(panel, /if \(section === 'weekly'\)[\s\S]*field=\{weeklySessionField\}/);
+  assert.match(panel, /if \(section === 'weekly'\)[\s\S]*weeklySessionFields\.map/);
   for (const path of [
     'weeklyProgram.attendance.present', 'weeklyProgram.attendance.late', 'weeklyProgram.attendance.excused', 'weeklyProgram.attendance.absent',
     'weeklyProgram.memorizationDaily', 'weeklyProgram.linkDaily', 'weeklyProgram.reviewDaily', 'weeklyProgram.readingDaily',
     'weeklyProgram.mistakeDeduction', 'weeklyProgram.warningDeduction',
     'weeklyProgram.linkFailThreshold', 'weeklyProgram.hizbDeductionLimit', 'weeklyProgram.margin',
-    'trackSession.attendance', 'trackSession.segmentCount', 'trackSession.segmentMax', 'trackSession.mistakeDeduction', 'trackSession.warningDeduction',
+    'trackSession.attendance', 'trackSession.mistakeDeduction', 'trackSession.warningDeduction',
+    'trackSession.attendanceLate', 'trackSession.attendanceExcused', 'trackSession.attendanceAbsent',
+    'weeklySession.attendanceLate', 'weeklySession.attendanceExcused', 'weeklySession.attendanceAbsent',
     'weeklySession.attendance', 'generalMargin', 'statistics.repetitionsPerFace',
   ]) {
     assert.match(panel, new RegExp(`path: '${path.replace(/\./g, '\\.')}'`));
   }
   assert.match(panel, /key: 'workDays', label: 'أيام الحضور والحفظ والربط والمراجعة'/);
   assert.match(panel, /key: 'readingDays', label: 'أيام القراءة الذاتية'/);
+  assert.match(panel, /<SettingsCard title="مقاطع جلسة المسار">/);
+  assert.match(panel, /trackSegmentDefinitions\(normalized\)/);
   assert.match(panel, /<MultiSelectSetting[\s\S]*options=\{weekDayOptions\}/);
 });
 
@@ -111,10 +115,10 @@ test('student plan editor uses face presets, ahzab review and self reading amoun
   assert.match(plans, /reviewHizbs: plan\.reviewHizbs \?\? 1/);
   assert.doesNotMatch(plans, /جزئين|ثلاثة أجزاء/);
 
-  assert.match(plans, /label="القراءة الذاتية اليومية \(أوجه\)"/);
+  assert.match(plans, /label="القراءة الذاتية اليومية \(أحزاب\)"/);
   assert.doesNotMatch(plans, /'الافتراضي'/);
-  assert.match(plans, /readingFaces: getReadingFaces\(form\.readingPreset, form\.readingFaces\)/);
-  assert.match(plans, /readingFaces: Number\(plan\.readingFaces\) \|\| DEFAULT_PLAN_READING_FACES/);
+  assert.match(plans, /readingHizbs: getReadingHizbs\(form\.readingPreset, form\.readingHizbs\)/);
+  assert.match(plans, /readingHizbs: Number\(plan\.readingHizbs\) \|\| DEFAULT_PLAN_READING_HIZBS/);
 });
 
 test('the daily self-reading amount lives in each plan, not in the grading settings', async () => {

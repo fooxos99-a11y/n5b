@@ -1,0 +1,21 @@
+.student-home-rank-list{display:grid;gap:0;list-style:none;padding:0;margin:0;font-family:var(--font-ui)}
+.student-home-rank-list>li{display:grid;grid-template-columns:40px minmax(0,1fr) auto;align-items:center;gap:10px;padding:13px 8px;min-height:78px;border:0;border-bottom:1px solid #e9eff1;border-radius:0;background:transparent;position:relative}.student-home-rank-list>li:last-child{border-bottom:0}
+.student-home-rank-list>li[data-rank="1"]{background:linear-gradient(270deg,#fff7e5,#fffdf8 70%,#fff);border-radius:12px}
+.student-home-rank-list>li[data-self=true]{background:linear-gradient(270deg,#e9f6f5,#fff);box-shadow:inset -3px 0 #16998e;border-radius:12px}
+.student-home-rank-medal{display:flex;align-items:center;flex-direction:column;justify-content:center;gap:1px;width:38px;height:44px;border-radius:12px;background:#f1f5f7;color:#526b75;font-weight:850}
+[data-rank='1']>.student-home-rank-medal{color:#795512;background:#f9e8bb}[data-rank='2']>.student-home-rank-medal{color:#4b6579;background:#e9f0f5}[data-rank='3']>.student-home-rank-medal{color:#795533;background:#f7ebdf}
+.student-home-rank-medal small{font-size:9px;line-height:1}
+.student-home-rank-name{min-width:0;display:flex;flex-direction:column;gap:5px}
+.student-home-rank-name strong{font-size:13px;font-weight:800;line-height:1.7;overflow-wrap:anywhere}
+.student-home-rank-name small{font-size:10px;color:#7b8d93;line-height:1.6}
+.student-home-rank-list>li>span:last-child:not(.student-home-rank-name){font-size:12px;white-space:nowrap}
+.student-home-rank-list .student-rank-points{padding:6px 8px;border-radius:9px;background:#f0f7f7;color:#087c72;font-variant-numeric:tabular-nums;gap:5px}
+.ranking-list-cards{gap:8px}
+.ranking-list-cards>li,.ranking-list-cards>li:last-child{min-width:0;min-height:72px;padding:12px;border:1px solid hsl(var(--border));border-radius:12px}
+.ranking-list-cards>li[data-rank="1"]{background:linear-gradient(270deg,hsl(43 90% 60%/.13),hsl(var(--card)) 70%)}
+.ranking-list-cards .student-home-rank-name strong{font-size:13px;font-weight:600}
+.ranking-list-cards .student-home-rank-name small{font-size:11px;color:hsl(var(--muted-foreground));overflow-wrap:anywhere}
+.ranking-list-value{padding:6px 8px;border-radius:9px;background:hsl(var(--primary)/.08);color:hsl(var(--primary));font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+.ranking-list-teachers>li{grid-template-columns:40px minmax(0,1fr)}
+.ranking-list-teacher-indicators{display:flex;flex-wrap:wrap;gap:8px;grid-column:2/-1;min-width:0}
+@media(min-width:640px){.ranking-list-teachers>li{grid-template-columns:40px minmax(0,1fr) auto}.ranking-list-teacher-indicators{grid-column:auto}}

@@ -144,7 +144,7 @@ const TeacherPointsAdjustmentSection = () => {
                 <p className="text-sm font-bold text-destructive">رصيد الطالب لا يكفي لتنفيذ هذا الخصم.</p>
               )}
               {exceedsTermLimit && (
-                <p className="text-sm font-bold text-destructive">قيمة النوع تتجاوز المتبقي للمعلم في الفصل.</p>
+                <p className="text-sm font-bold text-destructive">قيمة النوع تتجاوز المتبقي لمشرف المسار في الفصل.</p>
               )}
 
               <Button type="button" className="min-h-12 w-full touch-manipulation sm:w-auto sm:min-w-32" onClick={save} disabled={isSaving || !canSave} loading={isSaving}>

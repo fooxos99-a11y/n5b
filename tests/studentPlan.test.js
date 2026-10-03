@@ -68,7 +68,7 @@ test('weekly history retains student authorization and parameterized dates witho
   const source = await readFile(new URL('../server/index.js', import.meta.url), 'utf8');
   const route = source.slice(source.indexOf("app.get('/api/students/:id/quran-sessions'"), source.indexOf("app.get('/api/students/:id/quran-saved'"));
   assert.match(route, /canReadStudentQuranToday\(req, studentId\)/);
-  assert.match(route, /planView \? 'AND t.task_date <= \?' : 'AND t.teacher_completed IS NOT NULL'/);
+  assert.match(route, /planView \? `AND \$\{studyDateSql\('t.task_date'\)\} AND \$\{uncompensatedTaskSql\('t'\)\} AND t.task_date <= \?` : 'AND t.teacher_completed IS NOT NULL'/);
   assert.match(route, /planView \? \[studentId, today\] : \[studentId\]/);
   assert.match(route, /planView \? '' : 'LIMIT 200'/);
 });

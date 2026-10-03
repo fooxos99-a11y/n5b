@@ -10,6 +10,7 @@ import { ManagementPanel, ManagementToolbar } from '@/components/dashboard/layou
 import MessageRecipientFilters from '@/components/dashboard/MessageRecipientFilters';
 import NotificationRecipients, { isNotificationRecipientSelected, recipientRoleLabels } from '@/components/notifications/NotificationRecipients';
 import { studentsApi } from '@/services/studentsApi';
+import { formatHijriDateTime } from '../../../shared/hijri-calendar.js';
 
 const emptySelection = () => ({ roles: [], committeeIds: [], people: [] });
 export default function NotificationsSection() {
@@ -102,7 +103,7 @@ export default function NotificationsSection() {
           {!history.length && <p className="text-muted-foreground">لا توجد إشعارات مرسلة.</p>}
           {history.map((item) => <article key={item.id} className="space-y-2 py-3">
             <h3 className="break-words font-bold">{item.title}</h3><p className="whitespace-pre-wrap break-words text-sm">{item.body}</p>
-            <p className="text-xs text-muted-foreground">{item.createdAt} · {item.createdBy}</p>
+            <p className="text-xs text-muted-foreground">{formatHijriDateTime(item.createdAt)} · {item.createdBy}</p>
             <p className="text-xs text-muted-foreground">إرسال الأجهزة: {item.pushSent || 0} · بانتظار الإرسال: {item.pushPending || 0} · تعذر الإرسال: {item.pushFailed || 0}</p>
             <div className="flex flex-wrap items-center gap-3 text-sm"><span>أُرسل داخل التطبيق: {item.recipientCount}</span><span>قُرئ: {item.readCount}</span><Button variant="outline" className="min-h-11" onClick={() => showRecipients(item.id)}>المستلمون</Button></div>
           </article>)}

@@ -19,6 +19,7 @@ export const DEFAULT_GRADING_POLICY = Object.freeze({
     readingDaily: 1,
     mistakeDeduction: 0.05,
     warningDeduction: 0.01,
+    hesitationDeduction: 0,
     linkFailThreshold: 0.85,
     hizbDeductionLimit: 0.15,
     memorizationThresholds: Object.freeze([
@@ -28,13 +29,15 @@ export const DEFAULT_GRADING_POLICY = Object.freeze({
     margin: 3,
   }),
   trackSession: Object.freeze({
+    sessionDay: null,
     attendance: 10,
     segmentCount: 2,
     segmentMax: 10,
     mistakeDeduction: 5,
     warningDeduction: 1,
+    hesitationDeduction: 0,
   }),
-  weeklySession: Object.freeze({ attendance: 20 }),
+  weeklySession: Object.freeze({ attendance: 20, sessionDay: null }),
   statistics: Object.freeze({ repetitionsPerFace: 40 }),
 });
 
@@ -100,20 +103,34 @@ export function normalizeGradingPolicy(raw = {}) {
       readingDaily: number(program.readingDaily, programDefaults.readingDaily),
       mistakeDeduction: number(program.mistakeDeduction, programDefaults.mistakeDeduction, { max: 1 }),
       warningDeduction: number(program.warningDeduction, programDefaults.warningDeduction, { max: 1 }),
+      hesitationDeduction: number(program.hesitationDeduction, 0, { max: 1 }),
       linkFailThreshold: number(program.linkFailThreshold, programDefaults.linkFailThreshold, { max: 1 }),
       hizbDeductionLimit: number(program.hizbDeductionLimit, programDefaults.hizbDeductionLimit, { min: 0.0001, max: 1 }),
       memorizationThresholds: normalizeThresholds(program.memorizationThresholds, programDefaults.memorizationThresholds),
       margin: number(program.margin, programDefaults.margin),
     },
     trackSession: {
+      sessionDay: track.sessionDay == null || track.sessionDay === '' ? null : integer(track.sessionDay, null, { max: 6 }),
       attendance: number(track.attendance, defaults.trackSession.attendance),
-      segmentCount: integer(track.segmentCount, defaults.trackSession.segmentCount, { min: 0, max: 20 }),
+      attendanceLate: number(track.attendanceLate, number(track.attendance, defaults.trackSession.attendance) / 2),
+      attendanceExcused: number(track.attendanceExcused, number(track.attendance, defaults.trackSession.attendance) / 4),
+      attendanceAbsent: number(track.attendanceAbsent, 0),
+      segmentCount: Array.isArray(track.segments) ? Math.min(20, track.segments.length) : integer(track.segmentCount, defaults.trackSession.segmentCount, { min: 0, max: 20 }),
       segmentMax: number(track.segmentMax, defaults.trackSession.segmentMax),
+      ...(Array.isArray(track.segments) ? { segments: track.segments.slice(0, 20).map(item => ({
+        source: item?.source === 'review' ? 'review' : 'link',
+        max: number(item?.max, defaults.trackSession.segmentMax),
+      })) } : {}),
       mistakeDeduction: number(track.mistakeDeduction, defaults.trackSession.mistakeDeduction),
       warningDeduction: number(track.warningDeduction, defaults.trackSession.warningDeduction),
+      hesitationDeduction: number(track.hesitationDeduction, 0),
     },
     weeklySession: {
+      sessionDay: weekly.sessionDay == null || weekly.sessionDay === '' ? null : integer(weekly.sessionDay, null, { max: 6 }),
       attendance: number(weekly.attendance, defaults.weeklySession.attendance),
+      attendanceLate: number(weekly.attendanceLate, number(weekly.attendance, defaults.weeklySession.attendance) / 2),
+      attendanceExcused: number(weekly.attendanceExcused, number(weekly.attendance, defaults.weeklySession.attendance) / 4),
+      attendanceAbsent: number(weekly.attendanceAbsent, 0),
     },
     statistics: {
       repetitionsPerFace: integer(statistics.repetitionsPerFace, defaults.statistics.repetitionsPerFace, { min: 0, max: 10000 }),
@@ -154,7 +171,7 @@ export function gradingMaxima(rawPolicy) {
     margin: program.margin,
   };
   const weeklyProgram = round(Object.values(programParts).reduce((sum, value) => sum + value, 0));
-  const trackSession = round(policy.trackSession.attendance + (policy.trackSession.segmentCount * policy.trackSession.segmentMax));
+  const trackSession = round(policy.trackSession.attendance + trackSegmentDefinitions(policy).reduce((sum, segment) => sum + segment.max, 0));
   const weeklySession = policy.weeklySession.attendance;
   return {
     programParts,
@@ -169,13 +186,49 @@ export function gradingMaxima(rawPolicy) {
 export function gradingPolicyErrors(rawPolicy) {
   const policy = normalizeGradingPolicy(rawPolicy);
   const errors = {};
+  for (const [section, maximum] of [['weeklyProgram', 1], ['trackSession', 1000]]) {
+    const raw = rawPolicy?.[section]?.hesitationDeduction;
+    if (raw !== undefined && (raw === '' || raw === null || !Number.isFinite(Number(raw)) || Number(raw) < 0 || Number(raw) > maximum)) {
+      errors[section + '.hesitationDeduction'] = 'أدخل خصمًا من 0 إلى ' + maximum + '.';
+    }
+  }
+  const segments = rawPolicy?.trackSession?.segments;
+  if (segments !== undefined) {
+    if (!Array.isArray(segments) || segments.length > 20) errors['trackSession.segments'] = 'اختر حتى 20 مقطعًا.';
+    else segments.forEach((item, index) => {
+      if (!['link', 'review'].includes(item?.source)) errors[`trackSession.segments.${index}.source`] = 'اختر الربط أو المراجعة.';
+      if (item?.max === '' || item?.max === null || !Number.isFinite(Number(item?.max)) || Number(item.max) < 0 || Number(item.max) > 1000) {
+        errors[`trackSession.segments.${index}.max`] = 'أدخل درجة من 0 إلى 1000.';
+      }
+    });
+  }
   if (gradingMaxima(policy).total > 100) errors.total = 'مجموع الدرجات يجب ألا يتجاوز 100.';
   for (const status of ['late', 'excused', 'absent']) {
     if (policy.weeklyProgram.attendance[status] > policy.weeklyProgram.attendance.present) {
       errors[`weeklyProgram.attendance.${status}`] = 'يجب ألا تتجاوز درجة الحاضر.';
     }
   }
+  for (const section of ['trackSession', 'weeklySession']) {
+    const day = rawPolicy?.[section]?.sessionDay;
+    if (day != null && (day === '' || !Number.isInteger(Number(day)) || Number(day) < 0 || Number(day) > 6)) {
+      errors[`${section}.sessionDay`] = 'اختر يوم الجلسة.';
+    }
+    for (const key of ['attendanceLate', 'attendanceExcused', 'attendanceAbsent']) {
+      const raw = rawPolicy?.[section]?.[key];
+      if (raw !== undefined && (raw === '' || raw === null || !Number.isFinite(Number(raw)) || Number(raw) < 0 || Number(raw) > 1000)) {
+        errors[`${section}.${key}`] = 'أدخل درجة من 0 إلى 1000.';
+      } else if (policy[section][key] > policy[section].attendance) {
+        errors[`${section}.${key}`] = 'يجب ألا تتجاوز درجة الحاضر.';
+      }
+    }
+  }
   return errors;
+}
+
+/** Legacy frozen weeks keep their original equal segment weights. */
+export function trackSegmentDefinitions(rawPolicy) {
+  const { trackSession: track } = normalizeGradingPolicy(rawPolicy);
+  return track.segments || Array.from({ length: track.segmentCount }, (_, index) => ({ source: index % 2 ? 'review' : 'link', max: track.segmentMax }));
 }
 
 /** Threshold for a memorization amount of N faces: exact entry, otherwise the closest smaller entry. */

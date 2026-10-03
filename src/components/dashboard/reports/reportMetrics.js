@@ -1,3 +1,4 @@
+import { formatHijriDate, formatHijriDateTime } from '../../../../shared/hijri-calendar.js';
 import {
   BookMarked, Building2, CalendarCheck2, CalendarRange, GraduationCap, PlusCircle, Route,
 } from 'lucide-react';
@@ -30,9 +31,16 @@ const countMetric = (count) => ({ value: Number(count || 0) > 0 ? 100 : 0, count
 const byName = (a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'ar');
 const outOf = (part, total, format = formatNumber) => `${format(part)} من ${format(total)}`;
 const gradeTone = (percentage) => (percentage >= 80 ? TONES.good : percentage >= 50 ? TONES.warn : TONES.bad);
+const gradeColor = (percentage) => percentage >= 80 ? '#059669' : percentage >= 50 ? '#d97706' : '#dc2626';
+const ratioStat = (label, done, total, format = formatNumber) => ({
+  label, value: outOf(done, total, format), tone: Number(total) > 0 ? gradeTone(pct(done, total)) : TONES.neutral,
+});
+const percentStat = (label, done, total) => ({
+  label, value: `${formatNumber(pct(done, total))}%`, tone: Number(total) > 0 ? gradeTone(pct(done, total)) : TONES.neutral,
+});
 
 /** Small summary cards at the top of a details window: a share (%) or a count. */
-const percentTile = (label, value) => ({ label, ...percentMetric(value) });
+const percentTile = (label, value) => ({ label, ...percentMetric(value), color: gradeColor(value) });
 const countTile = (label, count, format = formatNumber) => ({ label, value: Number(count || 0) > 0 ? 100 : 0, display: format(count) });
 
 const attendedOf = (stats = {}) => Number(stats.present || 0) + Number(stats.late || 0) + Number(stats.excused || 0);
@@ -52,19 +60,16 @@ function weeklyProgramMetric(overview, students, filtered) {
   const program = overview.grades?.weeklyProgram || {};
   // Circle totals come from the students shown; all circles use the server totals.
   const quranFaces = filtered
-    ? Object.fromEntries(['memorization', 'review', 'link'].map((key) => [key, sum(students, (student) => student.metrics?.[key]?.done)]))
+    ? Object.fromEntries(['memorization', 'mastery', 'review', 'link'].map((key) => [key, sum(students, (student) => student.metrics?.[key]?.done)]))
     : overview.totals?.quranFaces || {};
   const attendance = filtered
     ? { present: sum(students, (student) => student.metrics?.attendance?.done), total: sum(students, (student) => student.metrics?.attendance?.total) }
     : overview.attendance?.students || {};
   const gradeById = new Map((program.studentsList || []).map((row) => [String(row.id), row]));
   const reading = overview.grades?.reading || {};
-  const readingExpected = Number(reading.expectedDays || 0);
-  const readingExpectedOf = (student) => Number(reading.expectedByStudent?.[String(student.id)] ?? readingExpected);
-  const readingDaysOf = (student) => Number(reading.byStudent?.[String(student.id)]?.days || 0);
-  const readingDone = filtered ? sum(students, readingDaysOf) : Number(reading.days || 0);
-  const readingTotal = sum(students, readingExpectedOf);
-  const facesOf = (metric = {}) => outOf(metric.done, metric.total, faces);
+  const readingHizbsOf = student => Number(reading.byStudent?.[String(student.id)]?.hizbs || 0);
+  const readingDone = filtered ? sum(students, readingHizbsOf) : Number(reading.hizbs || 0);
+  const facesOf = (label, metric = {}) => ratioStat(label, metric.done, metric.total, faces);
   const rows = students
     .map((student) => ({ student, grade: gradeById.get(String(student.id)) }))
     .sort((a, b) => (b.grade?.percentage ?? -1) - (a.grade?.percentage ?? -1) || byName(a.student, b.student))
@@ -74,11 +79,12 @@ function weeklyProgramMetric(overview, students, filtered) {
       value: grade ? outOf(grade.grade, grade.max) : '—',
       tone: grade ? gradeTone(grade.percentage) : TONES.neutral,
       stats: [
-        { label: 'الحضور', value: outOf(student.metrics?.attendance?.done, student.metrics?.attendance?.total) },
-        { label: 'الحفظ', value: facesOf(student.metrics?.memorization) },
-        { label: 'المراجعة', value: facesOf(student.metrics?.review) },
-        { label: 'الربط', value: facesOf(student.metrics?.link) },
-        { label: 'القراءة الذاتية', value: outOf(readingDaysOf(student), readingExpectedOf(student)) },
+        ratioStat('الحضور', student.metrics?.attendance?.done, student.metrics?.attendance?.total),
+        facesOf('أوجه الحفظ', student.metrics?.memorization),
+        facesOf('أوجه الإتقان', student.metrics?.mastery),
+        facesOf('المراجعة', student.metrics?.review),
+        facesOf('الربط', student.metrics?.link),
+        { label: 'أحزاب القراءة الذاتية', value: formatNumber(readingHizbsOf(student)) },
       ],
     }));
   return {
@@ -89,36 +95,33 @@ function weeklyProgramMetric(overview, students, filtered) {
     ...percentMetric(program.percentage),
     tiles: [
       percentTile('الحضور', pct(attendedOf(attendance), attendance.total)),
-      countTile('الحفظ', quranFaces.memorization, faces),
+      countTile('أوجه الحفظ', quranFaces.memorization, faces),
+      countTile('أوجه الإتقان', quranFaces.mastery, faces),
       countTile('المراجعة', quranFaces.review, faces),
       countTile('الربط', quranFaces.link, faces),
-      percentTile('القراءة الذاتية', pct(readingDone, readingTotal)),
+      countTile('أحزاب القراءة الذاتية', readingDone),
     ],
     bars: [{ title: 'الحلقات', rows: filtered ? [] : committeeBars(program.committees) }],
     records: [{ title: 'الطلاب', rows, emptyText: 'لا يوجد طلاب' }],
   };
 }
 
-const sessionValue = (row) => {
-  const absentOnly = Number(row.attended || 0) === 0 && Number(row.absent || 0) > 0;
-  return absentOnly
-    ? { value: 'غائب', tone: TONES.bad }
-    : { value: outOf(row.grade, row.max), tone: gradeTone(row.percentage) };
-};
+const sessionExpectedOf = row => Number(row.expectedWeeks ?? (Number(row.attended || 0) + Number(row.absent || 0)));
 
 /** Weekly session: attendance only, so its details are the weeks attended and missed. */
 function weeklySessionMetric(data = {}, inCommittee, filtered) {
   const students = (data.studentsList || []).filter((row) => inCommittee(row.committeeName));
-  const totals = filtered ? { attended: sum(students, (row) => row.attended), absent: sum(students, (row) => row.absent) } : data;
+  const attended = filtered ? sum(students, row => row.attended) : Number(data.attended || 0);
+  const expected = filtered ? sum(students, sessionExpectedOf) : Number(data.expectedAttendance ?? sum(students, sessionExpectedOf));
   return {
     id: 'weeklySession',
     label: 'الجلسة الأسبوعية',
     icon: CalendarCheck2,
     color: METRIC_COLORS.weeklySession,
-    ...percentMetric(data.percentage),
+    ...percentMetric(pct(attended, expected)),
     tiles: [
-      countTile('حاضر', totals.attended),
-      countTile('غائب', totals.absent),
+      countTile('عدد الحضور', attended),
+      percentTile('نسبة الحضور', pct(attended, expected)),
     ],
     bars: [{ title: 'الحلقات', rows: filtered ? [] : committeeBars(data.committees) }],
     records: [{
@@ -126,10 +129,13 @@ function weeklySessionMetric(data = {}, inCommittee, filtered) {
       rows: students.map((row) => ({
         label: row.name,
         note: row.committeeName || 'بدون حلقة',
-        ...sessionValue(row),
+        value: `${formatNumber(pct(row.attended, sessionExpectedOf(row)))}%`,
+        tone: sessionExpectedOf(row) > 0 ? gradeTone(pct(row.attended, sessionExpectedOf(row))) : TONES.neutral,
         stats: [
-          { label: 'حضر', value: `${formatNumber(row.attended)} أسبوع` },
-          { label: 'غاب', value: `${formatNumber(row.absent)} أسبوع` },
+          ratioStat('عدد الحضور', row.attended, sessionExpectedOf(row)),
+          percentStat('نسبة الحضور', row.attended, sessionExpectedOf(row)),
+          ...(Number(row.late) > 0 ? [{ label: 'متأخر', value: formatNumber(row.late) }] : []),
+          ...(Number(row.excused) > 0 ? [{ label: 'مستأذن', value: formatNumber(row.excused) }] : []),
         ],
       })),
       emptyText: 'لا توجد درجات مرصودة في هذه الفترة',
@@ -144,11 +150,13 @@ function weeklySessionMetric(data = {}, inCommittee, filtered) {
 function trackSessionMetric(data = {}, inCommittee, filtered) {
   const students = (data.studentsList || []).filter((row) => inCommittee(row.committeeName));
   const segments = filtered
-    ? Object.fromEntries(['tested', 'mistakes', 'warnings', 'grade', 'max'].map((key) => [key, sum(students, (row) => row.segments?.[key])]))
+    ? Object.fromEntries(['tested', 'compensated', 'mistakes', 'warnings', 'hesitations', 'grade', 'max'].map((key) => [key, sum(students, (row) => row.segments?.[key])]))
     : data.segments || {};
   const attended = filtered ? sum(students, (row) => row.attended) : data.attended;
-  const recorded = filtered ? attended + sum(students, (row) => row.absent) : data.recorded;
+  const expected = filtered ? sum(students, sessionExpectedOf) : Number(data.expectedAttendance ?? sum(students, sessionExpectedOf));
   const studentValue = (row) => {
+    if (Number(row.segments?.compensated) > 0) return { value: 'تعويض', tone: TONES.good };
+    if (Number(row.attended || 0) === 0 && Number(row.excused || 0) > 0 && !Number(row.absent || 0)) return { value: 'مستأذن', tone: TONES.neutral };
     if (Number(row.attended || 0) === 0 && Number(row.absent || 0) > 0) return { value: 'غائب', tone: TONES.bad };
     if (!Number(row.segments?.tested || 0)) return { value: Number(row.attended) > 0 ? `${outOf(row.grade, row.max)} · لم يُختبر` : 'غير مرصود', tone: TONES.neutral };
     const accuracy = pct(row.segments.grade, row.segments.max);
@@ -159,13 +167,11 @@ function trackSessionMetric(data = {}, inCommittee, filtered) {
     label: 'جلسة المسار',
     icon: Route,
     color: METRIC_COLORS.trackSession,
-    ...percentMetric(data.percentage),
+    ...percentMetric(pct(segments.grade, segments.max)),
     tiles: [
-      percentTile('الحضور', pct(attended, recorded)),
-      percentTile('إتقان المقاطع', pct(segments.grade, segments.max)),
-      countTile('المقاطع المختبرة', segments.tested),
-      countTile('الأخطاء واللحون', segments.mistakes),
-      countTile('التنبيهات', segments.warnings),
+      percentTile('الحضور', pct(attended, expected)),
+      percentTile('نسبة إتقان الحفظ', pct(segments.grade, segments.max)),
+      countTile('الأخطاء', segments.mistakes), countTile('التنبيهات', segments.warnings), countTile('الترددات', segments.hesitations), countTile('المقاطع المعوضة', segments.compensated),
     ],
     bars: [],
     records: [{
@@ -175,10 +181,13 @@ function trackSessionMetric(data = {}, inCommittee, filtered) {
         note: row.committeeName || 'بدون حلقة',
         ...studentValue(row),
         stats: [
-          { label: 'الحضور', value: outOf(row.attended, Number(row.attended || 0) + Number(row.absent || 0)) },
-          { label: 'المقاطع', value: outOf(row.segments?.tested, row.segments?.total) },
-          { label: 'الأخطاء واللحون', value: formatNumber(row.segments?.mistakes) },
-          { label: 'التنبيهات', value: formatNumber(row.segments?.warnings) },
+          percentStat('الحضور', row.attended, sessionExpectedOf(row)),
+          ...(Number(row.late) > 0 ? [{ label: 'متأخر', value: formatNumber(row.late) }] : []),
+          ...(Number(row.excused) > 0 ? [{ label: 'مستأذن', value: formatNumber(row.excused) }] : []),
+          percentStat('نسبة إتقان الحفظ', row.segments?.grade, row.segments?.max),
+          { label: 'الأخطاء', value: formatNumber(row.segments?.mistakes || 0) },
+          { label: 'التنبيهات', value: formatNumber(row.segments?.warnings || 0) },
+          { label: 'الترددات', value: formatNumber(row.segments?.hesitations || 0) },
         ],
       })),
       emptyText: 'لا توجد درجات مرصودة في هذه الفترة',
@@ -199,6 +208,7 @@ function studentLevelsMetric(overview, inCommittee) {
   const byLevel = (rows) => new Map(STUDENT_LEVELS.map((level) => [level.key, rows.filter((row) => row.level?.key === level.key)]));
   const cardLevels = byLevel(allStudents);
   const detailLevels = byLevel(students);
+  const performance = new Map((overview.planPerformance?.students || []).map(student => [String(student.studentId), student.series]));
   return {
     id: 'levels',
     label: 'مستويات الطلاب',
@@ -222,10 +232,10 @@ function studentLevelsMetric(overview, inCommittee) {
       .filter((level) => detailLevels.get(level.key).length > 0)
       .map((level) => ({
         key: level.key,
-        title: `${level.name} · ${formatNumber(detailLevels.get(level.key).length)} طالب`,
+        title: level.name,
         rows: [...detailLevels.get(level.key)]
-          .sort((a, b) => Number(b.days || 0) - Number(a.days || 0) || byName(a, b))
-          .map((student) => ({ label: student.name, value: `${formatNumber(student.days)} يوم` })),
+          .sort((a, b) => Number(performance.get(String(a.id))?.at(-1)?.percentage ?? Infinity) - Number(performance.get(String(b.id))?.at(-1)?.percentage ?? Infinity) || byName(a, b))
+          .map((student) => ({ label: student.name, series: performance.get(String(student.id)) || [] })),
       })),
   };
 }
@@ -254,7 +264,7 @@ function committeesCountMetric(overview, inCommittee) {
       title: 'الحلقات',
       rows: [...committees].sort(byName).map((committee) => ({
         label: committee.name,
-        note: (teachersByCommittee.get(committee.name) || []).join('، ') || 'بدون معلم',
+        note: (teachersByCommittee.get(committee.name) || []).join('، ') || 'بدون مشرف المسار',
         value: `${formatNumber(committee.studentsCount)} طالب`,
       })),
       emptyText: 'لا توجد حلقات',
@@ -347,6 +357,18 @@ export function buildReportMetrics(overview, {
       studentLevelsMetric(overview, inCommittee),
       committeesCountMetric(overview, inCommittee),
     );
+    const compensations = (grades.compensations || []).filter(row => inCommittee(row.committeeName));
+    if (compensations.length) metrics.push({ id: 'compensations', label: 'التعويضات', icon: CalendarCheck2,
+      color: METRIC_COLORS.weeklyProgram, ...countMetric(compensations.filter(row => !row.cancelledAt).length),
+      tiles: [countTile('التعويضات المعتمدة', compensations.filter(row => !row.cancelledAt).length), countTile('التعويضات الملغاة', compensations.filter(row => row.cancelledAt).length)], bars: [],
+      records: [{ title: 'سجل التعويض', rows: compensations.map(row => ({ label: row.studentName,
+        note: `${row.committeeName || 'بدون حلقة'} · ${row.scope === 'track' ? 'جلسة المسار' : 'البرنامج الأسبوعي'}`,
+        value: row.cancelledAt ? 'ملغى' : 'تعويض', stats: [
+          { label: 'اليوم المعوض', value: formatHijriDate(row.date) }, { label: 'نفذه', value: row.actorName },
+          { label: 'وقت التسجيل', value: formatHijriDateTime(row.recordedAt) }, { label: 'مرجع الاستئذان', value: row.excuseReference },
+          ...(row.cancelledAt ? [{ label: 'ألغاه', value: row.cancelledByName }, { label: 'سبب الإلغاء', value: row.cancellationReason }] : []),
+        ] })) }],
+    });
   }
   if (showTeacherPoints) metrics.push(teacherPointsMetric(lists.teacherPoints, inCommittee));
   return metrics;

@@ -51,7 +51,7 @@ export default function useStaffAttendance(active = true) {
     setError(null);
     try {
       const accountId = getAccountId();
-      if (!accountId) throw new Error('تعذر تحديد حساب المعلم.');
+      if (!accountId) throw new Error('تعذر تحديد حساب مشرف المسار.');
       const record = await loadOfflineSnapshot(
         accountId,
         'staff-attendance:me',
@@ -91,7 +91,7 @@ export default function useStaffAttendance(active = true) {
     try {
       if (!attendance?.canAttend) throw new Error('التحضير غير متاح في هذا اليوم.');
       const accountId = getAccountId();
-      if (!accountId) throw new Error('تعذر تحديد حساب المعلم.');
+      if (!accountId) throw new Error('تعذر تحديد حساب مشرف المسار.');
       const policy = attendance?.offlinePolicy;
       const locationRequired = policy?.locationRequired === true
         || isStaffAttendanceLocationConfigured(policy?.targetLatitude, policy?.targetLongitude);

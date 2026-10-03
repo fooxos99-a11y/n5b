@@ -53,9 +53,15 @@ function StudentHomeContent({ studentId, onLogout }) {
   const [sessionVisited, setSessionVisited] = useState(requestedView === 'sessions');
   useEffect(() => {
     let active = true;
-    loadStudentHomeExtras({ refresh: version > 0, onUpdate: (update) => { if (active) setExtras((current) => ({ ...current, ...update })); } }).then((data) => { if (active) { setExtras(data); setExtrasReady(true); } });
+    loadStudentHomeExtras({ refresh: true, onUpdate: (update) => { if (active) setExtras((current) => ({ ...current, ...update })); } }).then((data) => { if (active) { setExtras(data); setExtrasReady(true); } });
     return () => { active = false; };
   }, [today, version]);
+  useEffect(() => {
+    const refresh = () => { if (document.visibilityState === 'visible') setVersion(value => value + 1); };
+    const interval = window.setInterval(refresh, 60_000);
+    window.addEventListener('focus', refresh);
+    return () => { window.clearInterval(interval); window.removeEventListener('focus', refresh); };
+  }, []);
   const features = studentHomeFeatures(extras?.settings, site.features);
   const view = features[requestedView] ? requestedView : null;
   const open = (key) => { if (key === 'sessions') { setSessionVisited(true); }
@@ -73,12 +79,12 @@ function StudentHomeContent({ studentId, onLogout }) {
   return <div className="student-home" dir="rtl">
     {entering && <LoadingIndicator mode="screen" delayMs={0} />}
     <div hidden={entering} inert={(mobile && view) || fullPage || view === 'store' ? '' : undefined}>
-    <StudentHomeHeader showProgress={Boolean(level?.name)} points={plan.data?.points?.total} progress={level?.progressPercent} levelName={level?.name} progressLabel={`تقدم ${level?.name || 'المستوى'}`} storeEnabled={storeEnabled} onOpen={open} onLogout={onLogout} />
+    <StudentHomeHeader studentName={plan.data?.rows?.find(row => row.studentName)?.studentName || localStorage.getItem('wajeh_name') || ''} showProgress={Boolean(level?.name)} points={plan.data?.points?.total} progress={level?.progressPercent} levelName={level?.name} progressLabel={`تقدم ${level?.name || 'المستوى'}`} storeEnabled={storeEnabled} onOpen={open} onLogout={onLogout} />
     <main className="student-home-main">
       <StudentNewsCard news={extras?.news} active={!entering && !view} />
       <StudentTodayCard model={model} loading={plan.loading && !plan.data} error={plan.error} onRetry={plan.retry} onRead={read} />
       {extras?.settingsError && <StudentHomeStatus message="تعذر تحديث إعدادات الصفحة." onRetry={() => setVersion((value) => value + 1)} />}
-      <StudentHomeRankings studentId={studentId} />
+      <StudentHomeRankings studentId={studentId} settings={extras?.settings} />
     </main></div>
     {!entering && !fullPage && <StudentBottomNavigation storeEnabled={storeEnabled} view={view} onNavigate={(key) => { if (key === view) { return; }
       if (key === 'mushaf') { read(null); } else { open(key); } }} />}

@@ -24,7 +24,7 @@ test('platform analytics keeps comparison optional and shifts the selected range
     from: '2026-07-25', to: '2026-08-08', days: 15,
   });
   assert.deepEqual(resolveAnalyticsPeriod({ from: '2026-03-31', to: '2026-03-31', compare: 'month' }).previous, {
-    from: '2026-02-28', to: '2026-02-28', days: 1,
+    from: '2026-03-01', to: '2026-03-01', days: 1,
   });
   assert.throws(() => resolveAnalyticsPeriod({ from: '2026-08-15', to: '2026-08-01' }), /نطاق التاريخ/);
   assert.throws(() => resolveAnalyticsPeriod({ from: '2025-01-01', to: '2026-08-01' }), /366/);
@@ -131,9 +131,11 @@ test('platform owner overview aggregates tenants safely and exposes responsive d
   assert.match(metric, /hasComparison/);
   assert.match(metric, /عن فترة المقارنة/);
   assert.doesNotMatch(analytics, /previousValue=\{rows\.length\}/);
-  assert.match(filters, /type="date"/);
+  assert.match(filters, /import DatePicker from '@\/components\/ui\/date-picker'/);
+  assert.match(filters, /ariaLabel="من تاريخ"/);
+  assert.match(filters, /ariaLabel="إلى تاريخ"/);
   assert.match(filters, /جميع الحلق/);
-  assert.match(filters, /جميع المعلمين/);
+  assert.match(filters, /جميع مشرفي المسارات/);
   assert.match(table, /تحليلات-المجمعات\.csv/);
   assert.match(table, /overflow-x-auto/);
   assert.match(chart, /role="img"/);

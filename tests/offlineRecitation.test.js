@@ -237,7 +237,7 @@ test('client persists atomically, restores drafts, retries globally, and never b
   assert.match(bridge, /networkStatusChange/);
   assert.match(bridge, /appStateChange/);
   assert.match(evaluation, /commitOfflineRecitation/);
-  assert.match(evaluation, /evaluateMemorization\(gradingPolicy, \{ faces: \[\{ mistakes, warnings \}\] \}\)/);
+  assert.match(evaluation, /evaluateMemorization\(gradingPolicy, \{ faces: \[\{ mistakes, warnings, hesitations \}\] \}\)/);
   assert.match(evaluation, /offlineOutcome\(task, payload, data\?\.gradingPolicy\)/);
   assert.doesNotMatch(evaluation, /calculateRecitationScore|evaluationPolicies/);
   assert.doesNotMatch(taskList, /لا يمكن تحديد مقدار اليوم بدقة قبل المزامنة/);

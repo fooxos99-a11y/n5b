@@ -38,11 +38,11 @@ const NarrationStudentPanel = ({ eventId, student, archived, onSaveJuz, onStart,
     ),
     [eventId]
   );
-  const saveCountJuz = async ({ warningCount, mistakeCount }) => {
+  const saveCountJuz = async ({ warningCount, hesitationCount, mistakeCount }) => {
     if (!countJuz) return;
     setIsSaving(true);
     try {
-      await onSaveJuz(student.id, countJuz.juzNumber, { evaluationMode: 'count', warningCount, mistakeCount });
+      await onSaveJuz(student.id, countJuz.juzNumber, { evaluationMode: 'count', warningCount, hesitationCount, mistakeCount });
       setCountJuz(null);
     } catch (error) {
       return error;
@@ -132,6 +132,7 @@ const NarrationStudentPanel = ({ eventId, student, archived, onSaveJuz, onStart,
         onOpenChange={(nextOpen) => !nextOpen && setCountJuz(null)}
         title={`الجزء ${countJuz?.juzNumber || ''}`}
         initialWarningCount={countJuz?.warningCount}
+        initialHesitationCount={countJuz?.hesitationCount}
         initialMistakeCount={countJuz?.mistakeCount}
         onSubmit={saveCountJuz}
         isSaving={isSaving}

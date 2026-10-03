@@ -13,10 +13,10 @@ test('teacher additions and deductions notify only the recipient with the record
       return [{ insertId: 91 }];
     } };
     assert.equal(await notifyTeacherPointAdjustment(connection, {
-      transactionId: 15, studentId: 8, type, points: 5, reason: 'سبب الاختبار', actor: { id: 3, name: 'معلم الاختبار' },
+      transactionId: 15, studentId: 8, type, points: 5, reason: 'سبب الاختبار', actor: { id: 3, name: 'مشرف المسار الاختبار' },
     }), 91);
     assert.match(calls[0].values[1], /سبب الاختبار/);
-    assert.equal(calls[0].values[0], type === 'increase' ? 'إضافة من المعلم' : 'خصم من المعلم');
+    assert.equal(calls[0].values[0], type === 'increase' ? 'إضافة من مشرف المسار' : 'خصم من مشرف المسار');
     assert.equal(calls[0].values[2], 'teacher-points:15');
     assert.deepEqual(calls[1].values, [91, 8]);
     assert.match(calls[2].sql, /INSERT IGNORE INTO notification_push_deliveries/);

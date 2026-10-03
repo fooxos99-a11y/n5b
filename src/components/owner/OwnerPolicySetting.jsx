@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import DatePicker from '@/components/ui/date-picker';
 
 const weekDays = [
   { value: 6, label: 'السبت' }, { value: 0, label: 'الأحد' }, { value: 1, label: 'الاثنين' },
@@ -44,6 +45,7 @@ const OwnerPolicySetting = ({ definition, value, policy, onValueChange, onPolicy
 
   const renderValue = () => {
     if (definition.type === 'boolean') return null;
+    if (definition.type === 'date') return <DatePicker id={inputId} ariaLabel={definition.label} value={value || ''} disabled={!editable} onChange={onValueChange} />;
     if (definition.type === 'select') {
       return (
         <Select value={String(value ?? definition.defaultValue)} onValueChange={onValueChange} disabled={!editable}>

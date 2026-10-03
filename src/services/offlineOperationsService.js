@@ -255,6 +255,9 @@ export async function mergeOfflineReading(accountId, evaluation) {
     .map(action => [Number(action.payload.studentId), action.payload]));
   return { ...evaluation, reading: (evaluation.reading || []).map(row => {
     const payload = pending.get(Number(row.studentId));
-    return payload ? { ...row, status: payload.completed === null ? null : payload.completed ? 'read' : 'missed', recordedFaces: payload.faces, pendingSync: true } : row;
+    return payload ? { ...row, status: payload.completed === null ? null : payload.completed ? 'read' : 'missed', recordedFaces: payload.amount?.faces ?? row.amount?.faces,
+      fromHizb: payload.amount?.fromHizb ?? row.amount?.fromHizb ?? null, toHizb: payload.amount?.toHizb ?? row.amount?.toHizb ?? null,
+      hizbCount: payload.amount?.hizbCount ?? row.amount?.hizbCount ?? null,
+      pendingSync: true } : row;
   }) };
 }

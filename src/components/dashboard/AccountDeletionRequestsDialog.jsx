@@ -7,18 +7,14 @@ import { useToast } from '@/components/ui/use-toast';
 import { cn } from '@/lib/utils';
 import { studentsApi } from '@/services/studentsApi';
 import ConfirmAccountRemovalDialog from '@/components/account/ConfirmAccountRemovalDialog';
+import { formatHijriDateTime as formatDateTime } from '../../../shared/hijri-calendar.js';
 
 const roleLabels = {
   student: 'طالب',
-  supervisor: 'معلم',
+  supervisor: 'مشرف المسار',
   admin: 'إداري',
   manager: 'مدير',
 };
-
-const formatDateTime = (value) => new Intl.DateTimeFormat('ar-SA-u-ca-gregory', {
-  dateStyle: 'medium',
-  timeStyle: 'short',
-}).format(new Date(value));
 
 const AccountDeletionRequestsDialog = ({ triggerClassName }) => {
   const { toast } = useToast();

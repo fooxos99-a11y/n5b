@@ -1,6 +1,10 @@
 import ErrorState from '@/components/ui/error-state';
 import React, { useEffect, useState } from 'react';
 import { getSiteConfig } from '@/site/siteConfigs';
+import { Capacitor } from '@capacitor/core';
+import { getTenantRegistrationNumber } from '@/services/apiBase';
+import { buildRegistrationLink } from '../../../shared/registration-link';
+import { formatHijriDate } from '../../../shared/hijri-calendar';
 import { Check, CheckCircle2, Clipboard, Copy, X, XCircle } from 'lucide-react';
 import LoadingSpinner from '@/components/ui/loading-spinner';
 import { Button } from '@/components/ui/button';
@@ -21,19 +25,14 @@ const emptyAcceptForm = {
   guardianPhone: '',
   nationalId: '',
   age: '',
+  complexId: '',
   committeeId: '',
 };
 
 const numberText = (value) => Number(value || 0).toLocaleString('ar-SA-u-nu-latn');
 const formatSubmissionDate = (value) => {
   const datePart = String(value || '').slice(0, 10);
-  const [year, month, day] = datePart.split('-').map(Number);
-  if (!year || !month || !day) return '-';
-  return new Intl.DateTimeFormat('ar-SA-u-ca-gregory', {
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  }).format(new Date(year, month - 1, day));
+  return formatHijriDate(datePart, { month: 'long' }) || '-';
 };
 
 const RegistrationRequestsSection = () => {
@@ -48,8 +47,16 @@ const RegistrationRequestsSection = () => {
   const [acceptForm, setAcceptForm] = useState(emptyAcceptForm);
   const [testResults, setTestResults] = useState({});
   const [busyKey, setBusyKey] = useState('');
+  const complexes = [...new Map(committees.filter(row => row.complexId).map(row => [String(row.complexId), { id: String(row.complexId), name: row.complexName }])).values()];
+  const formCommittees = committees.filter(row => String(row.complexId || '') === acceptForm.complexId);
 
-  const registrationLink = new URL('/register', getSiteConfig().publicUrl).href;
+  const registrationLink = buildRegistrationLink({
+    origin: window.location.origin,
+    basePath: import.meta.env.BASE_URL,
+    publicUrl: getSiteConfig().publicUrl,
+    native: Capacitor.isNativePlatform(),
+    registrationNumber: getTenantRegistrationNumber(),
+  });
 
   const loadData = async () => {
     const [requestData, committeeData] = await Promise.all([
@@ -120,7 +127,8 @@ const RegistrationRequestsSection = () => {
       guardianPhone: request.guardianPhone || '',
       nationalId: request.nationalId || '',
       age: request.age ? String(request.age) : '',
-      committeeId: '',
+      complexId: request.complexId ? String(request.complexId) : '',
+      committeeId: request.committeeId ? String(request.committeeId) : '',
     });
     setTestResults(request.testResults || {});
   };
@@ -182,7 +190,8 @@ const RegistrationRequestsSection = () => {
   const canAccept = acceptForm.name.trim()
     && acceptForm.loginNumber.trim()
     && acceptForm.password
-    && acceptForm.committeeId
+    && acceptForm.complexId
+    && formCommittees.some(row => String(row.id) === acceptForm.committeeId)
     && allResultsComplete;
 
   if (loadError) return <ErrorState message={loadError} onRetry={() => loadData().catch(error => setLoadError(error.message))} />;
@@ -231,6 +240,8 @@ const RegistrationRequestsSection = () => {
                 <div className="flex flex-wrap items-start gap-x-5 gap-y-1 text-sm">
                   <RequestDetail label="العمر" value={`${numberText(request.age)} سنة`} />
                   <RequestDetail label="تاريخ التقديم" value={formatSubmissionDate(request.createdAt)} />
+                  {request.complexName && <RequestDetail label="المجمع" value={request.complexName} />}
+                  {request.committeeName && <RequestDetail label="الحلقة" value={request.committeeName} />}
                   <RequestDetail label="المحفوظ" value={formatJuzNumbers(request.memorization?.juzs || [], numberText) || 'لا يوجد محفوظ سابق'} wide />
                 </div>
               </div>
@@ -263,13 +274,19 @@ const RegistrationRequestsSection = () => {
             <FormField label="اسم الطالب" htmlFor="registration-accept-name">
               <Input id="registration-accept-name" value={acceptForm.name} onChange={(event) => setAcceptForm({ ...acceptForm, name: event.target.value })} />
             </FormField>
+            <FormField label="المجمع" htmlFor="registration-accept-complex">
+              <Select value={acceptForm.complexId} onValueChange={complexId => setAcceptForm({ ...acceptForm, complexId, committeeId: '' })}>
+                <SelectTrigger id="registration-accept-complex" aria-label="المجمع"><SelectValue placeholder="اختر المجمع" /></SelectTrigger>
+                <SelectContent>{complexes.map(row => <SelectItem key={row.id} value={row.id}>{row.name}</SelectItem>)}</SelectContent>
+              </Select>
+            </FormField>
             <FormField label="الحلقة" htmlFor="registration-accept-committee">
-              <Select value={acceptForm.committeeId} onValueChange={(value) => setAcceptForm({ ...acceptForm, committeeId: value })}>
+              <Select disabled={!acceptForm.complexId || !formCommittees.length} value={acceptForm.committeeId} onValueChange={(value) => setAcceptForm({ ...acceptForm, committeeId: value })}>
                 <SelectTrigger id="registration-accept-committee" aria-label="الحلقة" className="h-11">
                   <SelectValue placeholder="اختر الحلقة" />
                 </SelectTrigger>
                 <SelectContent>
-                  {committees.map((committee) => (
+                  {formCommittees.map((committee) => (
                     <SelectItem key={committee.id} value={String(committee.id)}>{committee.name}</SelectItem>
                   ))}
                 </SelectContent>

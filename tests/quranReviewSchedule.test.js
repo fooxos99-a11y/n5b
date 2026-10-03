@@ -1,3 +1,5 @@
+import { uncompensatedTaskSql } from '../server/services/compensationPlanCredit.js';
+import { studyDateSql } from '../server/services/seasonalHolidays.js';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
@@ -68,7 +70,7 @@ test('review range reconciliation detects a stale range even when its amount mat
 test('the actual repair removes only untouched stale reviews and never changes historical or recorded work', async () => {
   const source = await readFile(new URL('../server/index.js', import.meta.url), 'utf8');
   const implementation = source.slice(source.indexOf('async function repairUnevaluatedRevisionTasks('), source.indexOf('function pickAvailablePages('));
-  const repair = new Function('getSaudiDateTimeParts', 'reviewPagesMatch', `${implementation}; return repairUnevaluatedRevisionTasks;`)(
+  const repair = new Function('studyDateSql', 'uncompensatedTaskSql', 'getSaudiDateTimeParts', 'reviewPagesMatch', `${implementation}; return repairUnevaluatedRevisionTasks;`)(studyDateSql, uncompensatedTaskSql,
     () => ({ date: '2026-09-07' }), reviewPagesMatch,
   );
   const desired = Array.from({ length: 10 }, (_, i) => 571 + i);

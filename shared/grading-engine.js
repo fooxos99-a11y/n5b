@@ -3,9 +3,11 @@ import {
   memorizationThresholdFor,
   normalizeGradingPolicy,
   reviewAmountThreshold,
+  trackSegmentDefinitions,
 } from './grading-policy.js';
 import { DEFAULT_PLAN_READING_FACES } from './quran-plan-options.js';
 import { getBusinessDate } from './business-date.js';
+import { canTestSession, sessionAttendanceGrade, sessionAttendanceStatus } from './session-attendance.js';
 
 export const FAIL_TYPES = Object.freeze({
   manual: 'manual',
@@ -33,8 +35,9 @@ const count = value => Math.max(0, Math.floor(Number(value) || 0));
 function deductionOf(policy, item = {}) {
   const mistakes = count(item.mistakes);
   const warnings = count(item.warnings);
-  const deduction = round((mistakes * policy.weeklyProgram.mistakeDeduction) + (warnings * policy.weeklyProgram.warningDeduction));
-  return { mistakes, warnings, deduction };
+  const hesitations = count(item.hesitations);
+  const deduction = round((mistakes * policy.weeklyProgram.mistakeDeduction) + (warnings * policy.weeklyProgram.warningDeduction) + (hesitations * policy.weeklyProgram.hesitationDeduction));
+  return { mistakes, warnings, hesitations, deduction };
 }
 
 function failed(base, type, extra = {}) {
@@ -50,8 +53,8 @@ export function evaluateMemorization(rawPolicy, { faces = [], manualFail = false
   const policy = normalizeGradingPolicy(rawPolicy);
   const max = policy.weeklyProgram.memorizationDaily;
   const faceRows = (faces.length ? faces : [{}]).map((item, index) => {
-    const { mistakes, warnings, deduction } = deductionOf(policy, item);
-    return { index: index + 1, page: item.page ?? null, mistakes, warnings, deduction, score: round(1 - deduction) };
+    const { mistakes, warnings, hesitations, deduction } = deductionOf(policy, item);
+    return { index: index + 1, page: item.page ?? null, mistakes, warnings, hesitations, deduction, score: round(1 - deduction) };
   });
   const faceCount = faceRows.length;
   const singleFaceThreshold = memorizationThresholdFor(policy, 1);
@@ -66,6 +69,7 @@ export function evaluateMemorization(rawPolicy, { faces = [], manualFail = false
     faces: faceRows.map(item => ({ ...item, failed: item.score <= singleFaceThreshold })),
     totalMistakes,
     totalWarnings,
+    totalHesitations: faceRows.reduce((sum, item) => sum + item.hesitations, 0),
     totalDeduction,
     rawScore,
     singleFaceThreshold,
@@ -80,15 +84,16 @@ export function evaluateMemorization(rawPolicy, { faces = [], manualFail = false
   return { ...base, passed: true, failType: null, failReason: null, grade: round(Math.max(0, rawScore) * max), repeatRequired: false };
 }
 
-export function evaluateLink(rawPolicy, { mistakes = 0, warnings = 0, manualFail = false } = {}) {
+export function evaluateLink(rawPolicy, { mistakes = 0, warnings = 0, hesitations = 0, manualFail = false } = {}) {
   const policy = normalizeGradingPolicy(rawPolicy);
   const max = policy.weeklyProgram.linkDaily;
-  const deduction = deductionOf(policy, { mistakes, warnings });
+  const deduction = deductionOf(policy, { mistakes, warnings, hesitations });
   const rawScore = round(1 - deduction.deduction);
   const base = {
     component: 'link',
     totalMistakes: deduction.mistakes,
     totalWarnings: deduction.warnings,
+    totalHesitations: deduction.hesitations,
     totalDeduction: deduction.deduction,
     rawScore,
     threshold: policy.weeklyProgram.linkFailThreshold,
@@ -108,8 +113,8 @@ export function evaluateReview(rawPolicy, { hizbs = [], manualFail = false } = {
   const max = policy.weeklyProgram.reviewDaily;
   const limit = policy.weeklyProgram.hizbDeductionLimit;
   const rows = (hizbs.length ? hizbs : [{}]).map((item, index) => {
-    const { mistakes, warnings, deduction } = deductionOf(policy, item);
-    return { index: index + 1, hizb: item.hizb ?? null, mistakes, warnings, deduction, failed: deduction >= limit };
+    const { mistakes, warnings, hesitations, deduction } = deductionOf(policy, item);
+    return { index: index + 1, hizb: item.hizb ?? null, mistakes, warnings, hesitations, deduction, failed: deduction >= limit };
   });
   const totalDeduction = round(rows.reduce((sum, item) => sum + item.deduction, 0));
   const rawScore = round(1 - totalDeduction);
@@ -119,6 +124,7 @@ export function evaluateReview(rawPolicy, { hizbs = [], manualFail = false } = {
     hizbs: rows,
     totalMistakes: rows.reduce((sum, item) => sum + item.mistakes, 0),
     totalWarnings: rows.reduce((sum, item) => sum + item.warnings, 0),
+    totalHesitations: rows.reduce((sum, item) => sum + item.hesitations, 0),
     totalDeduction,
     rawScore,
     hizbLimit: limit,
@@ -133,13 +139,16 @@ export function evaluateReview(rawPolicy, { hizbs = [], manualFail = false } = {
   return { ...base, passed: true, failType: null, failReason: null, grade: round(Math.max(0, rawScore) * max) };
 }
 
-export function evaluateReading(rawPolicy, { completed = false, requiredFaces, expectedFaces } = {}) {
+export function evaluateReading(rawPolicy, { completed = false, requiredFaces, expectedFaces, requiredHizbs, expectedHizbs } = {}) {
   const policy = normalizeGradingPolicy(rawPolicy);
   const max = policy.weeklyProgram.readingDaily;
   const faces = Number(requiredFaces) > 0 ? Number(requiredFaces) : DEFAULT_PLAN_READING_FACES;
   const expected = Number(expectedFaces) > 0 ? Number(expectedFaces) : faces;
-  const grade = completed ? Math.round(max * Math.min(1, faces / expected) * 100) / 100 : 0;
-  return { component: 'reading', completed: Boolean(completed), requiredFaces: faces, expectedFaces: expected, max, passed: Boolean(completed), grade };
+  const hizbBased = Number(requiredHizbs) > 0 && Number(expectedHizbs) > 0;
+  const ratio = hizbBased ? Number(requiredHizbs) / Number(expectedHizbs) : faces / expected;
+  const grade = completed ? Math.round(max * Math.min(1, ratio) * 100) / 100 : 0;
+  return { component: 'reading', completed: Boolean(completed), requiredFaces: faces, expectedFaces: expected,
+    ...(hizbBased ? { expectedHizbs: Number(expectedHizbs) } : {}), max, passed: Boolean(completed), grade };
 }
 
 export function evaluateAttendance(rawPolicy, status) {
@@ -149,31 +158,37 @@ export function evaluateAttendance(rawPolicy, status) {
   return { component: 'attendance', status: key, max: values.present, passed: key !== 'absent', grade: values[key] };
 }
 
-export function evaluateTrackSession(rawPolicy, { attended = false, segments = [] } = {}) {
+export function evaluateTrackSession(rawPolicy, input = {}) {
+  const { segments = [] } = input;
+  const attendanceStatus = sessionAttendanceStatus(input);
+  const attended = canTestSession(input);
   const policy = normalizeGradingPolicy(rawPolicy);
   const track = policy.trackSession;
-  const rows = Array.from({ length: track.segmentCount }, (_, index) => {
+  const rows = trackSegmentDefinitions(policy).map((definition, index) => {
     const item = segments[index] || {};
     const mistakes = count(item.mistakes);
     const warnings = count(item.warnings);
+    const hesitations = count(item.hesitations);
     const recorded = attended && Boolean(item.recorded ?? true);
-    const grade = recorded ? round(Math.max(0, track.segmentMax - (mistakes * track.mistakeDeduction) - (warnings * track.warningDeduction))) : 0;
-    return { index: index + 1, range: item.range ?? null, mistakes, warnings, recorded, max: track.segmentMax, grade };
+    const grade = recorded ? round(Math.max(0, definition.max - (mistakes * track.mistakeDeduction) - (warnings * track.warningDeduction) - (hesitations * track.hesitationDeduction))) : 0;
+    return { index: index + 1, source: definition.source, range: item.range ?? null, mistakes, warnings, hesitations, recorded, max: definition.max, grade };
   });
-  const attendanceGrade = attended ? track.attendance : 0;
+  const attendanceGrade = sessionAttendanceGrade(track, attendanceStatus);
   return {
     component: 'track',
     attended: Boolean(attended),
+    attendanceStatus,
     attendanceGrade,
     segments: rows,
-    max: round(track.attendance + (track.segmentCount * track.segmentMax)),
+    max: round(track.attendance + rows.reduce((sum, item) => sum + item.max, 0)),
     grade: round(attendanceGrade + rows.reduce((sum, item) => sum + item.grade, 0)),
   };
 }
 
-export function evaluateWeeklySession(rawPolicy, { attended = false } = {}) {
+export function evaluateWeeklySession(rawPolicy, input = {}) {
   const policy = normalizeGradingPolicy(rawPolicy);
-  return { component: 'weekly', attended: Boolean(attended), max: policy.weeklySession.attendance, grade: attended ? policy.weeklySession.attendance : 0 };
+  const attendanceStatus = sessionAttendanceStatus(input);
+  return { component: 'weekly', attendanceStatus, attended: canTestSession(input), max: policy.weeklySession.attendance, grade: sessionAttendanceGrade(policy.weeklySession, attendanceStatus) };
 }
 
 const COMPONENT_MAX_KEY = { memorization: 'memorizationDaily', link: 'linkDaily', review: 'reviewDaily' };
@@ -197,7 +212,7 @@ export function computeWeeklyGrade(rawPolicy, { days = [], track = null, weekly 
   const parts = { attendance: 0, memorization: 0, link: 0, review: 0, reading: 0 };
   const dayRows = days.map(day => {
     const row = { date: day.date, weekday: day.weekday, components: {} };
-    if (day.date > today) {
+    if (day.date > today || day.seasonalHoliday) {
       if (workDays.has(day.weekday)) {
         maxima.programParts.attendance -= program.attendance.present;
         for (const component of ['memorization', 'link', 'review']) {
@@ -229,7 +244,7 @@ export function computeWeeklyGrade(rawPolicy, { days = [], track = null, weekly 
     }
     return row;
   });
-  const futureWeek = days.length > 0 && days.every(day => day.date > today);
+  const futureWeek = days.length > 0 && days.every(day => day.date > today || day.seasonalHoliday);
   const programMargin = futureWeek ? 0 : program.margin;
   const generalMargin = futureWeek ? 0 : policy.generalMargin;
   maxima.programParts.margin = programMargin;

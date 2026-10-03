@@ -2,9 +2,9 @@ import React, { useEffect, useMemo } from 'react';
 import { preloadMushafFonts } from '@/lib/quranFonts';
 
 const normalizeMarks = (marks = []) => {
-  const groups = { mistake: [], lahn: [], warning: [] };
+  const groups = { mistake: [], lahn: [], warning: [], hesitation: [] };
   marks.forEach((mark, index) => {
-    const type = ['warning', 'lahn'].includes(mark.markType) ? mark.markType : 'mistake';
+    const type = ['warning', 'lahn', 'hesitation'].includes(mark.markType) ? mark.markType : 'mistake';
     const text = String(mark.selectedText || mark.textUthmani || '').trim();
     const notes = String(mark.notes || '').trim();
     if (!text && !notes) return;
@@ -27,6 +27,7 @@ const RecitationAyahMarks = ({ marks = [], historical = false }) => {
   const sections = [
     { key: 'mistake', label: 'الأخطاء', tone: 'text-red-600', border: 'border-red-500/20', background: 'bg-red-500/5' },
     { key: 'lahn', label: 'اللحن', tone: 'text-fuchsia-700 dark:text-fuchsia-300', border: 'border-fuchsia-500/20', background: 'bg-fuchsia-500/5' },
+    { key: 'hesitation', label: 'الترددات', tone: 'text-sky-600', border: 'border-sky-500/20', background: 'bg-sky-500/5' },
     { key: 'warning', label: 'التنبيهات', tone: 'text-amber-600', border: 'border-amber-500/20', background: 'bg-amber-500/5' },
   ].filter((section) => grouped[section.key].length > 0);
 

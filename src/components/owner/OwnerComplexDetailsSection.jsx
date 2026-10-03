@@ -19,17 +19,13 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { useToast } from '@/components/ui/use-toast';
 import { platformApi } from '@/services/platformApi';
+import { formatHijriDateTime as formatDateTime } from '../../../shared/hijri-calendar.js';
 
 const number = (value) => Number(value || 0).toLocaleString('ar-SA-u-nu-latn');
 const percent = (value) => `${number(value)}%`;
 const attendanceLabels = { present: 'حاضر', late: 'متأخر', excused: 'مستأذن', absent: 'غائب' };
 const taskLabels = { memorization: 'الحفظ', repeat: 'التكرار', link: 'الربط', review: 'المراجعة' };
 const statusLabels = { active: 'مفعّل', inactive: 'متوقف', pending: 'قيد التجهيز' };
-
-const formatDateTime = (value) => value ? new Intl.DateTimeFormat('ar-SA-u-ca-gregory', {
-  dateStyle: 'medium',
-  timeStyle: 'short',
-}).format(new Date(value)) : '-';
 
 const OwnerComplexDetailsSection = ({ complexId, onBack }) => {
   const { toast } = useToast();
@@ -79,7 +75,7 @@ const OwnerComplexDetailsSection = ({ complexId, onBack }) => {
         <>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
             <OwnerStatCard icon={GraduationCap} label="الطلاب" value={number(stats.studentsCount)} />
-            <OwnerStatCard icon={Users} label="المعلمون والإداريون" value={number(stats.supervisorsCount)} />
+            <OwnerStatCard icon={Users} label="مشرفو المسارات والإداريون" value={number(stats.supervisorsCount)} />
             <OwnerStatCard icon={Building2} label="الحلقات" value={number(stats.committeesCount)} />
             <OwnerStatCard icon={GraduationCap} label="الطلاب النشطون" value={number(stats.activeStudentsCount)} />
             <OwnerStatCard icon={CalendarDays} label="نسبة الحضور" value={percent(stats.attendanceRate)} tone="text-emerald-600" />

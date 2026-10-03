@@ -77,7 +77,7 @@ export async function bootstrapOfflineRecitation(supervisorId) {
 }
 
 export async function prepareOfflineRecitationWorkspace(supervisorId, { automatic = false } = {}) {
-  if (!supervisorId) throw new Error('حساب المعلم غير محدد.');
+  if (!supervisorId) throw new Error('حساب مشرف المسار غير محدد.');
   if (!isOnline()) throw new Error('اتصل بالإنترنت لتجهيز بيانات الحلقة أولًا.');
   const actorKey = recitationActorKey(supervisorId);
   const authVersion = getAuthSessionVersion();

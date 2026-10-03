@@ -21,7 +21,7 @@ const performanceRating = (stats) => {
 };
 
 const exportCsv = (rows) => {
-  const header = ['المجمع', 'الطلاب', 'الحلق', 'المعلمون', 'الحضور', 'الغياب', 'الإنجاز', 'تنفيذ مهام الفترة', 'الطلاب الجدد', 'المتأخرون', 'التقييم'];
+  const header = ['المجمع', 'الطلاب', 'الحلق', 'مشرفو المسارات', 'الحضور', 'الغياب', 'الإنجاز', 'تنفيذ مهام الفترة', 'الطلاب الجدد', 'المتأخرون', 'التقييم'];
   const content = [header, ...rows.map((row) => [
     row.name, row.stats.studentsCount, row.stats.committeesCount, row.stats.teachersCount,
     row.stats.attendanceRate, row.stats.absenceRate, row.stats.quranFacesTotal,
@@ -62,7 +62,7 @@ const OwnerComplexAnalyticsTable = ({ complexes, onOpenComplex }) => {
       <div className="overflow-x-auto">
         <table className="min-w-[1150px] w-full text-right text-sm">
           <thead className="bg-muted/45 text-xs text-muted-foreground">
-            <tr>{['المجمع', 'الطلاب', 'الحلق', 'المعلمون', 'الحضور', 'الغياب', 'الإنجاز', 'تنفيذ مهام الفترة', 'الجدد', 'المتأخرون', 'التقييم', 'التفاصيل'].map((label) => <th key={label} className="px-3 py-3 font-black">{label}</th>)}</tr>
+            <tr>{['المجمع', 'الطلاب', 'الحلق', 'مشرفو المسارات', 'الحضور', 'الغياب', 'الإنجاز', 'تنفيذ مهام الفترة', 'الجدد', 'المتأخرون', 'التقييم', 'التفاصيل'].map((label) => <th key={label} className="px-3 py-3 font-black">{label}</th>)}</tr>
           </thead>
           <tbody className="divide-y divide-border/70">
             {rows.map((row) => (

@@ -1,7 +1,11 @@
+import CallRoomList from './CallRoomList';
+import CallRoomCards from './CallRoomCards';
+import { subscribeCallDirectory } from '@/services/callDirectory';
 import React, { useCallback, useEffect, useState } from 'react';
-import { Headphones, PhoneCall, Plus, Users } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import DashboardLoader from '@/components/dashboard/DashboardLoader';
-import { FormField, FormGrid, ManagementEmpty, ManagementList, ManagementPanel, ManagementToolbar } from '@/components/dashboard/layout/ManagementPanel';
+import ErrorState from '@/components/ui/error-state';
+import { FormField, FormGrid, ManagementEmpty, ManagementPanel, ManagementToolbar } from '@/components/dashboard/layout/ManagementPanel';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -12,39 +16,54 @@ import { studentsApi } from '@/services/studentsApi';
 const CallsSection = ({ onJoinRoom, embedded = false }) => {
   const { toast } = useToast();
   const [rooms, setRooms] = useState([]);
+  const [search, setSearch] = useState('');
   const [committees, setCommittees] = useState([]);
   const [canCreate, setCanCreate] = useState(false);
   const [canCreateGeneral, setCanCreateGeneral] = useState(false);
   const [committeeSelectionLocked, setCommitteeSelectionLocked] = useState(false);
-  const [livekitConfigured, setLivekitConfigured] = useState(true);
+  const [livekitConfigured, setLivekitConfigured] = useState(false);
+  const [loadError, setLoadError] = useState('');
+  const [liveError, setLiveError] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [form, setForm] = useState({ name: '', committeeId: '' });
 
+  const applyDirectory = useCallback(data => {
+    setLoadError('');
+    setRooms((data.rooms || []).filter((room) => room.status === 'open'));
+    setCommittees(data.committees || []);
+    setCanCreate(Boolean(data.canCreate));
+    setCanCreateGeneral(Boolean(data.canCreateGeneral));
+    setCommitteeSelectionLocked(Boolean(data.committeeSelectionLocked));
+    setLivekitConfigured(data.livekitConfigured === true);
+    setForm((current) => ({ ...current, committeeId: current.committeeId || String(data.committees?.[0]?.id || '') }));
+    setLiveError('');
+  }, []);
+
   const load = useCallback(async ({ quiet = false } = {}) => {
     if (!quiet) setIsLoading(true);
     try {
       const data = await studentsApi.getCallRooms();
-      setRooms((data.rooms || []).filter((room) => room.status === 'open'));
-      setCommittees(data.committees || []);
-      setCanCreate(Boolean(data.canCreate));
-      setCanCreateGeneral(Boolean(data.canCreateGeneral));
-      setCommitteeSelectionLocked(Boolean(data.committeeSelectionLocked));
-      setLivekitConfigured(data.livekitConfigured !== false);
-      setForm((current) => ({ ...current, committeeId: current.committeeId || String(data.committees?.[0]?.id || '') }));
+      applyDirectory(data);
     } catch (error) {
+      if (!quiet) setLoadError(error.message || 'تعذر تحميل الغرف.');
       if (!quiet) toast({ title: 'تعذر تحميل الغرف', description: error.message, variant: 'destructive' });
     } finally {
       if (!quiet) setIsLoading(false);
     }
-  }, [toast]);
+  }, [applyDirectory, toast]);
 
   useEffect(() => {
-    load();
-    const timer = window.setInterval(() => load({ quiet: true }), 10000);
-    return () => window.clearInterval(timer);
-  }, [load]);
+    let canceled = false, stop;
+    load().then(() => {
+      if (!canceled) stop = subscribeCallDirectory({ onData: applyDirectory, onError: error => {
+        setLiveError(error.message);
+        if ([401, 403].includes(error.status)) { setRooms([]); setLoadError(error.message); }
+      } });
+    });
+    return () => { canceled = true; stop?.(); };
+  }, [applyDirectory, load]);
 
   const createRoom = async () => {
     if (!form.name.trim() || (committeeSelectionLocked && !form.committeeId)) return;
@@ -64,34 +83,30 @@ const CallsSection = ({ onJoinRoom, embedded = false }) => {
     }
   };
 
+  const normalizedSearch = search.trim().toLocaleLowerCase('ar');
+  const visibleRooms = rooms.filter(room => [room.name, room.committeeName, ...(room.participants || []).map(person => person.name)].some(value => String(value || '').toLocaleLowerCase('ar').includes(normalizedSearch)));
   const _resolveCallsSection = () => {
     if (isLoading) {
       return <DashboardLoader className="min-h-[320px]" />;
     }
+    if (loadError) return <ErrorState message={loadError} onRetry={() => load()} />;
+    if (!livekitConfigured) return <ManagementEmpty>المكالمات غير متاحة حاليًا.</ManagementEmpty>;
     if (rooms.length === 0) {
       return <ManagementEmpty>لا توجد غرف مفتوحة حاليًا.</ManagementEmpty>;
     }
-    return <ManagementList label="غرف المكالمات">
-            {rooms.map((room) => (
-              <li key={room.id} className="flex flex-wrap items-center gap-3 px-4 py-3 transition-colors hover:bg-muted/40 sm:flex-nowrap sm:px-6">
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary"><Headphones className="h-5 w-5" /></span>
-                <div className="min-w-0 flex-1">
-                  <h3 className="truncate text-base font-bold text-foreground">{room.name}</h3>
-                  <p className="mt-0.5 truncate text-sm text-muted-foreground"><span className="font-bold text-primary">{room.committeeName}</span> · أنشأها: {room.createdByName}</p>
-                  <p className="mt-0.5 flex items-center gap-1.5 text-sm text-muted-foreground"><Users className="h-4 w-4" /> سبق لهم الدخول: {room.participantNames?.length || 0}</p>
-                </div>
-                <Button onClick={() => onJoinRoom?.(room)} disabled={!livekitConfigured} className="h-11 w-full shrink-0 gap-2 sm:w-auto"><PhoneCall className="h-4 w-4" /> دخول المكالمة</Button>
-              </li>
-            ))}
-          </ManagementList>;
+    if (!visibleRooms.length) return <ManagementEmpty>لا توجد مكالمات مطابقة للبحث.</ManagementEmpty>;
+    return <>{liveError && <p role="status" className="px-4 py-3 text-sm text-destructive sm:px-6">{liveError}</p>}{embedded ? <div className="p-4 sm:p-6"><CallRoomCards rooms={visibleRooms} onJoinRoom={onJoinRoom} /></div> : <CallRoomList rooms={visibleRooms} onJoinRoom={onJoinRoom} />}</>;
   };
   const Container = embedded ? 'section' : ManagementPanel;
   return (
     <Container className={embedded ? '[font-family:var(--font-ui)]' : undefined} dir="rtl">
-      {canCreate && <ManagementToolbar>
+      {(!embedded || canCreate) && <ManagementToolbar>
+        {!embedded && <Input type="search" aria-label="ابحث في المكالمات" placeholder="ابحث في المكالمات" value={search} onChange={event => setSearch(event.target.value)} className="h-11 flex-1 basis-56" />}
+        {canCreate && <>
         <Button onClick={() => setCreateOpen(true)} disabled={!livekitConfigured || (committeeSelectionLocked && committees.length === 0)} className="h-11 gap-2 px-5">
           <Plus className="h-4 w-4" /> إنشاء غرفة
         </Button>
+        </>}
       </ManagementToolbar>}
       {_resolveCallsSection()}
 

@@ -6,7 +6,24 @@ const byName = (a, b) => String(a.name || '').localeCompare(String(b.name || '')
 // Every recorded grade (weekly program, both sessions and narration day) is stored as a point with this key prefix.
 const GRADE_POINTS = `t.dedupe_key LIKE 'grade:%'`;
 const SIGNED_POINTS = `CASE WHEN t.transaction_type = 'deduction' THEN -t.points ELSE t.points END`;
-const RANKING_SIZE = 10;
+const byPercentage = (a, b) => {
+  if (a.percentage == null) return b.percentage == null ? byName(a, b) : 1;
+  if (b.percentage == null) return -1;
+  return b.percentage - a.percentage || byName(a, b);
+};
+const orderByPercentage = rows => rows.sort(byPercentage);
+
+function complexRankings(complexRows, circles, graded) {
+  return complexRows.map(complex => {
+    const members = circles.filter(circle => String(circle.complexId) === String(complex.id));
+    const studentsCount = members.reduce((sum, row) => sum + row.studentsCount, 0);
+    const grade = members.reduce((sum, row) => sum + row.grade, 0);
+    const max = members.reduce((sum, row) => sum + number(row.max), 0);
+    return { id: number(complex.id), name: complex.name, committeesCount: members.length, studentsCount, grade,
+      ...(graded ? { max, percentage: max > 0 ? percentage(grade, max) : null }
+        : { average: studentsCount ? Math.round(grade / studentsCount * 10) / 10 : 0 }) };
+  }).sort((a, b) => graded ? byPercentage(a, b) : b.average - a.average || byName(a, b));
+}
 
 /**
  * @param reportDb scoped report connection (createOverviewReportScope)
@@ -14,28 +31,30 @@ const RANKING_SIZE = 10;
  */
 export async function buildOverviewRankings(reportDb, { from, to, attendanceDates = [], grades = null }) {
   const [studentRows] = await reportDb.query(
-    `SELECT s.id, s.name, c.name AS committeeName, COALESCE(SUM(${SIGNED_POINTS}), 0) AS grade
-     FROM student_point_transactions t
-     JOIN students s ON s.id = t.student_id
+    `SELECT s.id, s.name, c.id AS committeeId, c.name AS committeeName, cx.id AS complexId, cx.name AS complexName,
+       COALESCE(SUM(${SIGNED_POINTS}), 0) AS grade
+     FROM students s
      LEFT JOIN committees c ON c.id = s.committee_id
-     WHERE ${GRADE_POINTS} AND t.transaction_date BETWEEN ? AND ? AND ${reportDb.student('t.student_id')}
-     GROUP BY s.id, s.name, c.name
-     HAVING grade > 0`,
+     LEFT JOIN complexes cx ON cx.id = c.complex_id
+     LEFT JOIN student_point_transactions t ON t.student_id = s.id AND ${GRADE_POINTS} AND t.transaction_date BETWEEN ? AND ?
+     WHERE ${reportDb.student('s.id')}
+     GROUP BY s.id, s.name, c.id, c.name, cx.id, cx.name`,
     [from, to],
   );
   const bestStudents = studentRows
-    .map((row) => ({ id: number(row.id), name: row.name, committeeName: row.committeeName || '', grade: number(row.grade) }))
-    .sort((a, b) => b.grade - a.grade || byName(a, b))
-    .slice(0, RANKING_SIZE);
+    .map(row => ({ ...row, id: number(row.id), committeeName: row.committeeName || '', grade: number(row.grade) }))
+    .sort((a, b) => b.grade - a.grade || byName(a, b));
 
   const [committeeRows] = await reportDb.query(
-    `SELECT c.id, c.name, COUNT(DISTINCT s.id) AS studentsCount, COALESCE(SUM(${SIGNED_POINTS}), 0) AS grade
+    `SELECT c.id, c.name, cx.id AS complexId, cx.name AS complexName,
+       COUNT(DISTINCT s.id) AS studentsCount, COALESCE(SUM(${SIGNED_POINTS}), 0) AS grade
      FROM committees c
-     JOIN students s ON s.committee_id = c.id
+     LEFT JOIN complexes cx ON cx.id = c.complex_id
+     LEFT JOIN students s ON s.committee_id = c.id
      LEFT JOIN student_point_transactions t
        ON t.student_id = s.id AND ${GRADE_POINTS} AND t.transaction_date BETWEEN ? AND ?
      WHERE ${reportDb.committee('c.id')}
-     GROUP BY c.id, c.name`,
+     GROUP BY c.id, c.name, cx.id, cx.name`,
     [from, to],
   );
   // Circles are compared by the average grade of their students, so a large circle is not favoured.
@@ -43,11 +62,13 @@ export async function buildOverviewRankings(reportDb, { from, to, attendanceDate
     .map((row) => {
       const studentsCount = number(row.studentsCount);
       const grade = number(row.grade);
-      return { id: number(row.id), name: row.name, studentsCount, grade, average: studentsCount ? Math.round((grade / studentsCount) * 10) / 10 : 0 };
+      return { id: number(row.id), name: row.name, complexId: row.complexId, complexName: row.complexName,
+        studentsCount, grade, average: studentsCount ? Math.round((grade / studentsCount) * 10) / 10 : 0 };
     })
-    .filter((row) => row.grade > 0)
-    .sort((a, b) => b.average - a.average || byName(a, b))
-    .slice(0, RANKING_SIZE);
+    .sort((a, b) => b.average - a.average || byName(a, b));
+  const [complexRows] = reportDb.complex
+    ? await reportDb.query(`SELECT cx.id, cx.name FROM complexes cx WHERE ${reportDb.complex('cx.id')}`)
+    : [[]];
 
   const [teacherRows] = await reportDb.query(
     `SELECT sp.id, sp.name, DATE_FORMAT(sp.created_at, '%Y-%m-%d') AS joined,
@@ -116,24 +137,38 @@ export async function buildOverviewRankings(reportDb, { from, to, attendanceDate
     .sort((a, b) => b.achievement.percentage - a.achievement.percentage || byName(a, b));
 
   if (grades) {
-    const totals = new Map();
+    const totals = new Map(bestStudents.map(row => [String(row.id), { ...row, grade: 0, max: 0 }]));
+    const circleIdsByName = new Map();
+    for (const circle of committeeRows) circleIdsByName.set(circle.name, circleIdsByName.has(circle.name) ? null : number(circle.id));
     for (const component of ['weeklyProgram', 'weeklySession', 'trackSession']) {
       for (const row of grades[component]?.studentsList || []) {
-        const result = totals.get(row.id) || { id: row.id, name: row.name, committeeName: row.committeeName, grade: 0, max: 0 };
+        const result = totals.get(String(row.id)) || { id: row.id, name: row.name, committeeName: row.committeeName, grade: 0, max: 0 };
+        result.committeeId = row.committeeId ?? result.committeeId ?? circleIdsByName.get(row.committeeName);
         result.grade += number(row.grade);
         result.max += number(row.max);
-        totals.set(row.id, result);
+        totals.set(String(row.id), result);
       }
     }
-    const ranked = [...totals.values()].map(row => ({ ...row, percentage: percentage(row.grade, row.max) }));
+    const ranked = [...totals.values()].map(row => ({ ...row, percentage: row.max > 0 ? percentage(row.grade, row.max) : null }));
+    const totalsByCircle = new Map();
+    for (const student of ranked) {
+      const key = String(student.committeeId);
+      const total = totalsByCircle.get(key) || { studentsCount: 0, grade: 0, max: 0 };
+      total.studentsCount += 1;
+      total.grade += student.grade;
+      total.max += student.max;
+      totalsByCircle.set(key, total);
+    }
     const circleResults = committeeRows.map(row => {
-      const students = ranked.filter(student => student.committeeName === row.name);
-      const grade = students.reduce((sum, student) => sum + student.grade, 0);
-      const max = students.reduce((sum, student) => sum + student.max, 0);
-      return { id: number(row.id), name: row.name, studentsCount: students.length, grade, max, percentage: percentage(grade, max) };
+      const { studentsCount, grade, max } = totalsByCircle.get(String(row.id)) || { studentsCount: 0, grade: 0, max: 0 };
+      return { id: number(row.id), name: row.name, complexId: row.complexId, complexName: row.complexName,
+        studentsCount, grade, max, percentage: max > 0 ? percentage(grade, max) : null };
     });
-    const rank = rows => rows.filter(row => row.max > 0).sort((a,b) => b.percentage - a.percentage || byName(a,b)).slice(0, RANKING_SIZE);
-    return { bestStudents: rank(ranked), bestCommittees: rank(circleResults), teachers };
+    const narrationGrades = new Map((grades.narration?.studentsList || []).map(row => [String(row.id), number(row.grade)]));
+    // Narration contributes to student totals; circles keep their expected-grade comparison.
+    const studentResults = ranked.map(row => ({ ...row, grade: row.grade + (narrationGrades.get(String(row.id)) || 0) }))
+      .sort((a, b) => b.grade - a.grade || byName(a, b));
+    return { bestStudents: studentResults, bestCommittees: orderByPercentage(circleResults), bestComplexes: complexRankings(complexRows, circleResults, true), teachers };
   }
-  return { bestStudents, bestCommittees, teachers };
+  return { bestStudents, bestCommittees, bestComplexes: complexRankings(complexRows, bestCommittees, false), teachers };
 }

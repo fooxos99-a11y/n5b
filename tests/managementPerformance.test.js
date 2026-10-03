@@ -1,5 +1,6 @@
 import { currentQuranPlanSql } from '../server/services/currentQuranPlan.js';
 import test from 'node:test';
+import { studyDateSql } from '../server/services/seasonalHolidays.js';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { singleFlight, limitedTaskQueue } from '../src/lib/asyncRequests.js';
@@ -42,7 +43,7 @@ test('active plan totals restrict every aggregate to the requested student with 
   const source = readFileSync(new URL('../server/index.js', import.meta.url), 'utf8');
   const start = source.indexOf('async function getActivePlanForStudent(');
   const end = source.indexOf('\nfunction normalizeTaskRow(', start);
-  const getPlan = new Function('currentQuranPlanSql','acceptedMemorizationSql','normalizePlanRow', `${source.slice(start,end)}; return getActivePlanForStudent;`)(currentQuranPlanSql, () => 'teacher_completed = 1', row => row);
+  const getPlan = new Function('currentQuranPlanSql','acceptedMemorizationSql','normalizePlanRow','studyDateSql', `${source.slice(start,end)}; return getActivePlanForStudent;`)(currentQuranPlanSql, () => 'teacher_completed = 1', row => row, studyDateSql);
   let query;
   const plan = await getPlan({query:async (sql, params) => { query={sql,params};return [[{id:42}]]; }},863);
   assert.equal(plan.id,42);

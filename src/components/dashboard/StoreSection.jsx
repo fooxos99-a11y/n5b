@@ -12,6 +12,7 @@ import PointsValue from '@/components/points/PointsValue';
 import ManagementIconButton from '@/components/ui/management-icon-button';
 import { FormField, FormGrid, ManagementEmpty, ManagementList, ManagementPanel, ManagementTabs, ManagementToolbar } from '@/components/dashboard/layout/ManagementPanel';
 import { studentsApi } from '@/services/studentsApi';
+import { formatHijriDateTime } from '../../../shared/hijri-calendar.js';
 
 const emptyProduct = {
   name: '',
@@ -227,7 +228,7 @@ const StoreSection = () => {
               <li key={order.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 transition-colors hover:bg-muted/40 sm:flex-nowrap sm:px-6">
                 <div className="min-w-0 basis-full sm:flex-1 sm:basis-auto">
                   <div className="truncate text-base font-bold text-foreground">{order.studentName} — {order.productName}</div>
-                  <div className="mt-0.5 truncate text-sm text-muted-foreground">{order.committeeName || 'بدون حلقة'} · {order.createdAt}</div>
+                  <div className="mt-0.5 truncate text-sm text-muted-foreground">{order.committeeName || 'بدون حلقة'} · {formatHijriDateTime(order.createdAt)}</div>
                 </div>
                 <PointsValue value={order.pointsPrice} className="shrink-0 text-sm" />
                 <div className="ms-auto flex shrink-0 gap-2 sm:ms-0">

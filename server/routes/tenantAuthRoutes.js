@@ -70,9 +70,13 @@ router.post('/login', async (req, res, next) => {
 
     const [supervisors] = await db().query(
       // Reciter accounts were removed from the platform and can no longer sign in.
-      "SELECT id, name, role FROM supervisors WHERE login_number = ? AND is_active = 1 AND role <> 'reciter' LIMIT 1",
+      "SELECT id, name, role, password_hash AS passwordHash FROM supervisors WHERE login_number = ? AND is_active = 1 AND role <> 'reciter' LIMIT 1",
       [loginNumber],
     );
+    if (supervisors[0]?.passwordHash && !await verifyStudentPassword(req.body.password, supervisors[0].passwordHash)) {
+      await recordLoginFailures(db(), loginIdentities);
+      return res.status(401).json({ message: 'رقم الدخول أو كلمة المرور غير صحيحة.' });
+    }
     if (supervisors[0]?.role === 'manager') {
       await clearLoginFailuresForIdentities(db(), loginIdentities);
       return res.json(await createLoginPayload(req, res, 'manager', supervisors[0], {

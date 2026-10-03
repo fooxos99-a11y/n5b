@@ -32,6 +32,12 @@ export const getBusinessDate = (value = new Date()) => {
   return parts ? `${parts.year}-${parts.month}-${parts.day}` : '';
 };
 
+/** Civil calendar date in Riyadh, independent of the execution day's 03:00 boundary. */
+export const getSaudiCalendarDate = (value = new Date()) => {
+  const parts = dateParts(dateFormatter, value);
+  return parts ? `${parts.year}-${parts.month}-${parts.day}` : '';
+};
+
 export const getBusinessDateTimeParts = (value = new Date()) => {
   const parts = dateParts(dateTimeFormatter, value);
   return parts ? {

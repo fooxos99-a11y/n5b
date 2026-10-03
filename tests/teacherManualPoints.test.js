@@ -33,7 +33,7 @@ test('teacher manual points use manager-defined types and stay term limited and 
   assert.match(catalog, /teacherManualPointsEnabled/);
   assert.match(catalog, /teacherManualPointsTermLimit/);
   assert.match(catalog, /teacherPointTypes/);
-  assert.match(settings, /label="السماح للمعلم بالإضافة والخصم"/);
+  assert.match(settings, /label="السماح لمشرف المسار بالإضافة والخصم"/);
   assert.match(settings, /valueLabel="الحد في الفصل"/);
   assert.match(settings, /<TeacherPointTypesSetting/);
   assert.match(typeSettings, /اسم النوع/);
@@ -48,7 +48,7 @@ test('teacher manual points use manager-defined types and stay term limited and 
   assert.match(server, /SELECT id FROM supervisors WHERE id = \? FOR UPDATE/);
   assert.match(server, /source_type IN \('supervisor_award', 'supervisor_deduction'\)/);
   assert.match(server, /transaction_date >= \?/);
-  assert.match(server, /تجاوزت حد المعلم في الفصل/);
+  assert.match(server, /تجاوزت حد مشرف المسار في الفصل/);
   assert.match(server, /settings\.teacherPointTypes\.find\(\(item\) => item\.id === adjustmentTypeId\)/);
   assert.match(server, /const points = adjustmentType\.points/);
   assert.match(server, /note\.length > 400/);

@@ -4,21 +4,27 @@ import { Eye, Pencil, Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { complexesApi } from '@/services/complexesApi';
+import ComplexesSection from './ComplexesSection';
 import { useToast } from '@/components/ui/use-toast';
 import DashboardLoader from '@/components/dashboard/DashboardLoader';
 import ManagementIconButton from '@/components/ui/management-icon-button';
-import { FormField, FormGrid, ManagementEmpty, ManagementList, ManagementPanel, ManagementRow, ManagementToolbar } from '@/components/dashboard/layout/ManagementPanel';
+import { FormField, FormGrid, ManagementEmpty, ManagementList, ManagementPanel, ManagementRow, ManagementToolbar, ManagementTabs } from '@/components/dashboard/layout/ManagementPanel';
 import { studentsApi } from '@/services/studentsApi';
 import useOnlineStatus from '@/hooks/useOnlineStatus';
 import { loadOfflineSnapshot } from '@/services/offlineOperationsService';
 
-const emptyFamily = { name: '', points: 0 };
+const emptyFamily = { name: '', points: 0, complexId: '' };
 const FamiliesSection = () => {
   const isOnline = useOnlineStatus();
   const accountId = Number(localStorage.getItem('wajeh_account_id') || localStorage.getItem('wajeh_supervisor_id') || 0);
   const actorRole = localStorage.getItem('wajeh_role') || 'manager';
   const { toast } = useToast();
   const [families, setFamilies] = useState([]);
+  const [complexes, setComplexes] = useState([]);
+  const [tab, setTab] = useState('circles');
+  const [complexFilter, setComplexFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [loadError, setLoadError] = useState('');
   const [form, setForm] = useState(emptyFamily);
@@ -37,6 +43,7 @@ const FamiliesSection = () => {
         () => studentsApi.getFamilies({ search }),
         { actorRole },
       );
+      if (isOnline) setComplexes(await complexesApi.list());
       const normalizedSearch = search.trim().toLocaleLowerCase('ar');
       setFamilies(!isOnline && normalizedSearch
         ? rows.filter((family) => String(family.name || '').toLocaleLowerCase('ar').includes(normalizedSearch))
@@ -66,7 +73,7 @@ const FamiliesSection = () => {
 
   const openEditDialog = (family) => {
     setSelectedFamily(family);
-    setForm({ name: family.name || '', points: Number(family.points || 0) });
+    setForm({ name: family.name || '', points: Number(family.points || 0), complexId: family.complexId ? String(family.complexId) : '' });
     setDialog('form');
   };
 
@@ -143,10 +150,11 @@ const FamiliesSection = () => {
     }
     const actionClass = 'h-11 w-11 border-transparent bg-transparent';
     return <ManagementList label="الحلقات">
-      {families.map((family) => (
+      {families.filter(family => complexFilter === 'all' || (complexFilter === 'none' ? !family.complexId : String(family.complexId) === complexFilter)).map((family) => (
         <ManagementRow
           key={family.id}
           title={family.name}
+          subtitle={family.complexName || 'اختر مجمعًا لهذه الحلقة'}
           onOpen={() => openEditDialog(family)}
           openLabel={`تعديل ${family.name}`}
           disabled={!isOnline}
@@ -168,6 +176,8 @@ const FamiliesSection = () => {
   return (
     <ManagementPanel>
       {!isOnline ? <div className="border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-center text-sm font-bold text-amber-700 sm:px-6">عرض محلي للقراءة فقط حتى عودة الاتصال.</div> : null}
+      <ManagementTabs label="المجمعات والحلقات" value={tab} onChange={value => { setTab(value); if (value === 'circles') void loadFamilies(); }} items={[{ value: 'complexes', label: 'المجمعات' }, { value: 'circles', label: 'الحلقات' }]}>
+      {tab === 'complexes' ? <ComplexesSection disabled={!isOnline} /> : <>
       <ManagementToolbar>
         <Input
           type="search"
@@ -177,11 +187,17 @@ const FamiliesSection = () => {
           placeholder="ابحث باسم الحلقة"
           className="h-11 flex-1 basis-56"
         />
+        <Select value={complexFilter} onValueChange={setComplexFilter}>
+          <SelectTrigger aria-label="المجمع" className="h-11 flex-1 basis-40"><SelectValue /></SelectTrigger>
+          <SelectContent><SelectItem value="all">كل المجمعات</SelectItem><SelectItem value="none">حلقات لم تُربط بمجمع</SelectItem>{complexes.map(row => <SelectItem key={row.id} value={String(row.id)}>{row.name}</SelectItem>)}</SelectContent>
+        </Select>
         <Button onClick={openAddDialog} disabled={!isOnline} className="h-11 gap-2 px-5">
           <Plus className="h-4 w-4" />إضافة حلقة
         </Button>
       </ManagementToolbar>
       {_resolveFamiliesSection()}
+      </>}
+      </ManagementTabs>
 
       <Dialog open={dialog === 'form'} onOpenChange={(open) => !open && setDialog(null)}>
         <DialogContent className="bg-card text-foreground [font-family:var(--font-ui)]" dir="rtl">
@@ -191,6 +207,12 @@ const FamiliesSection = () => {
             </DialogTitle>
           </DialogHeader>
           <FormGrid className="py-2">
+            <FormField label="المجمع" htmlFor="family-complex" wide>
+              <Select value={form.complexId} onValueChange={complexId => setForm({ ...form, complexId })}>
+                <SelectTrigger id="family-complex" aria-label="مجمع الحلقة"><SelectValue placeholder="اختر المجمع" /></SelectTrigger>
+                <SelectContent>{complexes.map(row => <SelectItem key={row.id} value={String(row.id)}>{row.name}</SelectItem>)}</SelectContent>
+              </Select>
+            </FormField>
             <FormField label="اسم الحلقة" htmlFor="family-name" wide={!selectedFamily}>
               <Input id="family-name" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="اكتب الاسم" />
             </FormField>
@@ -209,7 +231,7 @@ const FamiliesSection = () => {
           </FormGrid>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialog(null)} className="h-11">إلغاء</Button>
-            <Button onClick={saveFamily} className="h-11">حفظ</Button>
+            <Button disabled={!form.complexId || !form.name.trim()} onClick={saveFamily} className="h-11">حفظ</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -246,7 +268,7 @@ const FamiliesSection = () => {
           </DialogHeader>
           <p className="py-4 text-muted-foreground">
             هل تريد حذف حلقة {selectedFamily?.name}؟
-            {Number(selectedFamily?.studentsCount) > 0 ? ` سيبقى ${selectedFamily.studentsCount} طالب بلا حلقة، ولن يظهروا للمعلم حتى تعيين حلقة أخرى.` : ''}
+            {Number(selectedFamily?.studentsCount) > 0 ? ` سيبقى ${selectedFamily.studentsCount} طالب بلا حلقة، ولن يظهروا لمشرف المسار حتى تعيين حلقة أخرى.` : ''}
           </p>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialog(null)} className="h-11">إلغاء</Button>

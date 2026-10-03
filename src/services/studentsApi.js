@@ -313,10 +313,12 @@ export const studentsApi = {
   getCommittees: () => request('/committees'),
   getPublicRegistration: (registrationNumber = '') => request(
     `/registration/public${registrationNumber ? '?registrationNumber=' + encodeURIComponent(registrationNumber) : ''}`,
+    { headers: { 'X-Registration-Number': registrationNumber } },
   ),
   submitPublicRegistration: (payload, registrationNumber = '') =>
     request('/registration/public', {
       method: 'POST',
+      headers: { 'X-Registration-Number': registrationNumber },
       body: JSON.stringify({ ...payload, registrationNumber }),
     }),
   getRegistrationRequests: () => request('/registration-requests'),
@@ -344,6 +346,10 @@ export const studentsApi = {
   getQuranAyahs: (surah) => request(`/quran/ayahs?surah=${encodeURIComponent(surah)}`),
   getQuranJuzRanges: () => request('/quran/juz-ranges'),
   getStudentPlanPreferences: () => request('/student-plans/preferences'),
+  getStudentPlanPause: () => request('/student-plans/pause'),
+  setStudentPlanPause: ({ paused, revision }) => request('/student-plans/pause', {
+    method: 'PUT', body: JSON.stringify({ paused, revision }),
+  }),
   getStudentPlans: ({ committeeId = 'all' } = {}) => {
     const params = new URLSearchParams();
     if (committeeId) params.set('committeeId', committeeId);
@@ -354,6 +360,7 @@ export const studentsApi = {
       method: 'PUT',
       body: JSON.stringify(payload),
     }),
+  closeStudentPlan: (studentId, planId) => request(`/student-plans/${studentId}/close`, { method: 'POST', body: JSON.stringify({ planId }) }),
   deleteStudentPlan: (studentId) => request(`/student-plans/${studentId}`, { method: 'DELETE' }),
   deleteStudentPriorMemorization: (studentId, payload) =>
     request(`/student-plans/${studentId}/prior-memorization`, {
@@ -615,12 +622,13 @@ export const studentsApi = {
     const params = new URLSearchParams({ from, to });
     return request(`/reports/recitation-session-dates?${params.toString()}`);
   },
-  getOverviewReport: ({ date, from, to, committeeId = 'all' } = {}) => {
+  getOverviewReport: ({ date, from, to, committeeId = 'all', complexId = 'all' } = {}) => {
     const params = new URLSearchParams();
     if (date) params.set('date', date);
     if (from) params.set('from', from);
     if (to) params.set('to', to);
     params.set('committeeId', committeeId);
+    params.set('complexId', complexId);
     return request(`/reports/overview?${params.toString()}`);
   },
   getProgressReport: ({ from, to, committeeId = 'all', studentId = 'all' } = {}) => {
@@ -713,10 +721,12 @@ export const studentsApi = {
     const query = new URLSearchParams({ component, from, to, committeeId });
     return request(`/reports/grading-sessions?${query}`);
   },
-  getTeacherPointsReport: ({ from = '', to = '' } = {}) => {
+  getTeacherPointsReport: ({ from = '', to = '', committeeId = 'all', complexId = 'all' } = {}) => {
     const params = new URLSearchParams();
     if (from) params.set('from', from);
     if (to) params.set('to', to);
+    params.set('committeeId', committeeId);
+    params.set('complexId', complexId);
     return request(`/reports/teacher-points?${params.toString()}`);
   },
   sendReportWhatsApp: (payload) =>

@@ -7,7 +7,7 @@ import StudentRankingList from './StudentRankingList';
 import { loadStudentHomeRankings } from '@/services/studentHomeService';
 import StudentHomeStatus from './StudentHomeStatus';
 
-export default function StudentHomeRankings({ studentId, onReady }) {
+export default function StudentHomeRankings({ studentId, settings, onReady }) {
   const [state, setState] = useState(null);
   const [error, setError] = useState('');
   const [version, setVersion] = useState(0);
@@ -16,9 +16,9 @@ export default function StudentHomeRankings({ studentId, onReady }) {
   useEffect(() => {
     let active = true;
     setError('');
-    loadStudentHomeRankings().then((next) => { if (active) setState(next); }).catch(() => { if (active) setError('تعذر تحميل الترتيب.'); }).finally(() => { if (active) onReady?.(true); });
+    loadStudentHomeRankings(studentId, { settings }).then((next) => { if (active) setState(next); }).catch(() => { if (active) setError('تعذر تحميل الترتيب.'); }).finally(() => { if (active) onReady?.(true); });
     return () => { active = false; };
-  }, [version, onReady]);
+  }, [version, studentId, settings, onReady]);
   const items = [{ value: 'students', label: 'أفضل الطلاب', visible: state?.settings.studentRankingsVisible !== false }, { value: 'families', label: 'أفضل الحلقات', visible: state?.settings.familyRankingsVisible !== false }].filter((item) => item.visible);
   if (state && !items.length) return null;
   const selected = items.some((item) => item.value === tab) ? tab : items[0]?.value;

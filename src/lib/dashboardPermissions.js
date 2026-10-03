@@ -1,18 +1,19 @@
+import { DASHBOARD_PERMISSION_KEYS, normalizeDashboardGrants } from '../../shared/dashboard-permissions.js';
 import { getSiteConfig } from '@/site/siteConfigs';
 
 const allDashboardPermissionOptions = [
-  { key: 'manualAttendance', label: 'تحضير الطلاب والمعلمين والإدارة' },
-  { key: 'staffAttendance', label: 'تحضير حسابي' },
+  { key: 'manualAttendance', label: 'التحضير', group: 'التحضير' },
   { key: 'registrationRequests', label: 'طلبات التسجيل' },
-  { key: 'students', label: 'الطلاب' },
+  { key: 'students', label: 'الطلاب', group: 'المستخدمون' },
   { key: 'studentPlans', label: 'خطط الطلاب' },
   { key: 'narrationDay', label: 'يوم السرد' },
   { key: 'calls', label: 'المكالمات' },
   { key: 'quranEvaluation', label: 'جلسات التسميع' },
-  { key: 'grades', label: 'الجلسة الأسبوعية وجلسة المسار' },
-  { key: 'families', label: 'الحلقات' },
-  { key: 'supervisors', label: 'المعلمين' },
-  { key: 'administrators', label: 'الإداريين' },
+  { key: 'weeklySession', label: 'الجلسة الأسبوعية', group: 'الجلسات' },
+  { key: 'trackSession', label: 'جلسة المسار', group: 'الجلسات' },
+  { key: 'families', label: 'المجمعات والحلقات' },
+  { key: 'supervisors', label: 'مشرفو المسارات', group: 'المستخدمون' },
+  { key: 'administrators', label: 'الإداريون', group: 'المستخدمون' },
   { key: 'notifications', label: 'الإشعارات' },
   { key: 'reports', label: 'الإحصائيات' },
   { key: 'whatsappSend', label: 'الإرسال عبر الواتس' },
@@ -26,16 +27,9 @@ export const dashboardPermissionOptions = allDashboardPermissionOptions.filter((
   option.key !== 'store' || siteFeatures.store !== false
 ));
 
-export const dashboardPermissionKeys = dashboardPermissionOptions.map((option) => option.key);
+export const dashboardPermissionKeys = [...DASHBOARD_PERMISSION_KEYS];
 
-export const normalizeDashboardPermissions = (permissions = []) => {
-  const allowed = new Set(dashboardPermissionKeys);
-  return [...new Set(
-    (Array.isArray(permissions) ? permissions : [])
-      .map((permission) => String(permission || '').trim())
-      .filter((permission) => allowed.has(permission))
-  )];
-};
+export const normalizeDashboardPermissions = normalizeDashboardGrants;
 
 export const readStoredDashboardPermissions = () => {
   try {

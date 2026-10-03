@@ -1,9 +1,13 @@
+import { recordedSessionDay } from '../../shared/session-period.js';
+import { assertDailyGradeNotCompensated, activeTrackCompensation } from './compensatedGradeGuard.js';
 import {
   GRADING_POLICY_SETTING_KEY,
   normalizeGradingPolicy,
   gradingPolicyErrors,
   parseGradingPolicy,
 } from '../../shared/grading-policy.js';
+import { loadSeasonalHolidays } from './seasonalHolidays.js';
+import { isSeasonalHoliday } from '../../shared/seasonal-holidays.js';
 import { getBusinessDate } from '../../shared/business-date.js';
 import {
   averageWeeklyTotals,
@@ -56,6 +60,27 @@ export function weekDates(weekStart) {
 export async function loadGradingPolicy(queryExecutor) {
   const [[row]] = await queryExecutor.query('SELECT setting_value AS value FROM app_settings WHERE setting_key = ? LIMIT 1', [GRADING_POLICY_SETTING_KEY]);
   return parseGradingPolicy(row?.value);
+}
+
+/** Read only session records, rather than the week policy frozen by unrelated daily grades. */
+export async function loadRecordedSessionDays(queryExecutor, { studentIds, component }) {
+  if (!studentIds.length) return {};
+  const section = component === 'track' ? 'trackSession' : 'weeklySession';
+  const [rows] = await queryExecutor.query(
+    `SELECT DATE_FORMAT(week_start, '%Y-%m-%d') AS weekStart, policy_json AS policy
+     FROM student_weekly_components WHERE student_id IN (?) AND component = ? ORDER BY week_start, id`,
+    [studentIds, component],
+  );
+  return Object.fromEntries(rows.map(row => [row.weekStart, recordedSessionDay(null, parseGradingPolicy(row.policy), section)]));
+}
+
+export async function loadSessionDay(queryExecutor, { studentId, weekStart, component, currentPolicy }) {
+  const section = component === 'track' ? 'trackSession' : 'weeklySession';
+  const [[row]] = await queryExecutor.query(
+    'SELECT policy_json AS policy FROM student_weekly_components WHERE student_id = ? AND week_start = ? AND component = ? LIMIT 1',
+    [studentId, weekStart, component],
+  );
+  return recordedSessionDay(currentPolicy[section].sessionDay, row ? parseGradingPolicy(row.policy) : null, section);
 }
 
 export async function saveGradingPolicy(queryExecutor, rawPolicy) {
@@ -129,8 +154,10 @@ const syncDailyGradePoints = (connection, { studentId, date, component, grade, a
   actor,
 });
 
-export async function upsertDailyGrade(queryExecutor, { studentId, date, result, policy, actor }) {
+export async function upsertDailyGrade(queryExecutor, { studentId, date, result, policy, actor, compensationId = null }) {
   await withGradeTransaction(queryExecutor, async (connection) => {
+    await connection.query('SELECT id FROM students WHERE id = ? FOR UPDATE', [studentId]);
+    await assertDailyGradeNotCompensated(connection, { studentId, date, component: result.component, compensationId });
     await writeDailyGrade(connection, { studentId, date, result, policy, actor });
     await syncDailyGradePoints(connection, { studentId, date, component: result.component, grade: result.grade, actor });
   });
@@ -158,6 +185,8 @@ async function writeDailyGrade(queryExecutor, { studentId, date, result, policy,
 
 export async function deleteDailyGrade(queryExecutor, { studentId, date, component, actor }) {
   await withGradeTransaction(queryExecutor, async (connection) => {
+    await connection.query('SELECT id FROM students WHERE id = ? FOR UPDATE', [studentId]);
+    await assertDailyGradeNotCompensated(connection, { studentId, date, component });
     await connection.query(
       'DELETE FROM student_daily_grades WHERE student_id = ? AND grade_date = ? AND component = ?',
       [studentId, date, component],
@@ -177,9 +206,14 @@ export async function recordAttendanceGrade(queryExecutor, { studentId, date, st
   return result;
 }
 
-export async function recordReadingGrade(queryExecutor, { studentId, date, completed, requiredFaces, expectedFaces, actor }) {
+export async function recordReadingGrade(queryExecutor, { studentId, date, completed, requiredFaces, expectedFaces, expectedHizbs, readingRange, actor }) {
   const policy = await loadGradingPolicyForDate(queryExecutor, date);
-  const result = evaluateReading(policy, { completed, requiredFaces, expectedFaces });
+  const result = evaluateReading(policy, { completed, requiredFaces, expectedFaces, requiredHizbs: readingRange?.hizbCount, expectedHizbs });
+  if (readingRange) {
+    const { fromHizb, toHizb, hizbCount, range } = readingRange;
+    Object.assign(result, { fromHizb, toHizb, hizbCount, range,
+      ...(readingRange.ranges ? { ranges: readingRange.ranges, readingCursor: readingRange.cursor } : {}) });
+  }
   await upsertDailyGrade(queryExecutor, { studentId, date, result, policy, actor });
   return result;
 }
@@ -193,13 +227,27 @@ const syncWeeklyGradePoints = (connection, { studentId, weekStart, component, gr
   actor,
 });
 
-export async function recordWeeklyComponent(queryExecutor, { studentId, weekStart, component, attended, segments = [], actor }) {
-  const policy = await loadGradingPolicyForDate(queryExecutor, weekStart);
+export async function recordWeeklyComponent(queryExecutor, { studentId, weekStart, component, attended, attendanceStatus, segments = [], actor, compensationId = null, attendanceRecorded = true }) {
+  const frozenPolicy = await loadGradingPolicyForDate(queryExecutor, weekStart);
+  const currentPolicy = await loadGradingPolicy(queryExecutor);
+  const section = component === 'track' ? 'trackSession' : 'weeklySession';
+  const sessionDay = await loadSessionDay(queryExecutor, { studentId, weekStart, component, currentPolicy });
+  const policy = { ...frozenPolicy, [section]: { ...frozenPolicy[section], sessionDay } };
   const result = component === 'track'
-    ? evaluateTrackSession(policy, { attended, segments })
-    : evaluateWeeklySession(policy, { attended });
+    ? evaluateTrackSession(policy, { attended, attendanceStatus, segments })
+    : evaluateWeeklySession(policy, { attended, attendanceStatus });
   const [role, id] = actorOf(actor);
   await withGradeTransaction(queryExecutor, async (connection) => {
+    await connection.query('SELECT id FROM students WHERE id = ? FOR UPDATE', [studentId]);
+    const compensation = component === 'track' ? await activeTrackCompensation(connection, studentId, weekStart) : null;
+    if (compensation) {
+      if (compensationId && Number(compensation.id) !== compensationId) throw Object.assign(new Error('تعذر مطابقة التعويض.'), { status: 409 });
+      const full = evaluateTrackSession(policy, { attendanceStatus: 'present', segments: [] });
+      if (!attendanceRecorded) result.attendanceGrade = 0;
+      Object.assign(result, { attendanceRecorded, operationType: 'compensation', compensationId: Number(compensation.id),
+        segments: full.segments.map(row => ({ ...row, recorded: false, compensated: true, grade: row.max })),
+        grade: Math.round((result.attendanceGrade + full.segments.reduce((sum, row) => sum + row.max, 0)) * 100) / 100 });
+    }
     await freezeWeekPolicy(connection, weekStart, policy);
     await connection.query(
       `INSERT INTO student_weekly_components
@@ -208,7 +256,7 @@ export async function recordWeeklyComponent(queryExecutor, { studentId, weekStar
        ON DUPLICATE KEY UPDATE attended = VALUES(attended), grade = VALUES(grade), max_grade = VALUES(max_grade),
          detail_json = VALUES(detail_json), policy_json = VALUES(policy_json),
          recorded_by_role = VALUES(recorded_by_role), recorded_by_id = VALUES(recorded_by_id)`,
-      [studentId, weekStart, component, attended ? 1 : 0, result.grade, result.max, JSON.stringify(result), JSON.stringify(policy), role, id],
+      [studentId, weekStart, component, result.attended ? 1 : 0, result.grade, result.max, JSON.stringify(result), JSON.stringify(policy), role, id],
     );
     await syncWeeklyGradePoints(connection, { studentId, weekStart, component, grade: result.grade, actor });
   });
@@ -217,6 +265,10 @@ export async function recordWeeklyComponent(queryExecutor, { studentId, weekStar
 
 export async function deleteWeeklyComponent(queryExecutor, { studentId, weekStart, component, actor }) {
   await withGradeTransaction(queryExecutor, async (connection) => {
+    await connection.query('SELECT id FROM students WHERE id = ? FOR UPDATE', [studentId]);
+    if (component === 'track' && await activeTrackCompensation(connection, studentId, weekStart)) {
+      throw Object.assign(new Error('ألغِ التعويض إداريًا قبل حذف الجلسة.'), { status: 409 });
+    }
     await connection.query(
       'DELETE FROM student_weekly_components WHERE student_id = ? AND week_start = ? AND component = ?',
       [studentId, weekStart, component],
@@ -235,7 +287,7 @@ export async function recomputeRecitationGroupGrade(queryExecutor, { planId, stu
   const component = recitationComponent(taskType);
   if (!component) return null;
   const [rows] = await queryExecutor.query(
-    `SELECT id, from_page AS fromPage, hizb_number AS hizbNumber, warning_count AS warnings,
+    `SELECT id, from_page AS fromPage, hizb_number AS hizbNumber, warning_count AS warnings, hesitation_count AS hesitations,
        mistake_count AS mistakes, teacher_rating_key AS ratingKey, evaluated_at AS evaluatedAt,
        teacher_completed AS teacherCompleted
      FROM student_quran_tasks
@@ -251,7 +303,7 @@ export async function recomputeRecitationGroupGrade(queryExecutor, { planId, stu
   }
   const policy = await loadGradingPolicyForDate(queryExecutor, date);
   const manualFail = evaluated.some(row => row.ratingKey === MANUAL_FAIL_RATING_KEY);
-  const counts = row => ({ mistakes: Number(row.mistakes) || 0, warnings: Number(row.warnings) || 0 });
+  const counts = row => ({ mistakes: Number(row.mistakes) || 0, warnings: Number(row.warnings) || 0, hesitations: Number(row.hesitations) || 0 });
   let result;
   if (component === 'memorization') {
     result = evaluateMemorization(policy, { manualFail, faces: evaluated.map(row => ({ ...counts(row), page: Number(row.fromPage) || null })) });
@@ -259,14 +311,15 @@ export async function recomputeRecitationGroupGrade(queryExecutor, { planId, stu
     const byHizb = new Map();
     for (const row of evaluated) {
       const key = row.hizbNumber ? `hizb:${row.hizbNumber}` : `row:${row.id}`;
-      const current = byHizb.get(key) || { hizb: Number(row.hizbNumber) || null, mistakes: 0, warnings: 0 };
+      const current = byHizb.get(key) || { hizb: Number(row.hizbNumber) || null, mistakes: 0, warnings: 0, hesitations: 0 };
       current.mistakes += counts(row).mistakes;
       current.warnings += counts(row).warnings;
+      current.hesitations += counts(row).hesitations;
       byHizb.set(key, current);
     }
     result = evaluateReview(policy, { manualFail, hizbs: [...byHizb.values()] });
   } else {
-    const total = evaluated.reduce((sum, row) => ({ mistakes: sum.mistakes + counts(row).mistakes, warnings: sum.warnings + counts(row).warnings }), { mistakes: 0, warnings: 0 });
+    const total = evaluated.reduce((sum, row) => ({ mistakes: sum.mistakes + counts(row).mistakes, warnings: sum.warnings + counts(row).warnings, hesitations: sum.hesitations + counts(row).hesitations }), { mistakes: 0, warnings: 0, hesitations: 0 });
     result = evaluateLink(policy, { ...total, manualFail });
   }
   const complete = evaluated.length === rows.length;
@@ -279,17 +332,17 @@ export async function recomputeRecitationGroupGrade(queryExecutor, { planId, stu
 }
 
 /** Per-row outcome used while the rest of the group is still being evaluated. */
-export function evaluateRecitationRow(policy, { taskType, mistakes = 0, warnings = 0, manualFail = false }) {
+export function evaluateRecitationRow(policy, { taskType, mistakes = 0, warnings = 0, hesitations = 0, manualFail = false }) {
   if (taskType === 'memorization') {
-    const result = evaluateMemorization(policy, { faces: [{ mistakes, warnings }], manualFail });
+    const result = evaluateMemorization(policy, { faces: [{ mistakes, warnings, hesitations }], manualFail });
     const face = result.faces[0];
     return { passed: !manualFail && !face.failed, score: face.score, threshold: result.singleFaceThreshold };
   }
   if (taskType === 'review') {
-    const result = evaluateReview(policy, { hizbs: [{ mistakes, warnings }], manualFail });
+    const result = evaluateReview(policy, { hizbs: [{ mistakes, warnings, hesitations }], manualFail });
     return { passed: !manualFail && !result.hizbs[0].failed, score: result.rawScore, threshold: result.amountThreshold };
   }
-  const result = evaluateLink(policy, { mistakes, warnings, manualFail });
+  const result = evaluateLink(policy, { mistakes, warnings, hesitations, manualFail });
   return { passed: result.passed, score: result.rawScore, threshold: result.threshold };
 }
 
@@ -303,14 +356,13 @@ const parseJson = value => {
  * Weekly grades for many students. Each day component comes from its stored record;
  * the frozen week policy decides the structure and maxima.
  */
-export async function computeStudentsWeeklyGrades(queryExecutor, { studentIds, weekStart, today = getBusinessDate() }) {
-  const ids = [...new Set(studentIds.map(Number).filter(Boolean))];
-  if (!ids.length) return new Map();
-  const dates = weekDates(weekStart);
-  const weekEnd = dates.at(-1);
+async function loadWeeklyGradeRows(queryExecutor, ids, weekStarts) {
+  const weekStart = weekStarts[0];
+  const holidays = await loadSeasonalHolidays(queryExecutor);
+  const weekEnd = addDays(weekStarts.at(-1), 6);
   const placeholders = ids.map(() => '?').join(', ');
   const currentPolicy = await loadGradingPolicy(queryExecutor);
-  const policy = (await readWeekPolicies(queryExecutor, [weekStart], currentPolicy)).get(weekStart);
+  const policies = await readWeekPolicies(queryExecutor, weekStarts, currentPolicy);
   const [dailyRows] = await queryExecutor.query(
     `SELECT student_id AS studentId, DATE_FORMAT(grade_date, '%Y-%m-%d') AS date, component, grade,
        max_grade AS maxGrade, passed, fail_reason AS failReason, detail_json AS detail
@@ -332,14 +384,40 @@ export async function computeStudentsWeeklyGrades(queryExecutor, { studentIds, w
     ids,
   );
   const [weeklyRows] = await queryExecutor.query(
-    `SELECT student_id AS studentId, component, attended, grade, detail_json AS detail
-     FROM student_weekly_components WHERE student_id IN (${placeholders}) AND week_start = ?`,
-    [...ids, weekStart],
+    `SELECT student_id AS studentId, DATE_FORMAT(week_start, '%Y-%m-%d') AS weekStart, component, attended, grade, detail_json AS detail, policy_json AS policy
+     FROM student_weekly_components WHERE student_id IN (${placeholders}) AND ${weekStarts.length === 1 ? 'week_start = ?' : 'week_start BETWEEN ? AND ?'}`,
+    [...ids, weekStart, ...(weekStarts.length === 1 ? [] : [weekStarts.at(-1)])],
   );
+  return { holidays, policies, currentPolicy, dailyRows, taskRows, planRows, weeklyRows };
+}
+
+export async function computeStudentsWeeklyGrades(queryExecutor, { studentIds, weekStart, today = getBusinessDate() }) {
+  const ids = [...new Set(studentIds.map(Number).filter(Boolean))];
+  if (!ids.length) return new Map();
+  const data = await loadWeeklyGradeRows(queryExecutor, ids, [weekStart]);
+  return weeklyGradesFromRows(ids, weekStart, today, data);
+}
+
+/** Read all actual session weeks in one batch, including weeks without Quran tasks. */
+export async function computeStudentSessionGrades(queryExecutor, { studentId, dates = [], today = getBusinessDate() }) {
+  const [recordDates] = await queryExecutor.query(`
+    SELECT DATE_FORMAT(grade_date, '%Y-%m-%d') AS date FROM student_daily_grades WHERE student_id = ? AND grade_date <= ?
+    UNION SELECT DATE_FORMAT(week_start, '%Y-%m-%d') AS date FROM student_weekly_components WHERE student_id = ? AND week_start <= ?`,
+  [studentId, today, studentId, today]);
+  const weekStarts = [...new Set([today, ...dates, ...recordDates.map(row => row.date)]
+    .filter(date => isGradingDate(date) && date <= today).map(weekStartOf))].sort();
+  const data = await loadWeeklyGradeRows(queryExecutor, [studentId], weekStarts);
+  return weekStarts.map(weekStart => weeklyGradesFromRows([studentId], weekStart, today, data).get(studentId)).reverse();
+}
+
+function weeklyGradesFromRows(ids, weekStart, today, { holidays, policies, currentPolicy, dailyRows, taskRows, planRows, weeklyRows }) {
+  const dates = weekDates(weekStart);
+  const weekEnd = dates.at(-1);
+  const policy = policies.get(weekStart);
   const daily = new Map();
-  for (const row of dailyRows) daily.set(`${row.studentId}:${row.date}:${row.component}`, row);
-  const scheduled = new Set(taskRows.map(row => `${row.studentId}:${row.date}:${row.taskType}`));
-  const weekly = new Map(weeklyRows.map(row => [`${row.studentId}:${row.component}`, row]));
+  for (const row of dailyRows) if (!isSeasonalHoliday(row.date, holidays)) daily.set(`${row.studentId}:${row.date}:${row.component}`, row);
+  const scheduled = new Set(taskRows.filter(row => !isSeasonalHoliday(row.date, holidays)).map(row => `${row.studentId}:${row.date}:${row.taskType}`));
+  const weekly = new Map((dates.every(date => isSeasonalHoliday(date, holidays)) ? [] : weeklyRows.filter(row => !row.weekStart || row.weekStart === weekStart)).map(row => [`${row.studentId}:${row.component}`, row]));
   const planStart = new Map();
   for (const row of planRows) {
     if (!['active', 'completed'].includes(row.status)) continue;
@@ -361,6 +439,7 @@ export async function computeStudentsWeeklyGrades(queryExecutor, { studentIds, w
       return {
         date,
         weekday: weekdayOf(date),
+        seasonalHoliday: isSeasonalHoliday(date, holidays),
         planActive: Boolean(start && start <= date),
         attendance: entry('attendance') ? { grade: Number(entry('attendance').grade) } : null,
         memorization: recitation('memorization'),
@@ -381,6 +460,9 @@ export async function computeStudentsWeeklyGrades(queryExecutor, { studentIds, w
       studentId,
       weekStart,
       weekEnd,
+      policy: { ...policy, ...Object.fromEntries([['trackSession', track], ['weeklySession', weeklySession]].map(([section, row]) => [section, {
+        ...policy[section], sessionDay: recordedSessionDay(currentPolicy[section].sessionDay, row ? parseGradingPolicy(row.policy) : null, section),
+      }])) },
       ...grade,
       records: Object.fromEntries(dates.map(date => [date, Object.fromEntries(
         ['attendance', 'memorization', 'link', 'review', 'reading'].flatMap(component => {

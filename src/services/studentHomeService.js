@@ -21,8 +21,8 @@ export const loadStudentLevel = (studentId) => loadOfflineSnapshot(studentId, 's
 
 export const loadStudentMemorized = (studentId) => loadOfflineSnapshot(studentId, 'student:memorized-ranges-v1', () => studentsApi.getStudentQuranSaved(studentId), { actorRole: 'student' });
 
-export async function loadStudentHomeRankings(studentId = Number(localStorage.getItem('wajeh_student_id'))) {
-  const settings = await loadPublicSettingsCached();
+export async function loadStudentHomeRankings(studentId, { settings: providedSettings } = {}) {
+  const settings = providedSettings || await loadPublicSettingsCached({ refresh: true });
   const [students, families] = await Promise.allSettled([
     settings.studentRankingsVisible === false ? [] : loadOfflineSnapshot(studentId, 'student:rankings', () => studentsApi.getStudentRankings({ committeeId: 'all' }), { actorRole: 'student' }),
     settings.familyRankingsVisible === false ? [] : loadOfflineSnapshot(studentId, 'student:family-rankings', () => studentsApi.getFamilyRankings(), { actorRole: 'student' }),

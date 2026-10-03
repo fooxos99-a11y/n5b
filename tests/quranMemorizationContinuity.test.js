@@ -1,3 +1,5 @@
+import { uncompensatedTaskSql } from '../server/services/compensationPlanCredit.js';
+import { studyDateSql } from '../server/services/seasonalHolidays.js';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
@@ -61,6 +63,7 @@ test('cursor update after execution and administrative correction writes the fir
     server.indexOf('async function buildExecutionSegmentDetails('),
   );
   const context = vm.createContext({
+    studyDateSql, uncompensatedTaskSql,
     getQuranRangeDirection: () => 1,
     getNextUnmemorizedPlanPosition: async () => findNextUnmemorizedPosition({
       ...options, ranges: [range(ayahs[0], ayahs[1]), range(ayahs[6], ayahs[7])],
@@ -83,6 +86,7 @@ test('student and teacher execution cannot advance beyond a remaining gap', asyn
     server.indexOf('async function recomputePlanMemorizationCursor('),
   );
   const context = vm.createContext({
+    studyDateSql, uncompensatedTaskSql,
     getQuranRangeDirection: () => 1,
     compareQuranPositionInDirection,
     recomputePlanMemorizationCursor: async () => position(22, 142),
@@ -120,6 +124,7 @@ test('pending tasks beyond a gap are repaired, while evaluated tasks are preserv
     server.indexOf('async function ensureStudentPlanTasks('),
   );
   const context = vm.createContext({
+    studyDateSql, uncompensatedTaskSql,
     getQuranRangeDirection: () => 1,
     compareQuranPositionInDirection,
     getPlanProgressContext: async () => ({ normalEnd: position(23, 147) }),

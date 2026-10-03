@@ -2,16 +2,37 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { reportPeriodStart, reportRange } from '../src/lib/reportPeriods.js';
+import { getBusinessDate, getSaudiCalendarDate } from '../shared/business-date.js';
 
 const read = (path) => readFile(new URL(path, import.meta.url), 'utf8');
 
-test('report periods start on Sunday, the first of the month, quarter or year', () => {
+test('report periods start on Sunday and the current Hijri month, quarter or year', () => {
   assert.equal(reportPeriodStart('week', '2026-09-24'), '2026-09-20');
-  assert.equal(reportPeriodStart('month', '2026-09-24'), '2026-09-01');
-  assert.equal(reportPeriodStart('quarter', '2026-09-24'), '2026-07-01');
-  assert.equal(reportPeriodStart('year', '2026-09-24'), '2026-01-01');
-  assert.deepEqual(reportRange('month', {}, '2026-09-24'), { from: '2026-09-01', to: '2026-09-24' });
+  assert.equal(reportPeriodStart('month', '2026-09-24'), '2026-09-12');
+  assert.equal(reportPeriodStart('quarter', '2026-09-24'), '2026-09-12');
+  assert.equal(reportPeriodStart('year', '2026-09-24'), '2026-06-16');
+  assert.deepEqual(reportRange('month', {}, '2026-09-24'), { from: '2026-09-12', to: '2026-09-24' });
   assert.deepEqual(reportRange('custom', { from: '2026-09-10', to: '2026-09-02' }, '2026-09-24'), { from: '2026-09-02', to: '2026-09-10' });
+});
+
+test('current month and quarter use Riyadh midnight even before the execution day starts', () => {
+  const instant = new Date('2026-09-11T21:05:00Z');
+  assert.equal(getBusinessDate(instant), '2026-09-11');
+  const today = getSaudiCalendarDate(instant);
+  assert.equal(today, '2026-09-12');
+  assert.deepEqual(reportRange('month', {}, today), { from: '2026-09-12', to: '2026-09-12' });
+  assert.deepEqual(reportRange('quarter', {}, today), { from: '2026-09-12', to: '2026-09-12' });
+  for (const [date, from] of [['2026-01-01', '2025-12-21'], ['2026-04-01', '2026-03-20'], ['2026-07-01', '2026-06-16'], ['2026-12-31', '2026-12-10']]) {
+    assert.equal(reportPeriodStart('quarter', date), from);
+  }
+});
+
+test('Hijri periods preserve named boundaries and ISO transport across the year change', () => {
+  assert.equal(reportPeriodStart('year', '2026-06-16'), '2026-06-16');
+  assert.equal(reportPeriodStart('year', '2026-06-15'), '2025-06-26');
+  assert.equal(reportPeriodStart('month', '2026-10-02'), '2026-09-12');
+  assert.equal(reportPeriodStart('quarter', '2026-11-01'), '2026-09-12');
+  assert.equal(reportPeriodStart('month', 'invalid'), '');
 });
 
 test('statistics are indicator cards with details, then the best students and circles and the teachers', async () => {
@@ -23,7 +44,7 @@ test('statistics are indicator cards with details, then the best students and ci
     read('../server/index.js'),
   ]);
   assert.match(reports, /<MetricCard key=\{metric\.id\} metric=\{metric\}/);
-  assert.match(reports, /<RankingPanels bestStudents=\{overview\.bestStudents\} bestCommittees=\{overview\.bestCommittees\} hideCommittees=/);
+  assert.match(reports, /<RankingPanels bestStudents=\{overview\.bestStudents\} bestCommittees=\{overview\.bestCommittees\} bestComplexes=\{overview\.bestComplexes\}/);
   assert.match(reports, /!teacherScoped && \(\s*<TeachersPanel teachers=\{overview\.teachers\}/);
   assert.doesNotMatch(reports, /FacesTrendChart|RecitationActivity/);
   assert.match(reports, /<SelectLabel>الأرشيف<\/SelectLabel>/);
@@ -32,10 +53,10 @@ test('statistics are indicator cards with details, then the best students and ci
   // Attendance, plan completion, recitations and faces read are covered by the weekly program and the track session.
   assert.doesNotMatch(metrics, /label: 'الحضور',\s*icon|label: 'إنجاز الخطط'|label: 'جلسات التسميع'|label: 'الأوجه المقروءة'/);
   // Include attendance and unrecorded students in the overall session indicator.
-  assert.match(metrics, /\.\.\.percentMetric\(data\.percentage\)/);
-  assert.match(metrics, /percentTile\('الحضور', pct\(attendedOf\(attendance\), attendance\.total\)\),\s*countTile\('الحفظ'[\s\S]*countTile\('المراجعة'[\s\S]*countTile\('الربط'/);
-  assert.match(metrics, /countTile\('المقاطع المختبرة', segments\.tested\)/);
-  assert.match(metrics, /\{ label: 'المقاطع', value: outOf\(row\.segments\?\.tested, row\.segments\?\.total\) \}/);
+  assert.match(metrics, /\.\.\.percentMetric\(pct\(attended, expected\)\)/);
+  assert.match(metrics, /percentTile\('الحضور', pct\(attendedOf\(attendance\), attendance\.total\)\),\s*countTile\('أوجه الحفظ'[\s\S]*countTile\('أوجه الإتقان'[\s\S]*countTile\('المراجعة'[\s\S]*countTile\('الربط'/);
+  assert.match(metrics, /percentTile\('نسبة إتقان الحفظ', pct\(segments\.grade, segments\.max\)\)/);
+  assert.doesNotMatch(metrics, /الأخطاء واللحون|المقاطع المختبرة/);
   assert.match(card, /prefers-reduced-motion: reduce/);
   assert.match(card, /min-h-48[^"]*rounded-2xl border border-border bg-card/);
   // Details open in a centred window with small summary cards.
@@ -103,11 +124,11 @@ test('teachers record self reading in the recitation session, reading-only days 
   assert.match(server, /readingOnly: reading\.readingDay,/);
   assert.match(list, /label="الذاتي"/);
   assert.match(dialog, />\s*لم يقرأ\s*</);
-  assert.match(dialog, />\s*نعم\s*</);
+  assert.match(dialog, />\s*حفظ القراءة\s*</);
   // Attendance counts the work days; self reading counts the reading days.
   assert.match(server, /const attendanceWeekDays = \(await loadGradingPolicy\(reportDb\)\)\.weeklyProgram\.workDays\.map\(Number\);/);
-  assert.match(metrics, /percentTile\('القراءة الذاتية', pct\(readingDone, readingTotal\)\)/);
-  assert.match(metrics, /countTile\('الأخطاء واللحون', segments\.mistakes\)/);
+  assert.match(metrics, /countTile\('أحزاب القراءة الذاتية', readingDone\)/);
+  assert.match(metrics, /percentStat\('نسبة إتقان الحفظ', row\.segments\?\.grade, row\.segments\?\.max\)/);
 });
 
 test('rankings order students by grades, circles by their average and list every teacher', async () => {

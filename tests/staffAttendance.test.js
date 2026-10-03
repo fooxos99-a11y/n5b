@@ -41,12 +41,12 @@ test('staff attendance covers teachers, reciters, and administrators with locati
   assert.ok(portal.indexOf("key: 'staffAttendance', label: 'التحضير'") < portal.indexOf("key: 'quranEvaluation', label: 'جلسات التسميع'"));
   // Staff attendance is not part of the statistics page.
   assert.doesNotMatch(report, /getSupervisorReport|showStaff/);
-  assert.match(clientPermissions, /key: 'staffAttendance', label: 'تحضير حسابي'/);
+  assert.doesNotMatch(clientPermissions, /key: 'staffAttendance'/);
   assert.doesNotMatch(clientPermissions, /description:/);
-  assert.match(serverPermissions, /'staffAttendance'/);
+  assert.match(serverPermissions, /normalizeDashboardGrants/);
   assert.match(server, /\[path\.startsWith\('\/staff-attendance'\), \['staffAttendance'\]\]/);
-  assert.match(dashboard, /isAdmin && dashboardPermissions\.includes\('staffAttendance'\)/);
-  assert.doesNotMatch(server, /\['supervisor', 'reciter', 'admin'\]\.includes\(req\.auth\.role\) && path\.startsWith\('\/staff-attendance'\)/);
+  assert.match(dashboard, /isSupervisor[\s\S]*\|\| isAdmin/);
+  assert.match(server, /\['supervisor', 'admin', 'reciter'\]\.includes\(req\.auth\.role\) && path\.startsWith\('\/staff-attendance'\)/);
 });
 
 test('staff attendance migration is compatible with MySQL versions lacking ADD COLUMN IF NOT EXISTS', async () => {

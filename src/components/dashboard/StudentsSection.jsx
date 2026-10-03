@@ -24,6 +24,8 @@ const emptyStudent = {
   password: '',
   nationalId: '',
   guardianPhone: '',
+  phone: '',
+  complexId: '',
   committeeId: '',
   gradeAdjustmentType: 'increase',
   gradeAdjustmentAmount: '',
@@ -49,6 +51,9 @@ const StudentsSection = () => {
   const [bulkStudents, setBulkStudents] = useState([]);
   const [isBulkSaving, setIsBulkSaving] = useState(false);
   const gradeAdjustment = describeGradeAdjustment(selectedStudent?.points, studentForm);
+
+  const complexes = [...new Map(committees.filter(row => row.complexId).map(row => [String(row.complexId), { id: String(row.complexId), name: row.complexName }])).values()];
+  const formCommittees = committees.filter(row => String(row.complexId || '') === studentForm.complexId);
 
   const selectedCommitteeName = useMemo(() => {
     return committees.find((committee) => String(committee.id) === String(moveCommitteeId))?.name || '';
@@ -109,7 +114,9 @@ const StudentsSection = () => {
       loginNumber: student.loginNumber,
       password: '',
       nationalId: student.nationalId || '',
-      guardianPhone: student.guardianPhone,
+      guardianPhone: student.guardianPhone || '',
+      phone: student.phone || '',
+      complexId: student.complexId ? String(student.complexId) : '',
       committeeId: student.committeeId ? String(student.committeeId) : '',
       gradeAdjustmentType: 'increase',
       gradeAdjustmentAmount: '',
@@ -128,8 +135,8 @@ const StudentsSection = () => {
       toast({ title: 'أدخل رقم الدخول وكلمة المرور.', variant: 'destructive' });
       return;
     }
-    if (!studentForm.committeeId) {
-      toast({ title: 'الحلقة مطلوبة', description: 'اختر حلقة للطالب قبل الحفظ.', variant: 'destructive' });
+    if (!studentForm.complexId || !studentForm.committeeId) {
+      toast({ title: 'الحلقة مطلوبة', description: 'اختر المجمع والحلقة قبل الحفظ.', variant: 'destructive' });
       return;
     }
 
@@ -181,7 +188,7 @@ const StudentsSection = () => {
 
   const updateBulkStudent = (rowId, field, value) => {
     setBulkStudents((current) =>
-      current.map((student) => student.rowId === rowId ? updateImportedStudent(student, field, value) : student)
+      current.map((student) => student.rowId === rowId ? { ...updateImportedStudent(student, field, value), ...(field === 'complexId' ? { committeeId: '' } : {}) } : student)
     );
   };
 
@@ -191,11 +198,11 @@ const StudentsSection = () => {
 
   const saveBulkStudents = async () => {
     const invalid = bulkStudents.some((student) =>
-      !student.name.trim() || !String(student.loginNumber).trim() || !student.password || !student.committeeId
+      !student.name.trim() || !String(student.loginNumber).trim() || !student.password || !student.complexId || !student.committeeId
     );
 
     if (invalid) {
-      toast({ title: 'بيانات ناقصة', description: 'تأكد من الاسم ورقم الدخول وكلمة المرور والحلقة لكل طالب.', variant: 'destructive' });
+      toast({ title: 'بيانات ناقصة', description: 'تأكد من الاسم ورقم الدخول وكلمة المرور والمجمع والحلقة لكل طالب.', variant: 'destructive' });
       return;
     }
 
@@ -320,7 +327,7 @@ const StudentsSection = () => {
           {dialog === 'add' && (
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-muted/60 p-3">
               <div className="text-sm text-muted-foreground">
-                أعمدة Excel: الاسم، جوال ولي الأمر، الهوية، الحلقة، رقم الدخول، كلمة المرور. عند ترك الرقم والرمز فارغين يُولّدان بالقيمة نفسها، ويمكن تعديلهما قبل الحفظ.
+                أعمدة Excel: الاسم، جوال الطالب، جوال ولي الأمر، الهوية، الحلقة، رقم الدخول، كلمة المرور. عند ترك الرقم والرمز فارغين يُولّدان بالقيمة نفسها، ويمكن تعديلهما قبل الحفظ.
               </div>
               <Input
                 aria-label="ملف الطلاب"
@@ -344,13 +351,19 @@ const StudentsSection = () => {
                 <FormField label="اسم الطالب" htmlFor="student-name" wide>
                   <Input id="student-name" aria-label="اسم الطالب" value={studentForm.name} onChange={(event) => setStudentForm({ ...studentForm, name: event.target.value })} />
                 </FormField>
+                <FormField label="المجمع" htmlFor="student-complex">
+                  <Select value={studentForm.complexId} onValueChange={complexId => setStudentForm({ ...studentForm, complexId, committeeId: '' })}>
+                    <SelectTrigger id="student-complex" aria-label="مجمع الطالب"><SelectValue placeholder="اختر المجمع" /></SelectTrigger>
+                    <SelectContent>{complexes.map(row => <SelectItem key={row.id} value={row.id}>{row.name}</SelectItem>)}</SelectContent>
+                  </Select>
+                </FormField>
                 <FormField label="الحلقة" htmlFor="student-committee">
-                  <Select value={studentForm.committeeId} onValueChange={(value) => setStudentForm({ ...studentForm, committeeId: value })}>
+                  <Select disabled={!studentForm.complexId} value={studentForm.committeeId} onValueChange={(value) => setStudentForm({ ...studentForm, committeeId: value })}>
                     <SelectTrigger id="student-committee" aria-label="حلقة الطالب" className="h-11">
                       <SelectValue placeholder="اختر الحلقة" />
                     </SelectTrigger>
                     <SelectContent>
-                      {committees.map((committee) =>
+                      {formCommittees.map((committee) =>
                       <SelectItem key={committee.id} value={String(committee.id)}>
                           {committee.name}
                         </SelectItem>
@@ -361,8 +374,11 @@ const StudentsSection = () => {
                 <FormField label="رقم الدخول" htmlFor="student-login-number">
                   <Input id="student-login-number" aria-label="رقم الدخول" value={studentForm.loginNumber} onChange={(event) => setStudentForm({ ...studentForm, loginNumber: event.target.value })} />
                 </FormField>
-                <FormField label="رقم الجوال" htmlFor="student-phone">
-                  <Input id="student-phone" aria-label="رقم الجوال" inputMode="tel" value={studentForm.guardianPhone} onChange={(event) => setStudentForm({ ...studentForm, guardianPhone: event.target.value })} />
+                <FormField label="جوال الطالب" htmlFor="student-phone">
+                  <Input id="student-phone" aria-label="جوال الطالب" inputMode="tel" value={studentForm.phone} onChange={event => setStudentForm({ ...studentForm, phone: event.target.value })} />
+                </FormField>
+                <FormField label="جوال ولي الأمر" htmlFor="student-guardian-phone">
+                  <Input id="student-guardian-phone" aria-label="جوال ولي الأمر" inputMode="tel" value={studentForm.guardianPhone} onChange={event => setStudentForm({ ...studentForm, guardianPhone: event.target.value })} />
                 </FormField>
                 <FormField label={dialog === 'edit' ? 'كلمة مرور جديدة' : 'كلمة المرور'} htmlFor="student-password">
                   <PasswordInput id="student-password" required={dialog === 'add'} autoComplete="new-password" value={studentForm.password} onChange={(event) => setStudentForm({ ...studentForm, password: event.target.value })} />

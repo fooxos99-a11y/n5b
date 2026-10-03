@@ -86,7 +86,7 @@ export function MetricTile({ tile, color }) {
   return (
     <div className="flex min-w-0 flex-col items-center justify-center gap-2 rounded-xl border border-border bg-card p-3 [font-family:var(--font-ui)]">
       <div className="relative h-16 w-16 shrink-0">
-        <MetricGauge value={tile.value} color={color} strokeWidth={10} />
+        <MetricGauge value={tile.value} color={tile.color || color} strokeWidth={10} />
         <strong className="pointer-events-none absolute inset-0 grid place-items-center text-sm font-black tabular-nums text-foreground" dir="ltr">
           {tile.display}
         </strong>

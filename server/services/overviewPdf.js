@@ -1,3 +1,4 @@
+import { drawGradingAuditPdf } from './gradingAuditPdf.js';
 import PDFDocument from 'pdfkit';
 
 const colors = {
@@ -172,6 +173,8 @@ export async function buildOverviewPdf(report, { fontPair = null } = {}) {
         });
       });
     }
+
+    drawGradingAuditPdf(doc, { grades, addPage, regularFont, boldFont, margin, contentWidth, pageHeight });
 
     const range = doc.bufferedPageRange();
     for (let pageIndex = 0; pageIndex < range.count; pageIndex += 1) {

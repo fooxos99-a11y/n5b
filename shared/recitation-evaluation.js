@@ -1,7 +1,7 @@
 const evaluationCount = (value) => Math.max(0, Number(value || 0));
 
 export const hasRecitationIssues = (row = {}) => (
-  evaluationCount(row.mistakeCount) > 0 || evaluationCount(row.warningCount) > 0
+  evaluationCount(row.mistakeCount) > 0 || evaluationCount(row.warningCount) > 0 || evaluationCount(row.hesitationCount) > 0
 );
 
 export const isMasteredRecitation = (row = {}) => (

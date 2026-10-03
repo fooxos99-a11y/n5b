@@ -16,6 +16,7 @@ import {
 } from '@/services/offlineOperationsService';
 import { studentsApi } from '@/services/studentsApi';
 import { isMistakeMark } from '../../../shared/recitation-mark-types.js';
+import { formatHijriDate } from '../../../shared/hijri-calendar.js';
 
 const controlClassName = 'h-11 w-full min-w-0';
 const dialogClassName = 'bg-card [font-family:var(--font-ui)]';
@@ -142,6 +143,7 @@ const NarrationDaySection = () => {
       );
       const marksByPart = new Map((payload.parts || []).map((item) => [String(item.partId), Array.isArray(item.wordMarks) ? item.wordMarks : []]));
       const allMarks = [...marksByPart.values()].flat();
+      const hesitationCount = payload.evaluationMode === 'mushaf' ? allMarks.filter(mark => mark.markType === 'hesitation').length : Number(payload.hesitationCount || 0);
       const warningCount = payload.evaluationMode === 'mushaf'
         ? allMarks.filter((mark) => mark.markType === 'warning').length
         : Number(payload.warningCount || 0);
@@ -150,6 +152,7 @@ const NarrationDaySection = () => {
         : Number(payload.mistakeCount || 0);
       const policy = event.evaluationPolicy || {};
       const localScore = Math.max(0, Number(policy.maxScore || 100)
+        - hesitationCount * Number(policy.hesitationDeduction || 0)
         - warningCount * Number(policy.warningDeduction || 0)
         - mistakeCount * Number(policy.mistakeDeduction || 0));
       setEvent((current) => ({
@@ -165,6 +168,7 @@ const NarrationDaySection = () => {
             return {
               ...part,
               score: localScore,
+              hesitationCount: payload.evaluationMode === 'mushaf' ? partMarks.filter(mark => mark.markType === 'hesitation').length : (isFirst ? hesitationCount : 0),
               warningCount: payload.evaluationMode === 'mushaf' ? partMarks.filter((mark) => mark.markType === 'warning').length : (isFirst ? warningCount : 0),
               mistakeCount: payload.evaluationMode === 'mushaf' ? partMarks.filter((mark) => isMistakeMark(mark.markType)).length : (isFirst ? mistakeCount : 0),
               wordMarks: partMarks,
@@ -282,7 +286,7 @@ const NarrationDaySection = () => {
             <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-6">
               <div className="min-w-0">
                 <div className="truncate text-lg font-black text-foreground">{event.name}</div>
-                <div className="mt-1 text-sm text-muted-foreground">{event.startDate} إلى {event.endDate}</div>
+                <div className="mt-1 text-sm text-muted-foreground">{formatHijriDate(event.startDate)} إلى {formatHijriDate(event.endDate)}</div>
               </div>
               <div className="flex flex-wrap items-center gap-4 text-sm font-black">
                 <span className="flex items-center gap-1.5 text-muted-foreground"><Users className="h-4 w-4" />{activeStudents.length}</span>
@@ -367,7 +371,7 @@ const NarrationDaySection = () => {
         {events.filter(item => item.status === 'open').length > 1 && <div className="p-4">
           <Select value={event?.status === 'open' ? String(event.id) : ''} onValueChange={id => { setArchiveId(''); loadEvent(id); }}>
             <SelectTrigger aria-label="يوم السرد المفتوح"><SelectValue placeholder="اختر يوم السرد" /></SelectTrigger>
-            <SelectContent>{events.filter(item => item.status === 'open').map(item => <SelectItem key={item.id} value={String(item.id)}>{item.name} · {item.startDate}</SelectItem>)}</SelectContent>
+            <SelectContent>{events.filter(item => item.status === 'open').map(item => <SelectItem key={item.id} value={String(item.id)}>{item.name} · {formatHijriDate(item.startDate)}</SelectItem>)}</SelectContent>
           </Select>
         </div>}
         {_resolveNarrationDaySection()}

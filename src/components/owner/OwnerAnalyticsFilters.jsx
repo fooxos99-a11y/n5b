@@ -1,7 +1,7 @@
 import React from 'react';
 import { Building2, CalendarDays, CalendarRange } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import DatePicker from '@/components/ui/date-picker';
 import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -45,30 +45,28 @@ const OwnerAnalyticsFilters = ({ filters, complexes, filterOptions, onChange }) 
           </Popover>
         </div>
         <div className="flex min-w-0 flex-col gap-1">
-          <Label htmlFor="owner-analytics-from" className="flex h-4 items-center gap-1.5 text-xs font-bold">
+          <Label className="flex h-4 items-center gap-1.5 text-xs font-bold">
             <CalendarDays className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
             من تاريخ
           </Label>
-          <Input
-            id="owner-analytics-from"
-            type="date"
+          <DatePicker
+            ariaLabel="من تاريخ"
             value={filters.from}
             max={filters.to}
-            onChange={(event) => onChange({ ...filters, from: event.target.value })}
+            onChange={(from) => onChange({ ...filters, from })}
             className="h-11 px-2 text-sm [font-family:var(--font-ui)]"
           />
         </div>
         <div className="flex min-w-0 flex-col gap-1">
-          <Label htmlFor="owner-analytics-to" className="flex h-4 items-center gap-1.5 text-xs font-bold">
+          <Label className="flex h-4 items-center gap-1.5 text-xs font-bold">
             <CalendarDays className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
             إلى تاريخ
           </Label>
-          <Input
-            id="owner-analytics-to"
-            type="date"
+          <DatePicker
+            ariaLabel="إلى تاريخ"
             value={filters.to}
             min={filters.from}
-            onChange={(event) => onChange({ ...filters, to: event.target.value })}
+            onChange={(to) => onChange({ ...filters, to })}
             className="h-11 px-2 text-sm [font-family:var(--font-ui)]"
           />
         </div>
@@ -106,11 +104,11 @@ const OwnerAnalyticsFilters = ({ filters, complexes, filterOptions, onChange }) 
             </Select>
           </div>
           <div className="space-y-1">
-            <Label className="text-xs font-bold">المعلم</Label>
+            <Label className="text-xs font-bold">مشرف المسار</Label>
             <Select value={filters.teacherId || 'all'} onValueChange={(value) => onChange({ ...filters, teacherId: value === 'all' ? '' : value })}>
-              <SelectTrigger aria-label="فلترة التحليلات حسب المعلم" className="h-10 text-sm"><SelectValue /></SelectTrigger>
+              <SelectTrigger aria-label="فلترة التحليلات حسب مشرف المسار" className="h-10 text-sm"><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">جميع المعلمين</SelectItem>
+                <SelectItem value="all">جميع مشرفي المسارات</SelectItem>
                 {(filterOptions?.teachers || []).map((teacher) => <SelectItem key={teacher.id} value={String(teacher.id)}>{teacher.name}</SelectItem>)}
               </SelectContent>
             </Select>

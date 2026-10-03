@@ -180,7 +180,7 @@ export async function claimRecitationSession(connection, {
       `UPDATE student_quran_recitation_submissions SET status = 'rejected_duplicate',
         rejection_code = ?, rejection_message = ?, resolved_at = NOW(3)
        WHERE session_id = ?`,
-      [correction ? 'TEACHER_CORRECTION' : 'EARLIER_TRUSTED_SESSION', correction ? 'استُبدل بتصحيح المعلم.' : 'وصل تسميع أسبق وفق مرجع الوقت الموثوق.', slot.sessionId],
+      [correction ? 'TEACHER_CORRECTION' : 'EARLIER_TRUSTED_SESSION', correction ? 'استُبدل بتصحيح مشرف المسار.' : 'وصل تسميع أسبق وفق مرجع الوقت الموثوق.', slot.sessionId],
     );
     await connection.query(
       `UPDATE student_quran_recitation_attempts SET is_official = 0

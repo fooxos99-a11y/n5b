@@ -1,9 +1,12 @@
+import { loadSeasonalHolidays } from './seasonalHolidays.js';
+import { isSeasonalHoliday } from '../../shared/seasonal-holidays.js';
 import { getBusinessDate } from '../../shared/business-date.js';
 import { gradingMaxima, parseGradingPolicy } from '../../shared/grading-policy.js';
 import { addDays, weekStartOf } from './grading.js';
 
 /** All enrolled students contribute the possible grades, including unrecorded days/sessions. */
 export async function loadExpectedGrades(connection, { from, to, policy, today = getBusinessDate() }) {
+  const holidays = await loadSeasonalHolidays(connection);
   const end = to < today ? to : today;
   const [students] = await connection.query(`SELECT s.id, s.name, c.id AS committeeId, c.name AS committeeName,
     DATE_FORMAT(s.created_at, '%Y-%m-%d') AS joined
@@ -17,6 +20,7 @@ export async function loadExpectedGrades(connection, { from, to, policy, today =
     const result = { ...student, programMax: 0, trackMax: 0, weeklyMax: 0, weeks: 0, readingDays: 0, attendanceDays: 0 };
     const seen = new Set();
     for (let date = start; date <= end; date = addDays(date, 1)) {
+      if (isSeasonalHoliday(date, holidays)) continue;
       const week = weekStartOf(date);
       const current = policies.get(week) || policy;
       const program = current.weeklyProgram;

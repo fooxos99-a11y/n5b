@@ -5,8 +5,11 @@ import {
   closeLiveKitCallRoom,
   createLiveKitCallToken,
   isLiveKitConfigured,
+  listLiveKitParticipants,
 } from '../services/livekitCalls.js';
+import { hasSupervisorDashboardPermission, permissionDenied } from '../services/dashboardPermissions.js';
 import { siteKey } from '../siteConfig.js';
+import { subscribeLiveKitPresence } from '../services/livekitPresenceEvents.js';
 
 const router = express.Router();
 
@@ -47,18 +50,17 @@ async function canAccessCommittee(auth, committeeId) {
 
 const canCreateRoom = (auth) => ['manager', 'admin', 'supervisor'].includes(auth?.role);
 
-function normalizeParticipantNames(value) {
-  if (Array.isArray(value)) return value;
-  try {
-    const parsed = JSON.parse(String(value || '[]'));
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
+async function hasCallAccess(auth) {
+  if (['manager', 'supervisor', 'student'].includes(auth?.role)) return true;
+  return auth?.role === 'admin' && await hasSupervisorDashboardPermission(auth.id, 'calls');
 }
 
-router.get('/', async (req, res, next) => {
-  try {
+router.use(async (req, res, next) => {
+  try { return await hasCallAccess(req.auth) ? next() : permissionDenied(res); }
+  catch (error) { return next(error); }
+});
+
+async function loadCallDirectory(req) {
     const committees = await getCommitteeOptions(req.auth);
     const committeeIds = committees.map((committee) => Number(committee.id));
     const filters = ["r.status = 'open'"];
@@ -77,53 +79,84 @@ router.get('/', async (req, res, next) => {
         r.id,
         r.name,
         r.status,
+        r.livekit_room_name AS livekitRoomName,
         r.committee_id AS committeeId,
         COALESCE(c.name, 'غرفة عامة') AS committeeName,
         r.created_by_role AS createdByRole,
         r.created_by_id AS createdById,
         r.created_by_name AS createdByName,
         DATE_FORMAT(r.created_at, '%Y-%m-%dT%H:%i:%s') AS createdAt,
-        DATE_FORMAT(r.closed_at, '%Y-%m-%dT%H:%i:%s') AS closedAt,
-        (
-          SELECT JSON_ARRAYAGG(p.user_name)
-          FROM call_room_participants p
-          WHERE p.room_id = r.id
-        ) AS participantNames
+        DATE_FORMAT(r.closed_at, '%Y-%m-%dT%H:%i:%s') AS closedAt
       FROM call_rooms r
       LEFT JOIN committees c ON c.id = r.committee_id
       WHERE ${filters.join(' AND ')}
       ORDER BY (r.status = 'open') DESC, r.created_at DESC
-      LIMIT 150
       `,
       params
     );
     const creatorId = Number(req.auth?.id || 0);
-    res.json({
-      rooms: rooms.map((room) => ({
-        ...room,
-        id: String(room.id),
-        committeeId: String(room.committeeId),
-        participantNames: normalizeParticipantNames(room.participantNames),
-        isOwner: room.createdByRole === req.auth?.role
-          && Number(room.createdById || 0) === creatorId,
-        canClose: req.auth?.role === 'manager' || (room.createdByRole === req.auth?.role
-          && Number(room.createdById || 0) === creatorId),
-      })),
-      committees,
-      canCreate: canCreateRoom(req.auth),
-      committeeSelectionLocked: req.auth?.role === 'supervisor' && committees.length <= 1,
-      canCreateGeneral: ['manager', 'admin'].includes(req.auth?.role),
-      livekitConfigured: isLiveKitConfigured(),
-    });
-  } catch (error) {
-    next(error);
-  }
+    const visible = [];
+    // Bound media requests instead of issuing one unbounded request per room.
+    for (let offset = 0; offset < rooms.length; offset += 8) {
+      visible.push(...await Promise.all(rooms.slice(offset, offset + 8).map(async room => {
+        const participants = isLiveKitConfigured() ? await listLiveKitParticipants(room.livekitRoomName) : [];
+        const { livekitRoomName: _privateName, ...publicRoom } = room;
+        return { ...publicRoom, id: String(room.id), committeeId: room.committeeId == null ? null : String(room.committeeId),
+          participants, studentPresent: participants.some(person => person.role === 'student'),
+          isOwner: room.createdByRole === req.auth.role && Number(room.createdById || 0) === creatorId,
+          canClose: req.auth.role === 'manager' || (room.createdByRole === req.auth.role && Number(room.createdById || 0) === creatorId) };
+      })));
+    }
+    return { rooms: visible, committees, canCreate: canCreateRoom(req.auth),
+      committeeSelectionLocked: req.auth.role === 'supervisor' && committees.length <= 1,
+      canCreateGeneral: ['manager', 'admin'].includes(req.auth.role), livekitConfigured: isLiveKitConfigured() };
+}
+
+router.get('/', async (req, res, next) => {
+  try { res.set('Cache-Control', 'no-store').json(await loadCallDirectory(req)); }
+  catch (error) { next(error); }
+});
+
+/** Server-pushed live snapshots; scope and session are rechecked on every update. */
+router.get('/events', async (req, res, next) => {
+  let timer, ended = false, previous = '', sending = false, dirty = false;
+  let unsubscribe = () => {};
+  const finish = () => { ended = true; clearTimeout(timer); unsubscribe(); };
+  res.on('close', finish);
+  const send = async () => {
+    if (sending) { dirty = true; return; }
+    sending = true;
+    try {
+      if (ended) return;
+      if (req.auth.tokenHash) {
+        const [[session]] = await db().query('SELECT 1 AS active FROM auth_sessions WHERE token_hash = ?', [req.auth.tokenHash]);
+        if (!session) { finish(); return res.end(); }
+      }
+      if (!await hasCallAccess(req.auth)) { finish(); return res.end(); }
+      const snapshot = JSON.stringify(await loadCallDirectory(req));
+      if (!res.headersSent) {
+        res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'private, no-store, no-cache, no-transform', 'X-Accel-Buffering': 'no' });
+        res.flushHeaders();
+      }
+      if (ended) return;
+      if (snapshot !== previous) { res.write(`data: ${snapshot}\n\n`); previous = snapshot; }
+      else res.write(': heartbeat\n\n');
+    } catch (error) {
+      if (!res.headersSent) { finish(); return next(error); }
+      if (!ended) res.write(`event: unavailable\ndata: {"message":"تعذر تحديث المكالمات؛ جارٍ إعادة الاتصال."}\n\n`);
+    }
+    finally { sending = false; }
+    if (!ended) timer = setTimeout(send, dirty ? 0 : 2000);
+    dirty = false;
+  };
+  unsubscribe = subscribeLiveKitPresence(() => { clearTimeout(timer); void send(); });
+  await send();
 });
 
 router.post('/', async (req, res, next) => {
   try {
     if (!canCreateRoom(req.auth)) {
-      return res.status(403).json({ message: 'إنشاء الغرف متاح للمعلمين والإدارة فقط.' });
+      return res.status(403).json({ message: 'إنشاء الغرف متاح لمشرفي المسارات والإدارة فقط.' });
     }
     if (!isLiveKitConfigured()) {
       return res.status(503).json({ message: 'خدمة المكالمات غير مهيأة حالياً.' });
@@ -143,7 +176,7 @@ router.post('/', async (req, res, next) => {
     };
     const committeeId = _resolveCommitteeId();
     if (!name || (req.auth?.role === 'supervisor' && !committeeId)) {
-      return res.status(422).json({ message: 'اسم الغرفة مطلوب، ويجب ربط غرفة المعلم بحلقة.' });
+      return res.status(422).json({ message: 'اسم الغرفة مطلوب، ويجب ربط غرفة مشرف المسار بحلقة.' });
     }
     if (!await canAccessCommittee(req.auth, committeeId)) {
       return res.status(403).json({ message: 'لا يمكنك إنشاء غرفة لهذه الحلقة.' });
@@ -177,6 +210,12 @@ router.post('/:id/token', async (req, res, next) => {
       return res.status(403).json({ message: 'هذه الغرفة غير متاحة لحسابك.' });
     }
     const userId = Number(req.auth.id || 0);
+    const credentials = await createLiveKitCallToken({
+      roomName: room.livekitRoomName,
+      identity: `${req.auth.role}:${userId}`,
+      name: req.auth.name || 'مستخدم',
+      metadata: { nukhabRoomId: roomId, role: req.auth.role },
+    });
     await db().query(
       `
       INSERT INTO call_room_participants
@@ -190,12 +229,6 @@ router.post('/:id/token', async (req, res, next) => {
       `,
       [roomId, req.auth.role, userId, req.auth.name || 'مستخدم']
     );
-    const credentials = await createLiveKitCallToken({
-      roomName: room.livekitRoomName,
-      identity: `${req.auth.role}:${userId}`,
-      name: req.auth.name || 'مستخدم',
-      metadata: { nukhabRoomId: roomId, role: req.auth.role },
-    });
     res.json({ ...credentials, room: { id: String(room.id), name: room.name } });
   } catch (error) {
     next(error);

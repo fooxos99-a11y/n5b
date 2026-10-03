@@ -8,6 +8,7 @@ import ErrorState from '@/components/ui/error-state';
 import { ManagementEmpty, ManagementList, ManagementPanel, ManagementToolbar } from '@/components/dashboard/layout/ManagementPanel';
 import { studentsApi } from '@/services/studentsApi';
 import { getBusinessDate } from '../../../shared/business-date.js';
+import { formatHijriDate } from '../../../shared/hijri-calendar.js';
 
 const toDateOnly = getBusinessDate;
 
@@ -180,7 +181,7 @@ const ManualAttendanceSection = ({ teacherScoped = false }) => {
               <div className="min-w-0 flex-1">
                 <p className="truncate text-base font-bold text-foreground">{row.name}</p>
                 {target === 'supervisors' && (
-                  <p className="mt-0.5 truncate text-sm text-muted-foreground">{row.jobTitle || 'معلم'}</p>
+                  <p className="mt-0.5 truncate text-sm text-muted-foreground">{row.jobTitle || 'مشرف المسار'}</p>
                 )}
               </div>
               {row.status === 'no_session' ? (
@@ -214,7 +215,7 @@ const ManualAttendanceSection = ({ teacherScoped = false }) => {
       <DashboardMobileHeaderActions>
         <div className="flex min-h-11 flex-col justify-center whitespace-nowrap text-left" aria-label="موعد التحضير">
           <span className="text-xs font-black text-foreground">{headerLabel}</span>
-          <time dateTime={headerDate} dir="ltr" className="text-[11px] font-bold text-primary">{headerDate}</time>
+          <time dateTime={headerDate} className="text-[11px] font-bold text-primary">{formatHijriDate(headerDate)}</time>
         </div>
       </DashboardMobileHeaderActions>
       <ManagementPanel>
@@ -227,7 +228,7 @@ const ManualAttendanceSection = ({ teacherScoped = false }) => {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="students">طلاب</SelectItem>
-              <SelectItem value="supervisors">المعلمين والإدارة</SelectItem>
+              <SelectItem value="supervisors">مشرفي المسارات والإدارة</SelectItem>
             </SelectContent>
           </Select>
 

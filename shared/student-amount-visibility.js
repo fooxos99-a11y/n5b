@@ -1,7 +1,7 @@
 const visibleTaskFields = new Set([
   'id', 'planId', 'studentId', 'studentName', 'committeeName', 'taskDate', 'taskType',
   'track', 'trackLabel', 'studentStatus', 'teacherRatingKey', 'teacherRatingLabel',
-  'warningCount', 'mistakeCount', 'evaluationScore', 'evaluationMaxScore', 'points',
+  'warningCount', 'hesitationCount', 'mistakeCount', 'evaluationScore', 'evaluationMaxScore', 'points',
   'actualRepeatCount', 'actualListeningCount', 'repeatCount', 'listeningCount',
   'executionActorRole', 'repeatExecutionActorRole',
   'attemptCount', 'teacherCompleted', 'executionState', 'sessionDate', 'teacherName', 'evaluatedAt',
@@ -29,6 +29,23 @@ export function studentVisibleTasks(tasks, settings, role) {
     ? tasks.map(task => isStudentAmountHidden(settings, task.taskType) ? hideStudentTaskAmount(task) : task) : tasks;
 }
 
+/** Grade history follows the same amount visibility as the student's Quran tasks. */
+export function studentVisibleSessionGrades(grades, settings, role) {
+  if (!shouldHideStudentAmounts(settings, role)) return grades;
+  return grades.map(grade => ({
+    ...grade,
+    records: Object.fromEntries(Object.entries(grade.records || {}).map(([date, records]) => [date,
+      Object.fromEntries(Object.entries(records).map(([component, record]) => [component,
+        isStudentAmountHidden(settings, component) ? { ...record, detail: null } : record,
+      ])),
+    ])),
+    trackDetail: grade.trackDetail ? { ...grade.trackDetail,
+      segments: (grade.trackDetail.segments || []).map(segment => isStudentAmountHidden(settings, segment.source || 'link')
+        ? { ...segment, range: null, amountHidden: true } : segment),
+    } : null,
+  }));
+}
+
 export function studentVisibleToday(data, settings, role) {
   if (!shouldHideStudentAmounts(settings, role)) return data;
   const { executionAyahsByType, ...visibleData } = data;
@@ -49,7 +66,8 @@ export function studentVisibleToday(data, settings, role) {
     hideStudentAmounts: true,
     reviewCycle: visibility.hideStudentReviewAmount ? null : data.reviewCycle,
     plan: hiddenMemorization && data.plan ? { id: data.plan.id, track: data.plan.track,
-      progressPercent: data.plan.progressPercent ?? data.plan.progress?.progressPercent ?? 0 } : data.plan ?? null,
+      progressPercent: data.plan.progressPercent ?? data.plan.progress?.progressPercent ?? 0,
+      ...Object.fromEntries(['baseEndDate', 'projectedEndDate', 'paceStatus', 'aheadFaces', 'delayedFaces'].filter(key => data.plan[key] !== undefined).map(key => [key, data.plan[key]])) } : data.plan ?? null,
     tasks: studentVisibleTasks(data.tasks || [], settings, role),
     todayAmounts: studentVisibleTasks(data.todayAmounts || [], settings, role),
     nextDay: data.nextDay ? { date: data.nextDay.date, tasks: studentVisibleTasks(data.nextDay.tasks || [], settings, role) } : null,

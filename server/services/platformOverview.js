@@ -1,6 +1,7 @@
 import { quranRangeFacesSql, acceptedQuranExecutionSql } from './quranFaceMeasurement.js';
 import { db, initDatabase, runWithDatabase } from '../db.js';
 import { getBusinessDate, shiftDateOnly } from '../../shared/business-date.js';
+import { dateOnly, parseDateOnly, shiftHijriDate } from '../../shared/hijri-calendar.js';
 
 const allowedPeriods = new Set([1, 7, 30]);
 const dateOnlyPattern = /^\d{4}-\d{2}-\d{2}$/;
@@ -20,13 +21,7 @@ const shiftDate = shiftDateOnly;
 
 const shiftComparisonDate = (value, shift) => {
   if (shift.days) return shiftDate(value, shift.days);
-  const date = new Date(`${value}T00:00:00Z`);
-  const originalDay = date.getUTCDate();
-  date.setUTCDate(1);
-  date.setUTCMonth(date.getUTCMonth() + shift.months);
-  const lastDay = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)).getUTCDate();
-  date.setUTCDate(Math.min(originalDay, lastDay));
-  return date.toISOString().slice(0, 10);
+  return dateOnly(shiftHijriDate(parseDateOnly(value), shift.months));
 };
 
 export const resolveOverviewPeriod = (value) => {
@@ -73,7 +68,7 @@ export const resolveAnalyticsPeriod = ({ from, to, compare } = {}) => {
     previous: comparisonShift ? {
       from: shiftComparisonDate(safeFrom, comparisonShift),
       to: shiftComparisonDate(safeTo, comparisonShift),
-      days,
+      days: daysBetween(shiftComparisonDate(safeFrom, comparisonShift), shiftComparisonDate(safeTo, comparisonShift)),
     } : null,
   };
 };

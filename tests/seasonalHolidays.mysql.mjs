@@ -1,0 +1,94 @@
+import '../server/loadEnvironment.js';
+import assert from 'node:assert/strict';
+import process from 'node:process';
+import console from 'node:console';
+import { randomUUID } from 'node:crypto';
+import { URL } from 'node:url';
+import { readFile, writeFile, unlink } from 'node:fs/promises';
+import mysql from 'mysql2/promise';
+import { initDatabase, runWithDatabase } from '../server/db.js';
+import { getBusinessDate, shiftDateOnly } from '../shared/business-date.js';
+import { saveGradingPolicy } from '../server/services/grading.js';
+import { loadTeacherReading, saveTeacherReading } from '../server/services/selfReading.js';
+import { saveStudentAttendance } from '../server/services/studentAttendance.js';
+import { expireQuranTasks } from '../server/services/expireQuranTasks.js';
+import { planScheduleDates } from '../server/services/planScheduleDates.js';
+import { createOverviewReportScope } from '../server/services/overviewReportScope.js';
+import { buildGradingSessionReport } from '../server/services/gradingReports.js';
+
+assert.ok(['localhost','127.0.0.1'].includes(process.env.MYSQL_HOST));
+assert.equal(process.env.MYSQL_DATABASE,'nukhab_local');
+const database=`nukhab_seasonal_${randomUUID().replaceAll('-','').slice(0,16)}`;
+const moduleFile=new URL(`../server/.seasonal-test-${randomUUID()}.js`,import.meta.url);
+let pool;
+try {
+  const source=(await readFile(new URL('../server/index.js',import.meta.url),'utf8')).replaceAll('\r\n','\n');
+  const begin=source.indexOf('try {\n    await initDatabase();');
+  const end=source.indexOf('\n}',source.indexOf('    process.exit(1);',begin))+2;
+  assert.ok(begin>0&&end>begin);
+  await writeFile(moduleFile,source.slice(0,begin)+source.slice(end)+'\nexport {app,ensureStudentPlanTasks,getActivePlanForStudent,loadSettings,buildStudentPlanForecast};\n');
+  const handlers=await import(moduleFile.href);
+  pool=await initDatabase(database,{seedDefaultData:false});
+  await runWithDatabase(database,{},async()=>{
+    const date=getBusinessDate(), start=shiftDateOnly(date,-2), resume=shiftDateOnly(date,1);
+    await saveGradingPolicy(pool,{generalMargin:0,weeklyProgram:{workDays:[0,1,2,3,4,5,6]}});
+    await pool.query("INSERT INTO committees(id,name) VALUES(1,'Test')");
+    await pool.query("INSERT INTO supervisors(id,name,login_number,national_id,phone,job_title) VALUES(7,'Test','seasonal-test','','','')");
+    await pool.query('INSERT INTO supervisor_committees(supervisor_id,committee_id) VALUES(7,1)');
+    await pool.query("INSERT INTO students(id,name,login_number,national_id,guardian_phone,committee_id) VALUES(3,'Test','seasonal-test','','',1)");
+    await pool.query(`INSERT INTO student_quran_plans(id,student_id,start_date,start_page,end_page,start_surah,start_ayah,end_surah,end_ayah,
+      next_memorization_page,next_review_page,status,reading_faces) VALUES(1,3,?,1,604,1,1,114,6,1,1,'active',10)`,[start]);
+    const plan=await handlers.getActivePlanForStudent(pool,3);
+    const before=await handlers.buildStudentPlanForecast(pool,plan,await handlers.loadSettings());
+    await handlers.ensureStudentPlanTasks(pool,plan,start,await handlers.loadSettings());
+    const [[old]]=await pool.query('SELECT id,from_surah AS surah,from_ayah AS ayah FROM student_quran_tasks WHERE plan_id=1 AND task_date=? LIMIT 1',[start]);
+    assert.ok(old);
+    const route=handlers.app.router.stack.find(item=>item.route?.path==='/api/settings'&&item.route.methods.put).route;
+    const response=()=>({statusCode:200,status(value){this.statusCode=value;return this;},json(value){this.body=value;return this;}});
+    const denied=response();let allowed=false;
+    await route.stack[0].handle({auth:{role:'student',id:3}},denied,()=>{allowed=true;});
+    assert.equal(allowed,false);assert.equal(denied.statusCode,403);
+    const update=async seasonalHolidays=>{
+      const res=response();let failure;
+      await route.stack.at(-1).handle({auth:{role:'manager',id:1},body:{...await handlers.loadSettings(),attendanceManualEnabled:true,seasonalHolidays}},res,error=>{failure=error;});
+      if(failure)throw failure;assert.equal(res.statusCode,200,JSON.stringify(res.body));return res.body;
+    };
+    await assert.rejects(update([{startDate:date,endDate:start}]),{status:422});
+    const saved=await update([{startDate:start,endDate:date}]);
+    assert.deepEqual(saved.seasonalHolidays,[{startDate:start,endDate:date}]);
+    const settings=await handlers.loadSettings();
+    assert.deepEqual(settings.seasonalHolidays,saved.seasonalHolidays);
+    assert.deepEqual(await planScheduleDates(pool,start,resume,[0,1,2,3,4,5,6]),[resume]);
+    assert.deepEqual(await loadTeacherReading(pool,{supervisorId:7,date}),{readingDay:false,students:[]});
+    await assert.rejects(saveTeacherReading(pool,{supervisorId:7,studentId:3,date,completed:true}),{status:422});
+    await assert.rejects(saveStudentAttendance(pool,{studentId:3,date,status:'absent'},settings),{status:422});
+    await handlers.ensureStudentPlanTasks(pool,plan,date,settings);
+    const [[tasks]]=await pool.query('SELECT COUNT(*) AS count FROM student_quran_tasks WHERE task_date=?',[date]);
+    assert.equal(Number(tasks.count),0);
+    await expireQuranTasks(pool,date);
+    const [[retained]]=await pool.query('SELECT student_status AS status FROM student_quran_tasks WHERE id=?',[old.id]);
+    assert.equal(retained.status,'pending');
+    const paused=await handlers.buildStudentPlanForecast(pool,plan,settings);
+    assert.equal(paused.delayedFaces,0);assert.equal(paused.paceStatus,'on_track');
+    assert.ok(paused.baseEndDate>before.baseEndDate);
+    const todayRoute=handlers.app.router.stack.find(item=>item.route?.path==='/api/students/:id/quran-today').route;
+    const holidayResponse=response();let error;
+    await todayRoute.stack.at(-1).handle({auth:{role:'student',id:3},params:{id:'3'}},holidayResponse,e=>{error=e;});
+    if(error)throw error;
+    assert.equal(holidayResponse.body.isSeasonalHoliday,true);assert.deepEqual(holidayResponse.body.tasks,[]);
+    assert.equal(holidayResponse.body.plan.baseEndDate,paused.baseEndDate);
+    await handlers.ensureStudentPlanTasks(pool,plan,resume,settings);
+    const [[next]]=await pool.query('SELECT from_surah AS surah,from_ayah AS ayah FROM student_quran_tasks WHERE task_date=? AND task_type=\'memorization\' ORDER BY id LIMIT 1',[resume]);
+    assert.deepEqual(next,{surah:old.surah,ayah:old.ayah});
+    await buildGradingSessionReport(pool,{component:'track',from:start,to:date,auth:{role:'supervisor',id:7}});
+    const scope=createOverviewReportScope(pool,{auth:{role:'supervisor',id:8}});
+    const [[outside]]=await scope.query(`SELECT COUNT(*) AS count FROM students WHERE ${scope.student('id')}`);
+    assert.equal(Number(outside.count),0);
+    console.log('Seasonal MySQL passed: settings authorization/validation and persistence, inclusive calendar, no tasks/reading/absence, old tasks never expire, no arrears, resumed range, student forecast visibility and scoped session reports.');
+  });
+}finally{
+  await unlink(moduleFile).catch(error=>{if(error.code!=='ENOENT')throw error;});
+  await pool?.end();
+  const connection=await mysql.createConnection({host:process.env.MYSQL_HOST,port:Number(process.env.MYSQL_PORT)||3306,user:process.env.MYSQL_USER,password:process.env.MYSQL_PASSWORD});
+  try{assert.match(database,/^nukhab_seasonal_[a-f0-9]{16}$/);await connection.query(`DROP DATABASE IF EXISTS \`${database}\``);}finally{await connection.end();}
+}

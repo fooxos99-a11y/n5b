@@ -25,6 +25,7 @@ export default function NarrationErrorsDialog({ group, onClose, loadPart }) {
   const sections = [
     { type: 'mistake', title: 'الأخطاء', count: Math.max(0, (group?.mistakeCount || 0) - lahns) },
     { type: 'lahn', title: 'اللحون', count: lahns },
+    { type: 'hesitation', title: 'الترددات', count: group?.hesitationCount || 0 },
     { type: 'warning', title: 'التنبيهات', count: group?.warningCount || 0 },
   ];
   return <Dialog open={Boolean(group)} onOpenChange={open => { if (!open) onClose(); }}>

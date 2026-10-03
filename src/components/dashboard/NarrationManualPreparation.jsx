@@ -18,7 +18,7 @@ export default function NarrationManualPreparation({ students, chapters, assignm
   return <div className="space-y-3">
     <Input aria-label="البحث عن طالب" placeholder="ابحث باسم الطالب" value={search} onChange={event => setSearch(event.target.value)} />
     {!editing && <div className="flex flex-wrap gap-2">
-      <Button variant="outline" disabled={!visible.length} onClick={() => setSelected(visible.map(student => String(student.id)))}>تحديد الظاهرين ({visible.length})</Button>
+      <Button variant="outline" disabled={!students.length} onClick={() => setSelected(students.map(student => String(student.id)))}>تحديد الكل</Button>
       <Button disabled={!targets.length} onClick={() => edit(targets)}>تحديد مقاطع المحددين ({targets.length})</Button>
     </div>}
     {editing && <div className="space-y-2">

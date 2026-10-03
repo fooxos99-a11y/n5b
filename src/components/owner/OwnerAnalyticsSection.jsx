@@ -28,6 +28,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useToast } from '@/components/ui/use-toast';
 import { platformApi } from '@/services/platformApi';
 import { getBusinessDate } from '../../../shared/business-date.js';
+import { dateOnly, hijriMonthStart } from '../../../shared/hijri-calendar.js';
 
 const OwnerTrendChart = React.lazy(() => import('@/components/owner/OwnerTrendChart'));
 
@@ -48,7 +49,7 @@ const groupTrend = (rows, days) => {
   rows.forEach((row) => {
     const date = new Date(`${row.date}T00:00:00Z`);
     const key = mode === 'month'
-      ? row.date.slice(0, 7)
+      ? dateOnly(hijriMonthStart(date))
       : new Date(date.setUTCDate(date.getUTCDate() - date.getUTCDay())).toISOString().slice(0, 10);
     const current = map.get(key) || { date: key };
     Object.entries(row).forEach(([field, value]) => { if (field !== 'date') current[field] = Number(current[field] || 0) + Number(value || 0); });
@@ -127,7 +128,7 @@ const OwnerAnalyticsSection = ({ complexes: availableComplexes, onOpenComplex, o
             <OwnerMetricCard icon={UserPlus} label="الطلاب الجدد" value={number(totals.newStudentsCount)} rawValue={totals.newStudentsCount} previousValue={previous?.newStudentsCount} tone="text-sky-600" />
             <OwnerMetricCard icon={Building2} label="المجمعات" value={number(rows.length)} rawValue={rows.length} />
             <OwnerMetricCard icon={ListChecks} label="الحلق" value={number(totals.committeesCount)} rawValue={totals.committeesCount} previousValue={previous?.committeesCount} />
-            <OwnerMetricCard icon={Users} label="المعلمون" value={number(totals.teachersCount)} rawValue={totals.teachersCount} previousValue={previous?.teachersCount} />
+            <OwnerMetricCard icon={Users} label="مشرفو المسارات" value={number(totals.teachersCount)} rawValue={totals.teachersCount} previousValue={previous?.teachersCount} />
             <OwnerMetricCard icon={CalendarCheck} label="نسبة الحضور" value={percent(totals.attendanceRate)} rawValue={totals.attendanceRate} previousValue={previous?.attendanceRate} tone="text-emerald-600" />
             <OwnerMetricCard icon={Target} label="تنفيذ مهام الفترة" value={percent(totals.executionRate)} rawValue={totals.executionRate} previousValue={previous?.executionRate} tone="text-violet-600" />
           </div>

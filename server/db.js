@@ -722,6 +722,7 @@ async function initializeDatabase(databaseName, { seedDefaultData } = {}) {
       end_page INT NOT NULL,
       faces DECIMAL(8,2) NOT NULL DEFAULT 0,
       warning_count INT NOT NULL DEFAULT 0,
+      hesitation_count INT NOT NULL DEFAULT 0,
       mistake_count INT NOT NULL DEFAULT 0,
       score DECIMAL(7,2) NULL,
       notes VARCHAR(500) NULL,
@@ -855,6 +856,7 @@ async function initializeDatabase(databaseName, { seedDefaultData } = {}) {
       teacher_rating_key VARCHAR(80) NULL,
       teacher_rating_label VARCHAR(120) NULL,
       warning_count INT NOT NULL DEFAULT 0,
+      hesitation_count INT NOT NULL DEFAULT 0,
       mistake_count INT NOT NULL DEFAULT 0,
       evaluation_score DECIMAL(7,2) NULL,
       points INT NOT NULL DEFAULT 0,
@@ -969,10 +971,12 @@ async function initializeDatabase(databaseName, { seedDefaultData } = {}) {
       attempt_number INT UNSIGNED NOT NULL,
       request_id VARCHAR(80) NULL,
       warning_count INT NOT NULL DEFAULT 0,
+      hesitation_count INT NOT NULL DEFAULT 0,
       mistake_count INT NOT NULL DEFAULT 0,
       evaluation_score DECIMAL(7,2) NULL,
       evaluation_max_score DECIMAL(7,2) NULL,
       evaluation_warning_deduction DECIMAL(7,2) NULL,
+      evaluation_hesitation_deduction DECIMAL(7,2) NULL,
       evaluation_mistake_deduction DECIMAL(7,2) NULL,
       evaluation_passing_score DECIMAL(7,2) NULL,
       teacher_completed TINYINT(1) NOT NULL,
@@ -1238,8 +1242,8 @@ async function initializeDatabase(databaseName, { seedDefaultData } = {}) {
     WHERE newer.action IN (
       'تسجيل حضور طالب',
       'تسجيل غياب طالب',
-      'تسجيل حضور معلم',
-      'تسجيل غياب معلم'
+      'تسجيل حضور مشرف المسار',
+      'تسجيل غياب مشرف المسار'
     )
   `);
 
@@ -1342,6 +1346,7 @@ async function initializeDatabase(databaseName, { seedDefaultData } = {}) {
       ('linkRecitationMode', 'mushaf'),
       ('narrationMaxScore', '100'),
       ('narrationWarningDeduction', '1'),
+      ('narrationHesitationDeduction', '0'),
       ('narrationMistakeDeduction', '5'),
       ('narrationStartTemplate', 'السلام عليكم، بدأ {eventName} من {fromDate} إلى {toDate}.'),
       ('narrationEndTemplate', 'السلام عليكم، انتهى {eventName}.'),

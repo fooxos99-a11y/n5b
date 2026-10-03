@@ -1,8 +1,11 @@
+import PermissionChecklist from './PermissionChecklist';
+import { SUPERVISOR_BASE_PERMISSIONS } from '../../../shared/dashboard-permissions.js';
 import React, { useCallback, useEffect, useState } from 'react';
 import { Pencil, Plus, Power, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import PasswordInput from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
@@ -11,7 +14,7 @@ import ManagementIconButton from '@/components/ui/management-icon-button';
 import { FormField, FormGrid, ManagementEmpty, ManagementList, ManagementRow, ManagementToolbar } from '@/components/dashboard/layout/ManagementPanel';
 import { studentsApi } from '@/services/studentsApi';
 
-const emptyStaff = { name: '', loginNumber: '', nationalId: '', phone: '', committeeIds: [] };
+const emptyStaff = { name: '', loginNumber: '', password: '', nationalId: '', phone: '', committeeIds: [], permissions: [] };
 
 const selectedCommitteeLabels = (committeeIds = [], committees = []) => {
   const selected = new Set(committeeIds.map(String));
@@ -26,6 +29,7 @@ const CommitteeStaffSection = ({
   updateStaff,
   deleteStaff,
   setStaffActive,
+  editablePermissions = false,
 }) => {
   const { toast } = useToast();
   const [rows, setRows] = useState([]);
@@ -67,9 +71,11 @@ const CommitteeStaffSection = ({
     setForm(staff ? {
       name: staff.name || '',
       loginNumber: staff.loginNumber || '',
+      password: '',
       nationalId: staff.nationalId || '',
       phone: staff.phone || '',
       committeeIds: staff.committeeIds || [],
+      permissions: staff.permissions || [],
     } : emptyStaff);
     setDialog('form');
   };
@@ -220,6 +226,9 @@ const CommitteeStaffSection = ({
               <FormField label="رقم الدخول" htmlFor="staff-login-number">
                 <Input id="staff-login-number" value={form.loginNumber} onChange={(event) => setForm({ ...form, loginNumber: event.target.value })} placeholder="رقم الدخول" />
               </FormField>
+              <FormField label={selected ? "كلمة مرور جديدة" : "كلمة المرور"} htmlFor="staff-password">
+                <PasswordInput id="staff-password" autoComplete="new-password" required={!selected} value={form.password} onChange={event => setForm({ ...form, password: event.target.value })} />
+              </FormField>
               <FormField label="رقم الجوال" htmlFor="staff-phone">
                 <Input id="staff-phone" inputMode="tel" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} placeholder="رقم الجوال" />
               </FormField>
@@ -227,6 +236,10 @@ const CommitteeStaffSection = ({
                 <Input id="staff-national-id" inputMode="numeric" value={form.nationalId} onChange={(event) => setForm({ ...form, nationalId: event.target.value })} placeholder="رقم الهوية" />
               </FormField>
             </FormGrid>
+            {editablePermissions && <FormField label="الصلاحيات" htmlFor="staff-permissions" wide>
+              <PermissionChecklist id="staff-permissions" value={form.permissions} fixedPermissions={SUPERVISOR_BASE_PERMISSIONS}
+                onToggle={permission => setForm(current => ({ ...current, permissions: current.permissions.includes(permission) ? current.permissions.filter(key => key !== permission) : [...current.permissions, permission] }))} />
+            </FormField>}
             <div className="space-y-2">
               <Label htmlFor="staff-committees">الحلقات المرتبطة بـ{singularLabel}</Label>
               <Select value="" onValueChange={toggleCommittee} disabled={committees.length === 0}>

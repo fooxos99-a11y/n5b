@@ -1,6 +1,7 @@
 import React, { useId } from 'react';
 import { ArrowDown, ArrowUp, Minus } from 'lucide-react';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { formatHijriDate } from '../../../shared/hijri-calendar.js';
 
 const calculateTrend = (data, key) => {
   if (!data.length) return { change: 0, direction: 'same' };
@@ -87,13 +88,13 @@ const OwnerTrendChart = ({ title, data, series }) => {
                   <polyline fill="none" stroke={item.color} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" points={data.map((point, index) => `${x(index)},${y(point[item.key])}`).join(' ')} />
                   {data.map((point, index) => (
                     <circle key={`${point.date}-${item.key}`} cx={x(index)} cy={y(point[item.key])} r="4" fill={item.color} className="stroke-card" strokeWidth="2">
-                      <title>{`${point.date}: ${item.label} ${Number(point[item.key] || 0).toLocaleString('ar-SA-u-nu-latn')}`}</title>
+                      <title>{`${formatHijriDate(point.date)}: ${item.label} ${Number(point[item.key] || 0).toLocaleString('ar-SA-u-nu-latn')}`}</title>
                     </circle>
                   ))}
                 </g>
               ))}
-              <text x={padding} y={height - 5} className="fill-muted-foreground text-[10px]">{data[0]?.date}</text>
-              <text x={width - padding} y={height - 5} textAnchor="end" className="fill-muted-foreground text-[10px]">{data.at(-1)?.date}</text>
+              <text x={padding} y={height - 5} className="fill-muted-foreground text-[10px]">{formatHijriDate(data[0]?.date)}</text>
+              <text x={width - padding} y={height - 5} textAnchor="end" className="fill-muted-foreground text-[10px]">{formatHijriDate(data.at(-1)?.date)}</text>
             </svg>
           </>
         ) : <div className="grid min-h-52 place-items-center text-sm font-bold text-muted-foreground">لا توجد بيانات خلال الفترة.</div>}

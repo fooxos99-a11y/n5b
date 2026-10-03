@@ -4,7 +4,7 @@ import { getBusinessDate } from '../../shared/business-date.js';
 export async function assertRecitationCorrection(connection, { req, slot, task, sessionDate, currentPlanVersion }) {
   const reject = (message) => { throw Object.assign(new Error(message), { statusCode: 409 }); };
   if (!req.recitationTransaction || req.body.correctionOf !== slot.sessionId) reject('تغيّرت الجلسة. حدّث السجل قبل التصحيح.');
-  if (slot.evaluatorRole !== req.auth.role || Number(slot.evaluatorId) !== Number(req.auth.id)) reject('تصحيح التقييم متاح للمعلم الذي سجّله فقط.');
+  if (slot.evaluatorRole !== req.auth.role || Number(slot.evaluatorId) !== Number(req.auth.id)) reject('تصحيح التقييم متاح لمشرف المسار الذي سجّله فقط.');
   if (sessionDate !== getBusinessDate()) reject('يمكن تصحيح جلسة اليوم فقط.');
   if (Number(slot.planId) !== Number(task.planId) || Number(slot.planVersion) !== Number(currentPlanVersion)) reject('تغيّرت الخطة بعد التسميع؛ لا يمكن تصحيح هذه الجلسة.');
   const [parts] = await connection.query(`SELECT task_id AS taskId FROM student_quran_recitation_attempts

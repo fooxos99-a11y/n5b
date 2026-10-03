@@ -6,6 +6,8 @@ import AppErrorBoundary from '@/components/AppErrorBoundary';
 import LoadingScreen from '@/components/LoadingScreen';
 import RouteThemeController from '@/components/RouteThemeController';
 import LoginGateway from '@/pages/LoginGateway';
+import { useSearchParams } from '@/lib/router';
+import { isRegistrationEntry } from '../shared/registration-link';
 
 const AccountPortal = lazy(() => import('@/pages/AccountPortal'));
 const WajehDashboard = lazy(() => import('@/pages/WajehDashboard'));
@@ -15,6 +17,11 @@ const TermsOfUse = lazy(() => import('@/pages/TermsOfUse'));
 const SupportPage = lazy(() => import('@/pages/SupportPage'));
 const DownloadApp = lazy(() => import('@/pages/DownloadApp'));
 const OfflineRecitationSyncBridge = lazy(() => import('@/components/native/OfflineRecitationSyncBridge'));
+
+const RootEntry = () => {
+  const [searchParams] = useSearchParams();
+  return isRegistrationEntry(searchParams.toString()) ? <PublicRegistration /> : <LoginGateway />;
+};
 
 function App() {
   const [syncEnabled, setSyncEnabled] = useState(() => Boolean(localStorage.getItem('wajeh_role')));
@@ -37,7 +44,7 @@ function App() {
       )}
       <Suspense fallback={<LoadingScreen />}>
         <Switch>
-        <Route path="/" component={LoginGateway} />
+        <Route path="/" component={RootEntry} />
         <Route path="/login"><LoginGateway loginPage /></Route>
         <Route path="/account-deletion"><LoginGateway deletionPage /></Route>
         <Route path="/register" component={PublicRegistration} />

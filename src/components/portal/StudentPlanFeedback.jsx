@@ -11,14 +11,16 @@ export default function StudentPlanFeedback({ tasks }) {
       const marks = Array.isArray(task.ayahMarks) ? task.ayahMarks : [];
       const mistakes = Number(task.mistakeCount) || 0;
       const warnings = Number(task.warningCount) || 0;
-      if (!mistakes && !warnings && !marks.length && !ratingLabel) return null;
+      const hesitations = Number(task.hesitationCount) || 0;
+      if (!mistakes && !warnings && !hesitations && !marks.length && !ratingLabel) return null;
       return <span key={task.id} className="student-plan-feedback-task">
         {ratingLabel && <span className="student-plan-feedback-rating">{ratingLabel}</span>}
         {!marks.length && <span className="student-plan-feedback-counts">
           {mistakes > 0 && <span data-tone="mistake">{mistakes} أخطاء</span>}
           {warnings > 0 && <span data-tone="warning">{warnings} تنبيهات</span>}
+          {hesitations > 0 && <span data-tone="hesitation">{hesitations} ترددات</span>}
         </span>}
-        {marks.map((mark, index) => <span key={mark.id || index} className="student-plan-feedback-mark" data-tone={mark.markType === 'warning' ? 'warning' : 'mistake'}>
+        {marks.map((mark, index) => <span key={mark.id || index} className="student-plan-feedback-mark" data-tone={['warning', 'hesitation'].includes(mark.markType) ? mark.markType : 'mistake'}>
           <span className="font-bold">{RECITATION_MARK_LABELS[mark.markType] || 'خطأ'}: </span>
           <QuranMarkedText mark={mark} />
           {mark.notes && <span> ({mark.notes})</span>}

@@ -1,7 +1,7 @@
 import { decideStoreOrder } from '../services/storeOrderDecision.js';
 import express from 'express';
 import { db } from '../db.js';
-import { requirePermission } from '../services/dashboardPermissions.js';
+import { hasSupervisorDashboardPermission, requirePermission } from '../services/dashboardPermissions.js';
 import { isUuid } from '../../shared/offline-recitation.js';
 import { countTrailingCharacter } from '../../shared/string-suffix.js';
 import { optimizeStoreImage, optimizeStoreProducts } from '../services/storeImages.js';
@@ -59,9 +59,6 @@ export function createStoreRouter({
 }) {
   const router = express.Router();
   const requireStoreManagement = (req, res, next) => {
-    if (!['manager', 'admin'].includes(req.auth?.role)) {
-      return res.status(403).json({ message: 'إدارة المتجر متاحة للإداريين فقط.' });
-    }
     return requirePermission('store')(req, res, next);
   };
 
@@ -111,10 +108,13 @@ export function createStoreRouter({
       if (!settings.storeEnabled) {
         return res.status(404).json({ message: 'المتجر غير مفعل.' });
       }
-      if (!['student', 'manager', 'admin'].includes(req.auth?.role)) {
+      if (!['student', 'manager', 'admin', 'supervisor'].includes(req.auth?.role)) {
         return res.status(403).json({ message: 'لا يمكنك الوصول إلى المتجر.' });
       }
-      const management = req.auth?.role === 'manager' || req.auth?.role === 'admin';
+      const management = req.auth?.role !== 'student';
+      if (management && req.auth.role !== 'manager') {
+        if (!await hasSupervisorDashboardPermission(req.auth.id, 'store')) return res.status(403).json({ message: 'ليست لديك صلاحية لإدارة المتجر.' });
+      }
       const [rows] = await db().query(
         `
         SELECT

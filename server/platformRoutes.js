@@ -286,7 +286,7 @@ router.get('/analytics', requirePlatformOwner, async (req, res, next) => {
       teacherId: Number.isSafeInteger(Number(req.query.teacherId)) && Number(req.query.teacherId) > 0 ? Number(req.query.teacherId) : null,
     };
     if ((scope.committeeId || scope.teacherId) && complexes.length !== 1) {
-      return res.status(422).json({ message: 'فلترة الحلقة أو المعلم تتطلب اختيار مجمع واحد.' });
+      return res.status(422).json({ message: 'فلترة الحلقة أو مشرف المسار تتطلب اختيار مجمع واحد.' });
     }
     const rows = await mapComplexesWithLimit(complexes, async (complex) => ({
       id: complex.id,

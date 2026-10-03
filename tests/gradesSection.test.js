@@ -10,7 +10,7 @@ async function readGradesSources() {
   return Object.fromEntries(entries);
 }
 
-test('the grades page is gone; the weekly and track session pages carry the grades permission', async () => {
+test('the grades page is gone; the weekly and track session pages carry separate session permissions', async () => {
   const [dashboard, routes, portal, permissions] = await Promise.all([
     readFile(new URL('../src/pages/WajehDashboard.jsx', import.meta.url), 'utf8'),
     readFile(new URL('../src/lib/sectionRoutes.js', import.meta.url), 'utf8'),
@@ -24,16 +24,17 @@ test('the grades page is gone; the weekly and track session pages carry the grad
   }
   assert.doesNotMatch(dashboard + portal, /GradesSection|key: 'grades'|case 'grades'/);
   assert.doesNotMatch(routes, /\['grades', 'grades'\]/);
-  assert.match(permissions, /key: 'grades', label: 'الجلسة الأسبوعية وجلسة المسار'/);
+  assert.match(permissions, /key: 'weeklySession', label: 'الجلسة الأسبوعية'/);
+  assert.match(permissions, /key: 'trackSession', label: 'جلسة المسار'/);
 
-  assert.match(dashboard, /key: 'trackSession', label: 'جلسة المسار', icon: Route, permissionKey: 'grades'/);
-  assert.match(dashboard, /key: 'weeklySession', label: 'الجلسة الأسبوعية', icon: CalendarCheck2, permissionKey: 'grades'/);
+  assert.match(dashboard, /key: 'trackSession', label: 'جلسة المسار', icon: Route, permissionKey: 'trackSession'/);
+  assert.match(dashboard, /key: 'weeklySession', label: 'الجلسة الأسبوعية', icon: CalendarCheck2, permissionKey: 'weeklySession'/);
   assert.match(dashboard, /case 'trackSession': return <TrackSessionSection \/>/);
   assert.match(dashboard, /case 'weeklySession': return <WeeklySessionSection \/>/);
-  assert.match(dashboard, /key: 'trackSession', label: 'جلسة المسار', icon: Route, permissionKey: 'grades', managementOnly: true/);
+  assert.doesNotMatch(dashboard, /permissionKey: 'trackSession', managementOnly: true/);
   assert.match(routes, /\['trackSession', 'track-session'\]/);
   assert.match(routes, /\['weeklySession', 'weekly-session'\]/);
-  // Teachers never see the weekly sessions: they are dashboard pages for the manager and administrators.
+  // Session pages live in the dashboard and are enabled by explicit grants.
   assert.doesNotMatch(portal, /weeklySession|trackSession|TrackSessionSection|WeeklySessionSection/);
 });
 
@@ -70,12 +71,12 @@ test('weekly session page mirrors the track session page without the test', asyn
   assert.match(weekly, /<ManagementPanel>[\s\S]*<ManagementToolbar>[\s\S]*<RelativeWeekNavigator[\s\S]*\{filter && /);
   assert.match(weekly, /<ManagementList label=/);
   assert.match(weekly, /<li key=\{student\.id\} className="flex(?: flex-wrap)? items-center[^"]* px-4 py-3/);
-  assert.match(weekly, /allowNone=\{false\}/);
+  assert.match(weekly, /<SessionAttendanceSelect/);
   assert.match(weekly, /<RelativeWeekNavigator/);
   assert.doesNotMatch(weekly, /TrackTestDialog|اختبر/);
 });
 
-test('track session page: plans-style rows, present/absent only, segment test with next then save, relative weeks', async () => {
+test('track session page: attendance states, segment test with next then save, relative weeks', async () => {
   const sources = await readGradesSources();
   const track = sources['TrackSessionSection.jsx'];
   const dialog = sources['TrackTestDialog.jsx'];
@@ -84,8 +85,8 @@ test('track session page: plans-style rows, present/absent only, segment test wi
   assert.match(track, /<ManagementPanel>[\s\S]*<ManagementToolbar>[\s\S]*<RelativeWeekNavigator[\s\S]*\{filter && /);
   assert.match(track, /<ManagementList label=/);
   assert.match(track, /<li key=\{student\.id\} className="flex(?: flex-wrap)? items-center[^"]* px-4 py-3/);
-  assert.match(track, /allowNone=\{false\}/);
-  assert.match(track, /tested && attended !== true/);
+  assert.match(track, /<SessionAttendanceSelect/);
+  assert.match(track, /tested && !canTestSession\(\{ attendanceStatus \}\)/);
   assert.match(dialog, /المقطع السابق/);
   assert.match(track, /present && segmentCount > 0 &&[\s\S]*اختبر/);
   assert.match(track, /recorded: false/);
@@ -98,7 +99,11 @@ test('track session page: plans-style rows, present/absent only, segment test wi
   assert.match(sources['TriStateChoice.jsx'], /allowNone \? OPTIONS : \[OPTIONS\[1\], OPTIONS\[0\]\]/);
   assert.match(dialog, /label="الأخطاء"/);
   assert.match(dialog, /label="التنبيهات"/);
-  assert.doesNotMatch(dialog, /QuranRangePicker|range/);
+  assert.doesNotMatch(dialog, /QuranRangePicker/);
+  assert.match(dialog, /gradingApi.prepareTrackTest/);
+  assert.match(dialog, /مقطع المراجعة/);
+  assert.match(dialog, /مقطع الربط/);
+  assert.match(dialog, /formatQuranRangeText/);
   assert.match(navigator, /week\?\.hasPreviousWeek/);
   assert.match(sources['gradesFormat.js'], /'هذا الأسبوع'/);
   assert.match(sources['gradesFormat.js'], /'الأسبوع الماضي'/);
@@ -110,7 +115,7 @@ test('track session page: plans-style rows, present/absent only, segment test wi
   assert.match(route, /w\.week_start < \?/);
 });
 
-test('teachers have no grading API access and admins need the grades permission', async () => {
+test('supervisors and admins need the matching session permission and supervisors retain assigned scope', async () => {
   const [server, router] = await Promise.all([
     readFile(new URL('../server/index.js', import.meta.url), 'utf8'),
     readFile(new URL('../server/routes/gradingRoutes.js', import.meta.url), 'utf8'),
@@ -118,7 +123,7 @@ test('teachers have no grading API access and admins need the grades permission'
   // Students have no weekly grade card, so no grading route is open to them.
   assert.doesNotMatch(server, /gradingAccess|'\/grading\/me'/);
   assert.doesNotMatch(router, /'\/me'/);
-  assert.match(server, /\[path\.startsWith\('\/grading'\), \['grades'\]\]/);
-  assert.match(router, /const STAFF_ROLES = new Set\(\['manager', 'admin'\]\);/);
-  assert.doesNotMatch(router, /supervisor_committees/);
+  assert.match(server, /\[path\.startsWith\('\/grading'\), \['quranEvaluation', 'weeklySession', 'trackSession'\]\]/);
+  assert.match(router, /const STAFF_ROLES = new Set\(\['manager', 'admin', 'supervisor'\]\);/);
+  assert.match(router, /supervisor_committees sc WHERE sc.committee_id = s.committee_id AND sc.supervisor_id = \?/);
 });

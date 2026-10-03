@@ -18,6 +18,8 @@ function memoryDatabase({ points = 10, store = 4, family = 30, addToFamily = 'tr
       const q = sql.replace(/\s+/g, ' ').trim();
       state.queries.push(q);
       if (q.includes('FROM grade_point_reset_keys')) return [[{ resetKey: state.resetKeys.has(values[0]) ? 1 : 0 }]];
+      if (q.includes('FROM student_day_compensations')) return [[]];
+      if (q.startsWith('SELECT policy_json AS policy FROM student_weekly_components')) return [[]];
       if (q.startsWith('SELECT id FROM students')) return [[{ id: values[0] }]];
       if (q.startsWith('SELECT id, points, transaction_date AS date FROM student_point_transactions')) {
         const row = state.ledger.get(values[0]);
@@ -42,6 +44,8 @@ function memoryDatabase({ points = 10, store = 4, family = 30, addToFamily = 'tr
         state.contribution = Math.round((state.contribution + values[1]) * 100) / 100;
         return [{}];
       }
+      if (q.startsWith('SELECT setting_value AS holidays FROM app_settings')) return [[]];
+      if (q.startsWith('SELECT setting_value AS pause FROM app_settings')) return [[]];
       if (q.startsWith('SELECT setting_value AS value FROM app_settings')) return [[]];
       if (q.includes('FROM grading_week_policies')) return [[]];
       if (q.startsWith('SELECT status FROM attendance_records')) return [[]];
@@ -58,7 +62,7 @@ function memoryDatabase({ points = 10, store = 4, family = 30, addToFamily = 'tr
 }
 
 const grade = (connection, points, dedupeKey = 'grade:daily:1:2026-09-20:memorization') => syncGradePoints(connection, {
-  studentId: 1, dedupeKey, points, date: '2026-09-20', reason: 'درجة الحفظ', actor: { role: 'supervisor', name: 'المعلم' },
+  studentId: 1, dedupeKey, points, date: '2026-09-20', reason: 'درجة الحفظ', actor: { role: 'supervisor', name: 'مشرف المسار' },
 });
 
 test('a grade earns exactly its value once, moves wallet and family together, and is removed with the grade', async () => {
@@ -67,7 +71,7 @@ test('a grade earns exactly its value once, moves wallet and family together, an
   await grade(connection, 7.5);
   assert.deepEqual([state.points, state.store, state.family, state.contribution], [17.5, 11.5, 37.5, 7.5]);
   assert.deepEqual(state.ledger.get('grade:daily:1:2026-09-20:memorization'), {
-    studentId: 1, actorRole: 'supervisor', actorName: 'المعلم', points: 7.5, reason: 'درجة الحفظ', date: '2026-09-20', sourceType: 'grade',
+    studentId: 1, actorRole: 'supervisor', actorName: 'مشرف المسار', points: 7.5, reason: 'درجة الحفظ', date: '2026-09-20', sourceType: 'grade',
   });
   await grade(connection, 0.955);
   assert.equal(state.ledger.get('grade:daily:1:2026-09-20:memorization').points, 0.96);
@@ -102,7 +106,7 @@ test('spending a grade then removing and restoring it cannot mint store credit',
 test('daily grade writes and deletions carry their points inside one transaction', async () => {
   const { state, pool } = memoryDatabase();
   const policy = normalizeGradingPolicy({});
-  const actor = { role: 'supervisor', id: 4, name: 'المعلم' };
+  const actor = { role: 'supervisor', id: 4, name: 'مشرف المسار' };
   await upsertDailyGrade(pool, { studentId: 1, date: '2026-09-20', result: { component: 'attendance', grade: 1.5, max: 2, passed: true }, policy, actor });
   assert.deepEqual(state.transactions, ['begin', 'commit', 'release']);
   assert.equal(state.ledger.get('grade:daily:1:2026-09-20:attendance').points, 1.5);
@@ -182,7 +186,7 @@ test('the points system has no switch and the compensation options no longer car
   assert.doesNotMatch(settingsSection, /نظام النقاط|pointsSystemEnabled|recitationPointsFields|InlineToggleNumberSetting\s+label="(تعويض الحفظ المتأخر|تجاوز مقدار اليوم)/);
   assert.match(settingsSection, /<SettingToggle\s+label="تعويض الحفظ المتأخر"/);
   assert.match(settingsSection, /<SettingToggle\s+label="تجاوز مقدار اليوم والتقدم في الخطة"/);
-  assert.match(settingsSection, /label="السماح للمعلم بالإضافة والخصم"/);
+  assert.match(settingsSection, /label="السماح لمشرف المسار بالإضافة والخصم"/);
   assert.doesNotMatch(catalog, /pointsSystemEnabled/);
   assert.match(server, /function publicSettingsForClient[\s\S]*pointsSystemEnabled: true,/);
   assert.doesNotMatch(server, /pointsSystemEnabled: (parseBoolean|Boolean|settings)|settings\.pointsSystemEnabled/);

@@ -1,10 +1,11 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import LoadingIndicator from '@/components/ui/loading-indicator';
 import { Bell } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { studentsApi } from '@/services/studentsApi';
+import { formatHijriDateTime } from '../../../shared/hijri-calendar.js';
 import { enableDeviceNotifications, isNativeNotificationsAvailable, listenForDeviceNotifications } from '@/services/nativeNotifications';
 
 const NotificationButton = ({ showTrigger = true, presentation = 'dialog', open: controlledOpen, onOpenChange, onUnreadCountChange }) => {
@@ -37,14 +38,21 @@ const NotificationButton = ({ showTrigger = true, presentation = 'dialog', open:
 
   const unreadCount = useMemo(() => notifications.filter((item) => !item.isRead).length, [notifications]);
   useEffect(() => { onUnreadCountChange?.(unreadCount); }, [unreadCount, onUnreadCountChange]);
-  const markRead = async (notification) => {
-    if (notification.isRead) return;
-    setNotifications((current) => current.map((item) => item.id === notification.id ? { ...item, isRead: true } : item));
-    await studentsApi.markNotificationRead(notification.id).catch(() => {
-      setNotifications((current) => current.map((item) => item.id === notification.id ? { ...item, isRead: false } : item));
+  const attemptedReads = useRef(new Set());
+  const markRead = useCallback(async (ids) => {
+    setNotifications(current => current.map(item => ids.includes(item.id) ? { ...item, isRead: true } : item));
+    await studentsApi.markNotificationsRead(ids).catch(() => {
+      setNotifications(current => current.map(item => ids.includes(item.id) ? { ...item, isRead: false } : item));
       setError('تعذر تحديث حالة القراءة.');
     });
-  };
+  }, []);
+  useEffect(() => {
+    if (!open) { attemptedReads.current.clear(); return; }
+    const ids = notifications.filter(item => !item.isRead && !attemptedReads.current.has(item.id)).map(item => item.id);
+    if (!ids.length) return;
+    ids.forEach(id => attemptedReads.current.add(id));
+    void markRead(ids);
+  }, [open, notifications, markRead]);
 
   const trigger = (<Button type="button" variant="outline" size="icon" onClick={presentation === 'popover' ? undefined : () => setOpen(true)} className="relative h-11 w-11 touch-manipulation [font-family:var(--font-ui)]" aria-label={`الإشعارات${unreadCount && !open ? '، ' + unreadCount + ' غير مقروء' : ''}`}>
         <Bell className="h-5 w-5" />
@@ -56,11 +64,11 @@ const NotificationButton = ({ showTrigger = true, presentation = 'dialog', open:
     }
     if (notifications.length) {
       return notifications.map((notification) => (
-              <button key={notification.id} type="button" onClick={() => markRead(notification)} className={`w-full rounded-xl border p-3 text-right transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${notification.isRead ? 'border-primary/10 bg-background/60' : 'border-primary/35 bg-primary/10'}`}>
+              <article key={notification.id} className={`w-full rounded-xl border p-3 text-right transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${notification.isRead ? 'border-primary/10 bg-background/60' : 'border-primary/35 bg-primary/10'}`}>
                 <div className="break-words font-black text-foreground">{notification.title}</div>
                 <p className="mt-1 whitespace-pre-wrap break-words text-sm font-bold leading-6 text-muted-foreground">{notification.body}</p>
-                <div className="mt-2 text-xs font-bold text-muted-foreground">{notification.createdAt}</div>
-              </button>
+                <div className="mt-2 text-xs font-bold text-muted-foreground">{formatHijriDateTime(notification.createdAt)}</div>
+              </article>
             ));
     }
     return <div className="py-3 text-right text-xs font-bold text-muted-foreground">لا توجد إشعارات.</div>;

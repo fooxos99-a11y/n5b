@@ -7,7 +7,6 @@ import { normalizeStudentNews, removeDeletedNewsCommittees } from '../services/s
 export function createStudentNewsRouter({ getNow = newsTimeNow, db = defaultDb }) {
   const router = express.Router();
   const management = (req, res, next) => {
-    if (!['admin', 'manager'].includes(req.auth?.role)) return res.status(403).json({ message: 'غير مصرح.' });
     return requirePermission('settings')(req, res, next);
   };
   const load = async () => {

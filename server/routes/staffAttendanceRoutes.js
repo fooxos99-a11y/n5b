@@ -45,7 +45,7 @@ export function createStaffAttendanceRouter({ loadSettings, getNow }) {
   const router = express.Router();
   router.use((req, res, next) => isStaffAttendanceRole(req.auth?.role)
     ? next()
-    : res.status(403).json({ message: 'التحضير متاح للمعلمين والإدارة فقط.' }));
+    : res.status(403).json({ message: 'التحضير متاح لمشرفي المسارات والإدارة فقط.' }));
 
   router.get('/me', async (req, res, next) => {
     try {

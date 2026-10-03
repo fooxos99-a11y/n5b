@@ -8,6 +8,7 @@ function summarizeJuz(parts) {
     evaluated,
     score: evaluated ? scored.reduce((sum, part) => sum + Number(part.score), 0) / scored.length : null,
     warningCount: parts.reduce((sum, part) => sum + Number(part.warningCount || 0), 0),
+    hesitationCount: parts.reduce((sum, part) => sum + Number(part.hesitationCount || 0), 0),
     mistakeCount: parts.reduce((sum, part) => sum + Number(part.mistakeCount || 0), 0),
     evaluatorNames: [...new Set(parts.map((part) => part.evaluatorName).filter(Boolean))],
     pendingSync: parts.some((part) => part.pendingSync),

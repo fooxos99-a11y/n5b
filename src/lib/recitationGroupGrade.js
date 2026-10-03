@@ -3,7 +3,7 @@ import { hizbOfPage } from '../../shared/quran-hizbs.js';
 
 const countsOf = (counts, item) => {
   const entry = counts[String(item.id)] || {};
-  return { mistakes: Number(entry.mistakeCount) || 0, warnings: Number(entry.warningCount) || 0 };
+  return { mistakes: Number(entry.mistakeCount) || 0, warnings: Number(entry.warningCount) || 0, hesitations: Number(entry.hesitationCount) || 0 };
 };
 
 /**
@@ -24,11 +24,12 @@ export function evaluateRecitationGroup(policy, taskType, items = [], counts = {
     for (const item of items) {
       const hizb = Number(item.hizbNumber) || (item.fromPage ? hizbOfPage(item.fromPage) : null);
       const key = hizb ? `hizb:${hizb}` : `item:${item.id}`;
-      const group = groups.get(key) || { hizb, itemIds: [], mistakes: 0, warnings: 0 };
-      const { mistakes, warnings } = countsOf(counts, item);
+      const group = groups.get(key) || { hizb, itemIds: [], mistakes: 0, warnings: 0, hesitations: 0 };
+      const { mistakes, warnings, hesitations } = countsOf(counts, item);
       group.itemIds.push(String(item.id));
       group.mistakes += mistakes;
       group.warnings += warnings;
+      group.hesitations += hesitations;
       groups.set(key, group);
     }
     const ordered = [...groups.values()];
@@ -41,9 +42,9 @@ export function evaluateRecitationGroup(policy, taskType, items = [], counts = {
   }
   if (taskType === 'link') {
     const total = items.reduce((sum, item) => {
-      const { mistakes, warnings } = countsOf(counts, item);
-      return { mistakes: sum.mistakes + mistakes, warnings: sum.warnings + warnings };
-    }, { mistakes: 0, warnings: 0 });
+      const { mistakes, warnings, hesitations } = countsOf(counts, item);
+      return { mistakes: sum.mistakes + mistakes, warnings: sum.warnings + warnings, hesitations: sum.hesitations + hesitations };
+    }, { mistakes: 0, warnings: 0, hesitations: 0 });
     const result = evaluateLink(policy, total);
     for (const item of items) itemResults.set(String(item.id), null);
     return { itemResults, result, failedLabel: '' };

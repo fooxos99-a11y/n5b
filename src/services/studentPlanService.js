@@ -14,7 +14,7 @@ export const loadStudentPlan = singleFlight((studentId) => loadOfflineSnapshot(s
   // Generating today's assignments must finish before reading the weekly history.
   const today = await loadStudentToday(studentId);
   const overview = await studentsApi.getStudentPlanOverview(studentId);
-  return { today, rows: Array.isArray(overview) ? overview : overview.rows, points: overview.points, weeklyGrade: overview.weeklyGrade };
+  return { today, rows: Array.isArray(overview) ? overview : overview.rows, points: overview.points, weeklyGrade: overview.weeklyGrade, weeklyGrades: overview.weeklyGrades };
 }, { actorRole: 'student' }), studentId => `${offlineActorKey(studentId, 'student')}:${getAuthSessionVersion()}:${getBusinessDate()}`);
 
 export async function readCachedStudentPlan(studentId, today) {

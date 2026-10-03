@@ -1,4 +1,8 @@
+import QueuedPlanRanges from './QueuedPlanRanges';
+import StudentPlansPauseControl from './StudentPlansPauseControl';
 import ErrorState from '@/components/ui/error-state';
+import { formatHijriDate } from '../../../shared/hijri-calendar.js';
+import PlanScheduleSummary from '@/components/portal/PlanScheduleSummary';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Edit3, Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -16,7 +20,7 @@ import { expectedPlanCompletion } from '@/lib/quranPlanPreview';
 import { loadOfflineSnapshot } from '@/services/offlineOperationsService';
 import { studentsApi } from '@/services/studentsApi';
 import { getBusinessDate } from '../../../shared/business-date.js';
-import { DEFAULT_PLAN_READING_FACES, MAX_PLAN_READING_FACES, PLAN_SAVE_MODES } from '../../../shared/quran-plan-options.js';
+import { DEFAULT_PLAN_READING_HIZBS, MAX_PLAN_READING_HIZBS, PLAN_SAVE_MODES } from '../../../shared/quran-plan-options.js';
 
 const getAccountId = () => Number(localStorage.getItem('wajeh_supervisor_id') || 0);
 
@@ -37,13 +41,14 @@ const emptyForm = {
   reviewPages: 20,
   reviewHizbPreset: '1',
   reviewHizbs: 1,
-  readingPreset: String(DEFAULT_PLAN_READING_FACES),
-  readingFaces: DEFAULT_PLAN_READING_FACES,
+  readingPreset: String(DEFAULT_PLAN_READING_HIZBS),
+  readingHizbs: DEFAULT_PLAN_READING_HIZBS,
   reviewSplitWeekly: false,
   reviewWeekStartDay: '0',
   reviewWeekEndDay: '6',
   reviewMinDailyPages: 1,
   priorMemorization: [],
+  queuedRanges: [],
 };
 
 
@@ -54,7 +59,7 @@ const today = getBusinessDate;
 const dailyPageOptions = [['1', 'وجه'], ['2', 'وجهان'], ['custom', 'مخصص']];
 const reviewHizbOptions = [['1', 'حزب'], ['2', 'حزبان'], ['3', 'ثلاثة أحزاب'], ['4', 'أربعة أحزاب'], ['custom', 'مخصص']];
 const REVIEW_HIZB_PRESETS = reviewHizbOptions.map(([value]) => value).filter((value) => value !== 'custom');
-const readingFacesOptions = [['10', '10 أوجه'], ['20', '20 وجهًا'], ['30', '30 وجهًا'], ['custom', 'مخصص']];
+const readingHizbsOptions = reviewHizbOptions;
 const MAX_REVIEW_HIZBS = 60;
 const planSaveModeOptions = [
   [PLAN_SAVE_MODES.continue, 'متابعة الخطة الحالية', 'يستمر الطالب على خطته ويتغير المقدار أو النطاق فقط.'],
@@ -73,9 +78,9 @@ const getReviewHizbs = (preset, custom) => {
   return Number(preset || 1);
 };
 
-const getReadingFaces = (preset, custom) => {
-  if (preset === 'custom') return Math.min(MAX_PLAN_READING_FACES, Math.max(1, Math.round(Number(custom || 1))));
-  return Number(preset) || DEFAULT_PLAN_READING_FACES;
+const getReadingHizbs = (preset, custom) => {
+  if (preset === 'custom') return Math.min(MAX_PLAN_READING_HIZBS, Math.max(1, Math.round(Number(custom || 1))));
+  return Number(preset) || DEFAULT_PLAN_READING_HIZBS;
 };
 
 const getPriorPageRanges = (items = []) => items
@@ -182,6 +187,7 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
   const [isSaving, setIsSaving] = useState(false);
   const [isDeletingMemorized, setIsDeletingMemorized] = useState(false);
   const [isDeletingPlan, setIsDeletingPlan] = useState(false);
+  const [closingPlan, setClosingPlan] = useState(null);
   const keepPlanDialogOpen = (event) => event.preventDefault();
 
   const startAyah = startAyahs.find((ayah) => String(ayah.ayah) === String(form.startAyah));
@@ -220,24 +226,25 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
   ), [isCreatingNewPlan, selectedRow]);
   const availablePlanPages = useMemo(
     () => quranPages.filter((page) => (
-      currentPlanBoundaryPages.has(String(page)) || !pageInRanges(page, unavailablePageRanges)
+      form.track === 'mastery' || currentPlanBoundaryPages.has(String(page)) || !pageInRanges(page, unavailablePageRanges)
     )),
-    [currentPlanBoundaryPages, unavailablePageRanges]
+    [form.track, currentPlanBoundaryPages, unavailablePageRanges]
   );
   const availableChapters = useMemo(() => chapters.filter((chapter) => {
+    if (form.track === 'mastery') return true;
     if (!isCreatingNewPlan && [form.startSurah, form.endSurah].some(surah => Number(surah) === Number(chapter.number))) return true;
     const startPage = Number(chapter.startPage || 0);
     const endPage = Number(chapter.endPage || 0);
     if (!startPage || !endPage) return true;
     return !rangeCoversRange({ startPage, endPage }, unavailablePageRanges);
-  }), [chapters, form.startSurah, form.endSurah, isCreatingNewPlan, unavailablePageRanges]);
+  }), [chapters, form.track, form.startSurah, form.endSurah, isCreatingNewPlan, unavailablePageRanges]);
   const startAyahOptions = useMemo(
-    () => startAyahs.filter((ayah) => (!isCreatingNewPlan && Number(ayah.ayah) === Number(form.startAyah)) || !quranRefInRanges(form.startSurah, ayah.ayah, unavailableQuranRanges)),
-    [form.startSurah, form.startAyah, isCreatingNewPlan, startAyahs, unavailableQuranRanges]
+    () => startAyahs.filter((ayah) => form.track === 'mastery' || (!isCreatingNewPlan && Number(ayah.ayah) === Number(form.startAyah)) || !quranRefInRanges(form.startSurah, ayah.ayah, unavailableQuranRanges)),
+    [form.track, form.startSurah, form.startAyah, isCreatingNewPlan, startAyahs, unavailableQuranRanges]
   );
   const endAyahOptions = useMemo(
-    () => endAyahs.filter((ayah) => (!isCreatingNewPlan && Number(ayah.ayah) === Number(form.endAyah)) || !quranRefInRanges(form.endSurah, ayah.ayah, unavailableQuranRanges)),
-    [endAyahs, form.endSurah, form.endAyah, isCreatingNewPlan, unavailableQuranRanges]
+    () => endAyahs.filter((ayah) => form.track === 'mastery' || (!isCreatingNewPlan && Number(ayah.ayah) === Number(form.endAyah)) || !quranRefInRanges(form.endSurah, ayah.ayah, unavailableQuranRanges)),
+    [form.track, endAyahs, form.endSurah, form.endAyah, isCreatingNewPlan, unavailableQuranRanges]
   );
   const priorStartAyahOptions = useMemo(
     () => priorStartAyahs.filter((ayah) => !quranRefInRanges(priorForm.startSurah, ayah.ayah, unavailableQuranRanges)),
@@ -254,7 +261,7 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
       const startPage = Number(form.startPage || 0);
       const endPage = Number(form.endPage || 0);
       if (!startPage || !endPage) return null;
-      pages = countUnblockedPages(startPage, endPage, unavailablePageRanges);
+      pages = countUnblockedPages(startPage, endPage, form.track === 'mastery' ? [] : unavailablePageRanges);
       if (startPage < 1 || startPage > 604 || endPage < 1 || endPage > 604) return { error: 'بداية الخطة ونهايتها يجب أن تكونا ضمن صفحات المصحف.' };
     } else {
       if (!startAyah || !endAyah) return null;
@@ -264,7 +271,7 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
         startChapter,
         endChapter,
         chapters,
-        blockedRanges: unavailablePageRanges,
+        blockedRanges: form.track === 'mastery' ? [] : unavailablePageRanges,
       });
     }
     const dailyPages = getPagesValue(form.dailyPreset, form.dailyPages, 0.25);
@@ -273,10 +280,10 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
       dailyPages,
       linkPages: getPagesValue(form.linkPreset, form.linkPages),
       reviewHizbs: getReviewHizbs(form.reviewHizbPreset, form.reviewHizbs),
-      readingFaces: getReadingFaces(form.readingPreset, form.readingFaces),
+      readingHizbs: getReadingHizbs(form.readingPreset, form.readingHizbs),
       ...expectedPlanCompletion({ pages, dailyPages, startDate: form.startDate > minimumPlanStartDate ? form.startDate : minimumPlanStartDate, weeklyHolidayDays }),
     };
-  }, [weeklyHolidayDays, form.startDate, minimumPlanStartDate, chapters, endAyah, endChapter, form.dailyPages, form.dailyPreset, form.endPage, form.linkPages, form.linkPreset, form.readingFaces, form.readingPreset, form.reviewHizbPreset, form.reviewHizbs, form.startPage, quranReferenceMode, startAyah, startChapter, unavailablePageRanges]);
+  }, [form.track, weeklyHolidayDays, form.startDate, minimumPlanStartDate, chapters, endAyah, endChapter, form.dailyPages, form.dailyPreset, form.endPage, form.linkPages, form.linkPreset, form.readingHizbs, form.readingPreset, form.reviewHizbPreset, form.reviewHizbs, form.startPage, quranReferenceMode, startAyah, startChapter, unavailablePageRanges]);
 
   const loadRows = useCallback(async () => {
     setLoadError('');
@@ -345,8 +352,8 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
       REVIEW_HIZB_PRESETS.includes(String(plan.reviewHizbs ?? 1)) ? String(plan.reviewHizbs ?? 1) : 'custom'
     );
     const _resolveReadingPreset = () => {
-      const faces = Number(plan.readingFaces) || DEFAULT_PLAN_READING_FACES;
-      return ['10', '20', '30'].includes(String(faces)) ? String(faces) : 'custom';
+      const hizbs = Number(plan.readingHizbs) || DEFAULT_PLAN_READING_HIZBS;
+      return REVIEW_HIZB_PRESETS.includes(String(hizbs)) ? String(hizbs) : 'custom';
     };
     const _resolveOpenPlanDialog = () => {
       if (plan && !createNew) {
@@ -368,12 +375,13 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
       reviewHizbPreset: _resolveReviewHizbPreset(),
       reviewHizbs: plan.reviewHizbs ?? 1,
       readingPreset: _resolveReadingPreset(),
-      readingFaces: Number(plan.readingFaces) || DEFAULT_PLAN_READING_FACES,
+      readingHizbs: Number(plan.readingHizbs) || DEFAULT_PLAN_READING_HIZBS,
       // Splitting the review over a week is no longer offered; saving converts such plans to ahzab.
       reviewSplitWeekly: false,
       reviewWeekStartDay: String(plan.reviewWeekStartDay ?? 0),
       reviewWeekEndDay: String(plan.reviewWeekEndDay ?? 6),
       reviewMinDailyPages: plan.reviewMinDailyPages || 1,
+      queuedRanges: plan.queuedRanges || [],
       priorMemorization: Array.isArray(plan.priorMemorization) ? plan.priorMemorization : [],
     };
       }
@@ -383,7 +391,7 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
   };
 
   useEffect(() => {
-    if (quranReferenceMode !== 'page') return;
+    if (quranReferenceMode !== 'page' || form.track === 'mastery') return;
     setForm((current) => {
       const startBlocked = current.startPage
         && !currentPlanBoundaryPages.has(String(current.startPage))
@@ -398,7 +406,7 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
         endPage: endBlocked ? '' : current.endPage,
       };
     });
-  }, [currentPlanBoundaryPages, quranReferenceMode, unavailablePageRanges]);
+  }, [form.track, currentPlanBoundaryPages, quranReferenceMode, unavailablePageRanges]);
 
   const savePlan = async ({ confirmed = false, mode = PLAN_SAVE_MODES.continue } = {}) => {
     if (!selectedRow) return;
@@ -406,12 +414,16 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
     const planRangeMissing = isPageMode
       ? (!form.startPage || !form.endPage)
       : (!form.startSurah || !form.startAyah || !form.endSurah || !form.endAyah);
+    if (form.queuedRanges.some(range => isPageMode ? !range.startPage || !range.endPage : !range.startSurah || !range.startAyah || !range.endSurah || !range.endAyah)) {
+      toast({ title: 'الخطة التالية غير مكتملة', description: 'اختر بداية ونهاية كل خطة تالية.', variant: 'destructive' });
+      return;
+    }
     if (planRangeMissing || preview?.error) {
       toast({ title: 'الخطة غير مكتملة', description: preview?.error || 'اختر بداية ونهاية الخطة.', variant: 'destructive' });
       return;
     }
     if ((!selectedRow.plan || isCreatingNewPlan) && (form.startDate || minimumPlanStartDate) < minimumPlanStartDate) {
-      toast({ title: 'بداية الخطة غير صحيحة', description: `اختر تاريخ ${minimumPlanStartDate} أو تاريخًا بعده.`, variant: 'destructive' });
+      toast({ title: 'بداية الخطة غير صحيحة', description: `اختر تاريخ ${formatHijriDate(minimumPlanStartDate)} أو تاريخًا بعده.`, variant: 'destructive' });
       return;
     }
     if (selectedRow.plan && !isCreatingNewPlan && !confirmed) {
@@ -422,7 +434,7 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
     }
     const startsNewPlan = isCreatingNewPlan || mode === PLAN_SAVE_MODES.new;
     if (startsNewPlan && !isCreatingNewPlan && (newPlanStartDate || minimumPlanStartDate) < minimumPlanStartDate) {
-      toast({ title: 'بداية الخطة غير صحيحة', description: `اختر تاريخ ${minimumPlanStartDate} أو تاريخًا بعده.`, variant: 'destructive' });
+      toast({ title: 'بداية الخطة غير صحيحة', description: `اختر تاريخ ${formatHijriDate(minimumPlanStartDate)} أو تاريخًا بعده.`, variant: 'destructive' });
       return;
     }
     const _resolveStartDate = () => {
@@ -434,7 +446,8 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
     try {
       await studentsApi.saveStudentPlan(selectedRow.studentId, {
         mode: startsNewPlan ? PLAN_SAVE_MODES.new : PLAN_SAVE_MODES.continue,
-        track: 'memorization',
+        track: form.track,
+        queuedRanges: form.queuedRanges,
         startDate: _resolveStartDate(),
         ...(isPageMode ? {
           startPage: Number(form.startPage),
@@ -449,7 +462,7 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
         linkPages: getPagesValue(form.linkPreset, form.linkPages),
         reviewPages: getPagesValue(form.reviewPreset, form.reviewPages),
         reviewHizbs: getReviewHizbs(form.reviewHizbPreset, form.reviewHizbs),
-        readingFaces: getReadingFaces(form.readingPreset, form.readingFaces),
+        readingHizbs: getReadingHizbs(form.readingPreset, form.readingHizbs),
         reviewSplitWeekly: false,
         reviewWeekStartDay: Number(form.reviewWeekStartDay),
         reviewWeekEndDay: Number(form.reviewWeekEndDay),
@@ -555,7 +568,7 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
         fromPage: segment.fromPage,
         toPage: segment.toPage,
       });
-      toast({ title: 'تم الحذف', description: 'تم حذف المحفوظ السابق من الطالب.' });
+      toast({ title: 'تم الحذف', description: 'تم حذف المحفوظ المجتاز من الطالب.' });
       setMemorizedRow(null);
       await loadRows();
     } catch (error) {
@@ -589,7 +602,7 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
         () => studentsApi.getQuranAyahs(value),
       );
       setAyahs(ayahs);
-      const availableAyahs = ayahs.filter((ayah) => !quranRefInRanges(value, ayah.ayah, unavailableQuranRanges));
+      const availableAyahs = ayahs.filter((ayah) => (setState === setForm && form.track === 'mastery') || !quranRefInRanges(value, ayah.ayah, unavailableQuranRanges));
       const nextAyah = mode === 'end' ? availableAyahs[availableAyahs.length - 1] : availableAyahs[0];
       if (nextAyah) {
         setState((current) => (
@@ -608,12 +621,12 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
       const startPage = Number(priorForm.startPage || 0);
       const endPage = Number(priorForm.endPage || 0);
       if (!startPage || !endPage || startPage < 1 || endPage > 604 || startPage > endPage) {
-        toast({ title: 'المحفوظ السابق غير صحيح', description: 'تأكد من بداية ونهاية المقطع.', variant: 'destructive' });
+        toast({ title: 'المحفوظ المجتاز غير صحيح', description: 'تأكد من بداية ونهاية المقطع.', variant: 'destructive' });
         return;
       }
       const newRange = { startPage, endPage };
       if (unavailablePageRanges.some((range) => rangesOverlap(newRange, range))) {
-        toast({ title: 'المحفوظ السابق موجود', description: 'اختر مقطعاً غير مضاف سابقاً.', variant: 'destructive' });
+        toast({ title: 'المحفوظ المجتاز موجود', description: 'اختر مقطعاً غير مضاف سابقاً.', variant: 'destructive' });
         return;
       }
       setForm((current) => ({
@@ -627,7 +640,7 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
       return;
     }
     if (!priorForm.startSurah || !priorForm.startAyah || !priorForm.endSurah || !priorForm.endAyah) {
-      toast({ title: 'المحفوظ السابق غير مكتمل', description: 'اختر بداية ونهاية المقطع.', variant: 'destructive' });
+      toast({ title: 'المحفوظ المجتاز غير مكتمل', description: 'اختر بداية ونهاية المقطع.', variant: 'destructive' });
       return;
     }
     const startAyahInfo = priorStartAyahs.find((ayah) => String(ayah.ayah) === String(priorForm.startAyah));
@@ -638,7 +651,7 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
       startAyahInfo.page > endAyahInfo.page ||
       compareQuranRefs(priorForm.startSurah, priorForm.startAyah, priorForm.endSurah, priorForm.endAyah) > 0
     ) {
-      toast({ title: 'المحفوظ السابق غير صحيح', description: 'تأكد من بداية ونهاية المقطع.', variant: 'destructive' });
+      toast({ title: 'المحفوظ المجتاز غير صحيح', description: 'تأكد من بداية ونهاية المقطع.', variant: 'destructive' });
       return;
     }
     const newRange = {
@@ -650,7 +663,7 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
       endPage: Math.max(startAyahInfo.page, endAyahInfo.page),
     };
     if (unavailableQuranRanges.some((range) => quranRangesOverlap(newRange, range))) {
-      toast({ title: 'المحفوظ السابق موجود', description: 'اختر مقطعاً غير مضاف سابقاً.', variant: 'destructive' });
+      toast({ title: 'المحفوظ المجتاز موجود', description: 'اختر مقطعاً غير مضاف سابقاً.', variant: 'destructive' });
       return;
     }
     setForm((current) => ({
@@ -678,9 +691,10 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
     if (!row.plan) {
       return <><Button variant="outline" onClick={() => openPlanDialog(row)} className="h-11 gap-2" title="إضافة خطة">
         <Plus className="h-4 w-4" />إضافة خطة
-      </Button>{row.priorMemorization?.length > 0 && <Button variant="outline" className="h-11" onClick={() => openMemorizedDialog(row)}>المحفوظ السابق</Button>}</>;
+      </Button>{row.priorMemorization?.length > 0 && <Button variant="outline" className="h-11" onClick={() => openMemorizedDialog(row)}>المحفوظ المجتاز</Button>}</>;
     }
     return <>
+      {row.plan.queuedRanges?.length > 0 && <Button variant="outline" className="h-11" onClick={() => setClosingPlan(row)}>إغلاق الحالية</Button>}
       {Number(row.plan.progressPercent || 0) >= 100 && (
         <ManagementIconButton
           className={rowActionClass}
@@ -732,6 +746,8 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
             </div>
             {row.plan ? (
               <div className="order-last min-w-0 basis-full sm:order-none sm:flex-1 sm:basis-auto">
+                <div className="mb-1 text-xs text-muted-foreground">{row.plan.trackLabel}</div>
+                <PlanScheduleSummary plan={row.plan} />
                 <div className="mb-1.5 text-xs font-bold text-muted-foreground">نسبة الإنجاز {numberText(row.plan.progressPercent)}٪</div>
                 <div className="h-2 w-full overflow-hidden rounded-full bg-muted" title={`${numberText(row.plan.progressPercent)}٪`}>
                   <div className="h-full rounded-full bg-primary" style={{ width: `${progress}%` }} />
@@ -749,11 +765,23 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
   };
   return (
     <>
+      <Dialog open={Boolean(closingPlan)} onOpenChange={open => !open && !isSaving && setClosingPlan(null)}>
+        <DialogContent dir="rtl"><DialogHeader><DialogTitle>إغلاق الخطة الحالية</DialogTitle></DialogHeader>
+          <p className="text-sm">يُحفظ التنفيذ السابق وتُفتح الخطة التالية، ويبدأ جدولها من الغد.</p>
+          <DialogFooter><Button variant="outline" disabled={isSaving} onClick={() => setClosingPlan(null)}>إلغاء</Button>
+            <Button loading={isSaving} onClick={async () => {
+              setIsSaving(true);
+              try { await studentsApi.closeStudentPlan(closingPlan.studentId, closingPlan.plan.id); setClosingPlan(null); await loadRows(); }
+              catch (error) { toast({ title: 'تعذر إغلاق الخطة', description: error.message, variant: 'destructive' }); }
+              finally { setIsSaving(false); }
+            }}>إغلاق وفتح التالية</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
       <ManagementPanel>
-        <ManagementToolbar className="flex-nowrap"><Input type="search" aria-label="ابحث بالاسم" placeholder="ابحث بالاسم" value={search} onChange={event => setSearch(event.target.value)} className="h-11 min-w-0 flex-1 sm:max-w-sm" />
+        <ManagementToolbar><Input type="search" aria-label="ابحث بالاسم" placeholder="ابحث بالاسم" value={search} onChange={event => setSearch(event.target.value)} className="h-11 min-w-0 flex-1 basis-40 sm:max-w-sm" />
         {!hideCommitteeFilter && (
             <Select value={committeeId} onValueChange={setCommitteeId}>
-              <SelectTrigger aria-label="الحلقة" className="h-11 min-w-0 flex-1 sm:max-w-xs">
+              <SelectTrigger aria-label="الحلقة" className="h-11 min-w-0 flex-1 basis-40 sm:max-w-xs">
                 <SelectValue placeholder="اختر الحلقة" />
               </SelectTrigger>
               <SelectContent>
@@ -764,6 +792,7 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
               </SelectContent>
             </Select>
         )}
+        <StudentPlansPauseControl onChange={loadRows} />
         </ManagementToolbar>
         {_resolveStudentPlansSection()}
       </ManagementPanel>
@@ -783,24 +812,30 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
             <DialogTitle className="text-primary">{selectedRow?.plan && !isCreatingNewPlan ? 'تعديل الخطة' : 'إضافة خطة'}</DialogTitle>
             <Button type="button" variant="outline" onClick={() => setPriorDialogOpen(true)} className="h-11 gap-2">
               <Plus className="h-4 w-4" />
-              المحفوظ السابق
+              المحفوظ المجتاز
             </Button>
           </DialogHeader>
           <div className="space-y-5 py-2">
             <FormGrid>
-              <FormField label="بداية الخطة" wide>
+              <FormField label="بداية الخطة">
                 {/* A plan that already started keeps its start; one starting today or later can move forward. */}
                 {selectedRow?.plan && !isCreatingNewPlan && String(selectedRow.plan.startDate || '') < minimumPlanStartDate ? (
-                  <div className="flex h-11 items-center rounded-xl bg-muted/60 px-3 text-sm font-bold text-foreground sm:max-w-[calc(50%-0.5rem)]">
-                    {form.startDate}
+                  <div className="flex h-11 items-center rounded-xl bg-muted/60 px-3 text-sm font-bold text-foreground">
+                    {formatHijriDate(form.startDate)}
                   </div>
                 ) : (
-                  <div className="sm:max-w-[calc(50%-0.5rem)]">
+                  <div className="w-full">
                     <DashboardDatePicker value={form.startDate || minimumPlanStartDate} min={minimumPlanStartDate} ariaLabel="بداية الخطة" onChange={(startDate) => setForm((current) => ({ ...current, startDate }))} />
                   </div>
                 )}
               </FormField>
-              <FormField label="موضع بداية الحفظ">
+              <FormField label="المسار">
+                <Select value={form.track} onValueChange={track => setForm(current => ({ ...current, track }))}>
+                  <SelectTrigger aria-label="مسار الخطة"><SelectValue /></SelectTrigger>
+                  <SelectContent><SelectItem value="memorization">حفظ</SelectItem><SelectItem value="mastery">إتقان</SelectItem></SelectContent>
+                </Select>
+              </FormField>
+              <FormField label="بداية الخطة">
                 {quranReferenceMode === 'page' ? (
                   <PageSelect
                     value={form.startPage}
@@ -856,6 +891,8 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
               </FormField>
             </FormGrid>
 
+            <QueuedPlanRanges value={form.queuedRanges} onChange={queuedRanges => setForm(current => ({ ...current, queuedRanges }))} chapters={chapters} pageMode={quranReferenceMode === 'page'} currentRange={form} />
+
             <FormGrid className="items-end border-t border-border pt-5 min-[390px]:grid-cols-2">
               <PlanAmount label="المقدار اليومي" form={form} setForm={setForm} presetKey="dailyPreset" valueKey="dailyPages" options={dailyPageOptions} min="0.25" step="0.25" inputMode="decimal" />
               <PlanAmount label="الربط" form={form} setForm={setForm} presetKey="linkPreset" valueKey="linkPages" options={[['10', '10 أوجه'], ['20', 'جزء'], ['custom', 'مخصص']]} />
@@ -876,17 +913,17 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
                 }))}
               />
               <PlanAmount
-                label="القراءة الذاتية اليومية (أوجه)"
+                label="القراءة الذاتية اليومية (أحزاب)"
                 form={form}
                 setForm={setForm}
                 presetKey="readingPreset"
-                valueKey="readingFaces"
-                options={readingFacesOptions}
-                max={String(MAX_PLAN_READING_FACES)}
+                valueKey="readingHizbs"
+                options={readingHizbsOptions}
+                max={String(MAX_PLAN_READING_HIZBS)}
                 onPresetChange={(value) => setForm((current) => ({
                   ...current,
                   readingPreset: value,
-                  readingFaces: Number(value) || current.readingFaces || DEFAULT_PLAN_READING_FACES,
+                  readingHizbs: Number(value) || current.readingHizbs || DEFAULT_PLAN_READING_HIZBS,
                 }))}
               />
             </FormGrid>
@@ -898,7 +935,7 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
                     <div className="min-w-0 flex-1 text-sm font-bold text-foreground">
                       {quranRangeLabel(item)}
                     </div>
-                    <ManagementIconButton className={rowActionClass} onClick={() => removePriorMemorization(index)} tone="destructive" aria-label="حذف المحفوظ السابق">
+                    <ManagementIconButton className={rowActionClass} onClick={() => removePriorMemorization(index)} tone="destructive" aria-label="حذف المحفوظ المجتاز">
                       <Trash2 className="h-4 w-4" />
                     </ManagementIconButton>
                   </li>
@@ -908,7 +945,7 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
 
             {preview && (
               <div className={`rounded-xl p-4 text-sm font-bold ${preview.error ? 'bg-destructive/10 text-destructive' : 'bg-primary/5 text-foreground'}`}>
-                {preview.error || <><span>أيام التنفيذ المتوقعة: {numberText(preview.days)}</span>{preview.endDate && <span className="ms-3 inline-block">الانتهاء المتوقع: {preview.endDate}</span>}</>}
+                {preview.error || <><span>أيام التنفيذ المتوقعة: {numberText(preview.days)}</span>{preview.endDate && <span className="ms-3 inline-block">الانتهاء المتوقع: {formatHijriDate(preview.endDate)}</span>}</>}
               </div>
             )}
           </div>
@@ -948,7 +985,7 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
                 <DashboardDatePicker value={newPlanStartDate || minimumPlanStartDate} min={minimumPlanStartDate} ariaLabel="بداية الخطة الجديدة" onChange={setNewPlanStartDate} />
               </FormField>
             )}
-            <p>المحفوظ السابق والحفظ المعتمد من المعلم لن يتم حذفهما.</p>
+            <p>المحفوظ المجتاز والحفظ المعتمد من مشرف المسار لن يتم حذفهما.</p>
             <div className="rounded-xl bg-muted/50 p-3 text-muted-foreground">
               {preview?.pages === 0
                 ? 'كل نطاق الخطة الجديدة محفوظ حاليًا.'
@@ -967,7 +1004,7 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
       <Dialog open={priorDialogOpen} onOpenChange={setPriorDialogOpen}>
         <DialogContent className={`max-w-lg ${dialogClassName}`} dir="rtl" onInteractOutside={keepPlanDialogOpen}>
           <DialogHeader>
-            <DialogTitle className="text-primary">المحفوظ السابق</DialogTitle>
+            <DialogTitle className="text-primary">المحفوظ المجتاز</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <FormGrid>
@@ -1026,13 +1063,10 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
                 )}
               </FormField>
             </FormGrid>
-            <Button type="button" onClick={addPriorMemorization} className="h-11 w-full gap-2">
-              <Plus className="h-4 w-4" />
-              إضافة
-            </Button>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setPriorDialogOpen(false)}>إغلاق</Button>
+            <Button type="button" onClick={addPriorMemorization} className="h-11 gap-2"><Plus className="h-4 w-4" />إضافة</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1045,7 +1079,7 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
           <div className="max-h-[60vh] overflow-y-auto">
             {memorizedSegments.length === 0 ? (
               <p className="py-8 text-center text-sm text-muted-foreground">
-                لا يوجد محفوظ سابق لهذا الطالب.
+                لا يوجد محفوظ مجتاز لهذا الطالب.
               </p>
             ) : (
               <ul className="divide-y divide-border">

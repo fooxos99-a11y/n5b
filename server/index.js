@@ -1,3 +1,22 @@
+import { studentVisibleSessionGrades } from '../shared/student-amount-visibility.js';
+import { computeStudentSessionGrades } from './services/grading.js';
+import livekitWebhookRouter from './routes/livekitWebhookRoutes.js';
+import { loadCompensatedPlanRanges, uncompensatedTaskSql } from './services/compensationPlanCredit.js';
+import { assertSupervisorStudentScope } from './services/supervisorStudentScope.js';
+import { validatePlanReadingHizbs } from '../shared/quran-plan-options.js';
+import { assertPlanDailyThreshold } from './services/planDailyThreshold.js';
+import { loadQuranPlanPerformance } from './services/quranPlanPerformance.js';
+import { normalizeSeasonalHolidays, isSeasonalHoliday } from '../shared/seasonal-holidays.js';
+import { parseStudentPlanPause, studentPlanPauseStatus, isStudentStudyHoliday } from '../shared/student-plan-pause.js';
+import { createStudentPlanPauseRouter } from './routes/studentPlanPauseRoutes.js';
+import { requireRegistrationPlacement, loadRegistrationPlacementOptions } from './services/registrationPlacement.js';
+import { assertStudyDate, studyDateSql } from './services/seasonalHolidays.js';
+import { forecastQuranPlan } from './services/quranPlanForecast.js';
+import { validateQueuedPlanRanges, activateQueuedQuranPlan } from './services/quranPlanQueue.js';
+import { readQueuedPlanRanges } from '../shared/quran-plan-queue.js';
+import { createComplexRouter } from './routes/complexRoutes.js';
+import { requireComplex, assertStudentComplex } from './services/complexes.js';
+import { gradingPermissionForComponent } from '../shared/dashboard-permissions.js';
 import { planScheduleDates } from './services/planScheduleDates.js';
 import { normalizeNarrationRanges, prepareNarrationAssignments } from './services/narrationPreparation.js';
 import { assertCommitteeNameAvailable, transferStudentCommittee } from './services/committeeMaintenance.js';
@@ -385,6 +404,7 @@ app.use(
   express.json({ limit: '20mb' }),
 );
 app.use('/api/student-news/manage', enforceContentLength(16 * 1024 * 1024), express.json({ limit: '16mb' }));
+app.use('/api/livekit/webhook', livekitWebhookRouter);
 app.use(express.json({ limit: '1mb' }));
 app.use((req, _res, next) => {
   req.body = req.body || {};
@@ -453,7 +473,7 @@ function requireStudentPlanAccess(req, res, next) {
 /** Quran reference data is also needed to record track-session segments in the grades section. */
 function requireQuranReferenceAccess(req, res, next) {
   if (req.auth?.role === 'admin') {
-    return hasSupervisorDashboardPermission(req.auth.id, ['studentPlans', 'grades'])
+    return hasSupervisorDashboardPermission(req.auth.id, ['studentPlans', 'trackSession'])
       .then((allowed) => allowed ? next() : permissionDenied(res))
       .catch(next);
   }
@@ -466,15 +486,14 @@ function requireReportsOrOwnCommittee(req, res, next) {
 }
 
 function requireManagementReportAccess(req, res, next) {
-  if (req.auth?.role === 'supervisor') {
-    return res.status(403).json({ message: 'هذا التقرير متاح للإدارة فقط.' });
-  }
+  // Archived snapshots contain all circles and cannot be exposed through a scoped report.
+  if (req.auth?.role === 'supervisor' && (/^\/reports\/archives(?:\/|$)/.test(req.path.replace(/^\/api/, '')) || req.body?.reportType === 'archive')) return permissionDenied(res);
   return requirePermission('reports')(req, res, next);
 }
 
 function requireNarrationAccess(req, res, next) {
   if (req.auth?.role === 'manager') return next();
-  if (req.auth?.role === 'admin') {
+  if (['admin', 'supervisor'].includes(req.auth?.role)) {
     return hasSupervisorDashboardPermission(req.auth.id, 'narrationDay')
       .then((allowed) => allowed ? next() : permissionDenied(res))
       .catch(next);
@@ -519,9 +538,13 @@ function getDashboardPermissionKeysForRequest(req) {
   const rules = [
     [path === '/settings', ['settings']],
     [path === '/grading/policy' && method !== 'GET', ['settings']],
-    [path === '/grading/policy', ['settings', 'grades']],
+    [path === '/grading/policy', ['settings', 'weeklySession', 'trackSession']],
     [path.startsWith('/account-deletion/requests'), ['settings']],
-    [path.startsWith('/grading'), ['grades']],
+    [path === '/grading/weekly-component', [gradingPermissionForComponent(req.body?.component)].filter(Boolean)],
+    [path === '/grading/program-compensation' || path === '/grading/program-compensation-days', ['quranEvaluation', 'weeklySession']],
+    [path === '/grading/excuse-approval' || /^\/grading\/compensations\/\d+\/cancel$/.test(path), ['settings']],
+    [path === '/grading/track-test' || path === '/grading/track-compensation' || path === '/grading/track-compensation-days', ['trackSession']],
+    [path.startsWith('/grading'), ['quranEvaluation', 'weeklySession', 'trackSession']],
     [path === '/student-news/manage' || path === '/student-news/audience', ['settings']],
     [path.startsWith('/staff-attendance'), ['staffAttendance']],
     [path.startsWith('/recitation-preferences'), ['quranEvaluation']],
@@ -532,12 +555,13 @@ function getDashboardPermissionKeysForRequest(req) {
     [path.startsWith('/whatsapp/'), ['whatsappSend']],
     [/^\/students\/\d+\/points\/award$/.test(path), ['students']],
     [path.startsWith('/student-plans'), ['studentPlans']],
-    [path === '/quran/chapters' || path === '/quran/ayahs', ['studentPlans', 'grades']],
+    [path === '/quran/chapters' || path === '/quran/ayahs', ['studentPlans', 'trackSession']],
     [path.startsWith('/quran'), ['studentPlans']],
     [/^\/supervisors\/\d+\/quran-evaluation/.test(path), ['quranEvaluation']],
     [/^\/students\/\d+\/(?:attendance|absence)$/.test(path), ['manualAttendance']],
     [/^\/supervisors\/\d+\/(?:attendance|absence)$/.test(path), ['manualAttendance']],
     [/^\/reports\/(?:students|supervisors)$/.test(path), ['reports', 'manualAttendance']],
+    [path === '/reports/send-whatsapp' || path === '/reports/whatsapp-recipients', ['whatsappSend']],
     [path.startsWith('/reports/'), ['reports']],
     [path.startsWith('/calls'), ['calls']],
     [path.startsWith('/narration-events'), ['narrationDay']],
@@ -546,6 +570,8 @@ function getDashboardPermissionKeysForRequest(req) {
     [path === '/supervisors' && method === 'GET', ['supervisors', 'whatsappSend']],
     [path.startsWith('/supervisors'), ['supervisors']],
     [path.startsWith('/administrators'), ['administrators']],
+    [path.startsWith('/complexes') && method === 'GET', ['families', 'students', 'reports', 'narrationDay']],
+    [path.startsWith('/complexes'), ['families']],
     [path.startsWith('/families'), ['families']]
   ];
   return rules.find(([matches]) => matches)?.[1] || [];
@@ -564,6 +590,10 @@ async function authorizeApiRequest(req, res, next) {
   try {
     const path = req.path.replace(/^\/api/, '');
     if (req.auth.role === 'student' && req.method === 'GET' && path === '/student-news') return next();
+    const targetStudent = /^\/students\/(\d+)(?:\/|$)/.exec(path);
+    if (req.auth.role === 'supervisor' && targetStudent) {
+      await assertSupervisorStudentScope(db(), req.auth, { studentId: Number(targetStudent[1]) });
+    }
     const id = String(req.auth.id || '');
     const { sharedGet, sharedPost } = getSharedApiAccess(req, path);
     const ownStudent = req.auth.role === 'student' && new RegExp(`^/students/${id}(?:/|$)`).test(path);
@@ -575,7 +605,7 @@ async function authorizeApiRequest(req, res, next) {
     const { studentStoreAccess, studentOfflineAccess } = getStudentFeatureApiAccess(req, path);
     const accountNotificationsAccess = /^\/notifications(?:\/|$)/.test(path) && ['student', 'supervisor', 'admin', 'reciter'].includes(req.auth.role);
     const studentNotificationsAccess = req.auth.role === 'student' && path.startsWith('/student-notifications');
-    const ownStaffAttendanceAccess = ['supervisor', 'reciter'].includes(req.auth.role) && path.startsWith('/staff-attendance');
+    const ownStaffAttendanceAccess = ['supervisor', 'admin', 'reciter'].includes(req.auth.role) && path.startsWith('/staff-attendance');
     const ownRecitationPreferencesAccess = ['supervisor', 'reciter'].includes(req.auth.role)
       && path.startsWith('/recitation-preferences');
     const ownOfflineRecitationAccess = hasOfflineRecitationAccountAccess(req.auth.role, path);
@@ -670,9 +700,9 @@ const activityDetailLabels = {
   recipientType: 'نوع المستلمين',
   recipientIds: 'المستلمون',
   studentIds: 'الطلاب',
-  supervisorIds: 'المعلمون',
+  supervisorIds: 'مشرفو المسارات',
   studentId: 'الطالب',
-  supervisorId: 'المعلم',
+  supervisorId: 'مشرف المسار',
   committeeId: 'الحلقة',
   familyId: 'الحلقة',
   itemId: 'البند',
@@ -683,9 +713,9 @@ const activityDetailLabels = {
   jobTitle: 'المسمى',
   maxSupervisorStudentPoints: 'حد إضافة نقاط الطالب',
   maxSupervisorDeductionPoints: 'حد الخصم من الطالب',
-  teacherManualPointsEnabled: 'السماح للمعلم بالإضافة والخصم',
-  teacherManualPointsTermLimit: 'حد المعلم في الفصل',
-  teacherPointTypes: 'أنواع إضافة وخصم المعلم',
+  teacherManualPointsEnabled: 'السماح لمشرف المسار بالإضافة والخصم',
+  teacherManualPointsTermLimit: 'حد مشرف المسار في الفصل',
+  teacherPointTypes: 'أنواع إضافة وخصم مشرف المسار',
   familyPointsAddToStudents: 'إضافة نقاط الحلقة للطلاب',
   familyPointsAddToAbsentStudents: 'إضافة نقاط الحلقة للغائبين',
   studentPointsAddToFamily: 'إضافة نقاط الطالب للحلقة',
@@ -712,7 +742,7 @@ const activityDetailLabels = {
 
 const activityPermissionLabels = {
   manualAttendance: 'التحضير',
-  staffAttendance: 'تحضير المعلمين والإدارة',
+  staffAttendance: 'تحضير مشرفي المسارات والإدارة',
   registrationRequests: 'طلبات التسجيل',
   students: 'الطلاب',
   studentPlans: 'خطط الطلاب',
@@ -720,7 +750,7 @@ const activityPermissionLabels = {
   calls: 'المكالمات',
   quranEvaluation: 'جلسات التسميع',
   families: 'الحلقات',
-  supervisors: 'المعلمون',
+  supervisors: 'مشرفو المسارات',
   administrators: 'الإداريون',
   reports: 'التقارير',
   whatsappSend: 'الإرسال عبر الواتس',
@@ -768,12 +798,12 @@ function describeActivity(req) {
   };
   const _resolveRules4 = () => {
     if (method === 'DELETE') {
-      return 'حذف معلم';
+      return 'حذف مشرف المسار';
     }
     if (method === 'PUT') {
-      return 'تعديل معلم';
+      return 'تعديل مشرف المسار';
     }
-    return 'إضافة معلم';
+    return 'إضافة مشرف المسار';
   };
   const _resolveRules5 = () => {
     if (method === 'DELETE') {
@@ -785,13 +815,14 @@ function describeActivity(req) {
     return 'إضافة طالب';
   };
   const rules = [
-    [/\/dashboard-permissions\/\d+$/, 'تعديل صلاحيات معلم', 'supervisor'],
+    [/\/grading\/track-compensation$/, 'تعويض إنجاز يوم', 'student'],
+    [/\/dashboard-permissions\/\d+$/, 'تعديل صلاحيات مشرف المسار', 'supervisor'],
     [/\/students\/\d+\/attendance$/, 'تسجيل حضور طالب', 'student'],
     [/\/students\/\d+\/absence$/, 'تسجيل غياب طالب', 'student'],
     [/\/students\/\d+\/points\/award$/, 'إضافة نقاط لطالب', 'student'],
-    [/\/teacher-points\/adjustments$/, 'إضافة أو خصم نقاط طالب من المعلم', 'student'],
-    [/\/supervisors\/\d+\/attendance$/, 'تسجيل حضور معلم', 'supervisor'],
-    [/\/supervisors\/\d+\/absence$/, 'تسجيل غياب معلم', 'supervisor'],
+    [/\/teacher-points\/adjustments$/, 'إضافة أو خصم نقاط طالب من مشرف المسار', 'student'],
+    [/\/supervisors\/\d+\/attendance$/, 'تسجيل حضور مشرف المسار', 'supervisor'],
+    [/\/supervisors\/\d+\/absence$/, 'تسجيل غياب مشرف المسار', 'supervisor'],
     [/\/whatsapp\/send$/, 'إرسال رسائل واتساب', 'whatsapp'],
     [/\/whatsapp\/disconnect$/, 'إلغاء ربط واتساب', 'whatsapp'],
     [/\/settings$/, 'تعديل الإعدادات', 'settings'],
@@ -828,9 +859,9 @@ async function resolveActivityTarget(req, activity) {
 
   if (studentPath && activity.entityType === 'student') queries.push(['الطالب', 'SELECT name FROM students WHERE id = ? LIMIT 1', studentPath[1]]);
   else if (familyPath && activity.entityType === 'family') queries.push(['الحلقة', 'SELECT name FROM committees WHERE id = ? LIMIT 1', familyPath[1]]);
-  else if (supervisorPath && activity.entityType === 'supervisor') queries.push(['المعلم', 'SELECT name FROM supervisors WHERE id = ? LIMIT 1', supervisorPath[1]]);
+  else if (supervisorPath && activity.entityType === 'supervisor') queries.push(['مشرف المسار', 'SELECT name FROM supervisors WHERE id = ? LIMIT 1', supervisorPath[1]]);
   else if (administratorPath && activity.entityType === 'administrator') queries.push(['الإداري', 'SELECT name FROM supervisors WHERE id = ? LIMIT 1', administratorPath[1]]);
-  else if (permissionPath) queries.push(['المعلم', 'SELECT name FROM supervisors WHERE id = ? LIMIT 1', permissionPath[1]]);
+  else if (permissionPath) queries.push(['مشرف المسار', 'SELECT name FROM supervisors WHERE id = ? LIMIT 1', permissionPath[1]]);
 
   if (!queries.length) return null;
   const [label, sql, id] = queries[0];
@@ -1513,7 +1544,7 @@ async function findLoginNumberOwner(connection, loginNumber, current = {}) {
       if (supervisors[0].role === 'reciter') {
         return 'مقرئ';
       }
-      return 'معلم';
+      return 'مشرف المسار';
     };
     const label = _resolveLabel();
     return { type: supervisors[0].role || 'supervisor', label, id: supervisors[0].id, name: supervisors[0].name };
@@ -1574,6 +1605,7 @@ function getAttendanceSessionDate(date, settings = null) {
 }
 
 function isAttendanceDay(date, settings) {
+  if (isStudentStudyHoliday(date, settings)) return false;
   const days = Array.isArray(settings.attendanceDays) ? settings.attendanceDays.map(Number) : WEEK_DAYS;
   return days.includes(getWeekDayFromDate(date));
 }
@@ -1601,6 +1633,7 @@ function getRecitationSessionDays(settings) {
 }
 
 function isRecitationSessionDay(date, settings) {
+  if (isStudentStudyHoliday(date, settings)) return false;
   return getRecitationSessionDays(settings).includes(getWeekDayFromDate(date));
 }
 
@@ -1628,6 +1661,7 @@ function getRecitationEvaluationWindow(requestedDate, settings, today = getSaudi
 }
 
 function canCreateQuranTaskOnDate(settings, date, taskType) {
+  if (isStudentStudyHoliday(date, settings)) return false;
   if (!isWeeklyHoliday(date, settings)) return true;
   const allowedTypes = Array.isArray(settings.holidayTaskTypes) ? settings.holidayTaskTypes : [];
   return allowedTypes.includes(taskType);
@@ -2361,8 +2395,11 @@ async function getNextUnmemorizedPlanPosition(connection, plan, filters = {}) {
   const direction = getQuranRangeDirection(start, end);
   const ayahs = await getQuranAyahsInPageRange(connection, direction < 0 ? 1 : start.page, direction < 0 ? 604 : end.page);
   if (!ayahs.length) throw new Error('تعذر التحقق من تسلسل الحفظ لعدم توفر بيانات الآيات.');
-  const ranges = await getStudentMemorizedRanges(connection, plan.studentId, filters);
-  return findNextUnmemorizedPosition({ ayahs, ranges, start, end, direction });
+  const ranges = plan.track === 'mastery'
+    ? await getCompletedMemorizationRanges(connection, { ...filters, studentId: plan.studentId, planId: plan.id })
+    : await getStudentMemorizedRanges(connection, plan.studentId, filters);
+  const credit = await loadCompensatedPlanRanges(connection, { studentId: plan.studentId, planId: plan.id, throughDate: filters.beforeDate || getSaudiDateTimeParts().date });
+  return findNextUnmemorizedPosition({ ayahs, ranges: [...ranges, ...credit], start, end, direction });
 }
 
 async function getQuranAyahsInPageRange(connection, startPage, endPage) {
@@ -2499,7 +2536,7 @@ async function getQuranTaskAyahMarks(connection, taskIds) {
     FROM student_quran_task_ayah_marks m
     LEFT JOIN quran_surahs s ON s.surah_number = m.surah_number
     WHERE m.task_id IN (?)
-    ORDER BY m.task_id ASC, m.surah_number ASC, m.ayah_number ASC, FIELD(m.mark_type, 'mistake', 'lahn', 'warning')
+    ORDER BY m.task_id ASC, m.surah_number ASC, m.ayah_number ASC, FIELD(m.mark_type, 'mistake', 'lahn', 'warning', 'hesitation')
     `, (row) => ({
       surah: Number(row.surah),
       surahName: row.surahName || '',
@@ -2883,7 +2920,7 @@ async function repairUnevaluatedRevisionTasks(
          SELECT 1 FROM student_quran_recitation_attempts attempt WHERE attempt.task_id = t.id AND attempt.is_official = 1
        ) AS hasAttempt
      FROM student_quran_tasks t
-     WHERE t.plan_id = ? AND t.task_date = ? AND t.task_type IN ('review', 'link')
+     WHERE t.plan_id = ? AND ${studyDateSql('t.task_date')} AND ${uncompensatedTaskSql('t')} AND t.task_date = ? AND t.task_type IN ('review', 'link')
        AND t.compensation_index = 0
      FOR UPDATE`,
     [planId, date],
@@ -3156,7 +3193,7 @@ async function splitUnevaluatedPlanTasksByFace(connection, plan, date) {
       execution_state AS executionState,
       student_status AS studentStatus
     FROM student_quran_tasks
-    WHERE plan_id = ? AND task_date = ?
+    WHERE plan_id = ? AND ${studyDateSql('task_date')} AND task_date = ?
       AND task_type IN ('memorization', 'repeat')
       AND from_page <> to_page
       AND teacher_completed IS NULL
@@ -3231,7 +3268,7 @@ async function copySplitExecutionState(row, direction, connection, plan, date) {
             actual_to_surah = ?,
             actual_to_ayah = ?,
             execution_state = ?
-        WHERE plan_id = ? AND task_date = ? AND task_type = ? AND from_page = ? AND to_page = ?
+        WHERE plan_id = ? AND ${studyDateSql('task_date')} AND task_date = ? AND task_type = ? AND from_page = ? AND to_page = ?
         `,
       [
         _resolveConditional(),
@@ -3313,7 +3350,7 @@ async function repairUnevaluatedMemorizationTaskRange(connection, plan, date, se
       ) AS hasAttempt
     FROM student_quran_tasks t
     WHERE t.plan_id = ?
-      AND t.task_date = ?
+      AND ${studyDateSql('t.task_date')} AND ${uncompensatedTaskSql('t')} AND t.task_date = ?
       AND t.task_type IN ('memorization', 'repeat')
       AND t.compensation_index = 0
     FOR UPDATE
@@ -3350,7 +3387,7 @@ async function repairUnevaluatedMemorizationTaskRange(connection, plan, date, se
   await connection.query(
     `DELETE t FROM student_quran_tasks t
      WHERE t.plan_id = ?
-       AND t.task_date = ?
+       AND ${studyDateSql('t.task_date')} AND ${uncompensatedTaskSql('t')} AND t.task_date = ?
        AND t.task_type IN ('memorization', 'repeat')
        AND t.teacher_completed IS NULL
        AND COALESCE(t.student_status, 'not_done') <> 'done'
@@ -3364,6 +3401,9 @@ async function repairUnevaluatedMemorizationTaskRange(connection, plan, date, se
 }
 
 async function ensureStudentPlanTasks(connection, plan, date, settings) {
+  if (isStudentStudyHoliday(date, settings)) return [];
+  const [[dayCredit]] = await connection.query("SELECT id FROM student_day_compensations WHERE student_id = ? AND compensated_date = ? AND scope = 'program' AND cancelled_at IS NULL", [plan.studentId, date]);
+  if (dayCredit) return [];
   if (!canContinueQuranRevision(plan)) return [];
   const effectiveStartDate = plan.startDate || plan.createdDate;
   if (effectiveStartDate && date < effectiveStartDate) return [];
@@ -3373,7 +3413,7 @@ async function ensureStudentPlanTasks(connection, plan, date, settings) {
   await splitUnevaluatedPlanTasksByFace(connection, plan, date);
 
   const [existing] = await connection.query(
-    'SELECT task_type AS taskType, target_pages AS targetPages FROM student_quran_tasks WHERE plan_id = ? AND task_date = ? AND compensation_index = 0',
+    `SELECT task_type AS taskType, target_pages AS targetPages FROM student_quran_tasks WHERE plan_id = ? AND ${studyDateSql('task_date')} AND task_date = ? AND compensation_index = 0`,
     [plan.id, date]
   );
   const existingTypes = new Set(existing.map((task) => task.taskType));
@@ -3398,7 +3438,7 @@ async function ensureStudentPlanTasks(connection, plan, date, settings) {
       teacher_completed AS teacherCompleted
     FROM student_quran_tasks
     WHERE plan_id = ?
-      AND task_date < ?
+      AND ${studyDateSql('task_date')} AND ${uncompensatedTaskSql('student_quran_tasks')} AND task_date < ?
       AND task_type IN ('memorization', 'review', 'link')
       AND compensation_index = 0
       AND (
@@ -3436,7 +3476,7 @@ async function ensureStudentPlanTasks(connection, plan, date, settings) {
   const planStart = { page: startPage, surah: Number(plan.startSurah), ayah: Number(plan.startAyah) };
   const planEnd = { page: endPage, surah: Number(plan.endSurah), ayah: Number(plan.endAyah) };
   const direction = getQuranRangeDirection(planStart, planEnd);
-  const fullyPriorPages = await getFullyMemorizedPages(connection, priorRanges, 1, 604);
+  const fullyPriorPages = await getFullyMemorizedPages(connection, plan.track === 'mastery' ? [] : priorRanges, 1, 604);
   let memorizationStart = nextUnmemorized;
   memorizationStart = memorizationStart
     ? await skipFullyMemorizedTraversalPages(connection, memorizationStart, planEnd, direction, fullyPriorPages)
@@ -3510,7 +3550,7 @@ async function ensureStudentPlanTasks(connection, plan, date, settings) {
       : Math.floor((pickedReview.hizbs || []).length / Math.max(1, Number(plan.reviewHizbs || 1))) - 1;
     await connection.query(
       `UPDATE student_quran_tasks SET compensation_days = ?
-       WHERE plan_id = ? AND task_date = ? AND task_type = 'review' AND compensation_index = 0
+       WHERE plan_id = ? AND ${studyDateSql('task_date')} AND task_date = ? AND task_type = 'review' AND compensation_index = 0
        ORDER BY id ASC LIMIT 1`,
       [Math.min(reviewCompensationDays, Math.max(0, coveredDays)), plan.id, date],
     );
@@ -3527,7 +3567,7 @@ async function getOwedRevisionCompensationDays(connection, plan, date, settings,
   // memorized yet does not owe link or review for its opening days.
   const [[first]] = await connection.query(
     `SELECT DATE_FORMAT(MIN(task_date), '%Y-%m-%d') AS firstDate FROM student_quran_tasks
-     WHERE plan_id = ? AND task_type = ? AND compensation_index = 0 AND task_date < ?`,
+     WHERE plan_id = ? AND task_type = ? AND compensation_index = 0 AND ${studyDateSql('task_date')} AND task_date < ?`,
     [plan.id, taskType, date],
   );
   const fromDate = first?.firstDate && first.firstDate > plan.startDate ? first.firstDate : plan.startDate;
@@ -3543,12 +3583,14 @@ async function getOwedRevisionCompensationDays(connection, plan, date, settings,
     if (!scheduleDates.has(day) || (reviewDays && !reviewDays.has(weekDay))) continue;
     dueDates.add(day);
   }
+  const [credits] = await connection.query("SELECT DATE_FORMAT(compensated_date, '%Y-%m-%d') AS date FROM student_day_compensations WHERE student_id = ? AND scope = 'program' AND cancelled_at IS NULL AND compensated_date BETWEEN ? AND ?", [plan.studentId, fromDate, endDate]);
+  for (const credit of credits) dueDates.delete(credit.date);
   if (!dueDates.size) return 0;
   const [rows] = await connection.query(
     `SELECT DATE_FORMAT(task_date, '%Y-%m-%d') AS taskDate, compensation_index AS compensationIndex,
        MAX(compensation_days) AS compensationDays
      FROM student_quran_tasks
-     WHERE plan_id = ? AND task_type = ? AND task_date >= ? AND task_date <= ? AND ${ACCEPTED_QURAN_TASK_SQL}
+     WHERE plan_id = ? AND task_type = ? AND ${studyDateSql('task_date')} AND task_date >= ? AND task_date <= ? AND ${ACCEPTED_QURAN_TASK_SQL}
      GROUP BY task_date, compensation_index`,
     [plan.id, taskType, fromDate, date],
   );
@@ -3580,7 +3622,7 @@ async function loadCompensationDayRows(connection, plan, date, taskType) {
        target_pages AS targetPages, student_status AS studentStatus, teacher_completed AS teacherCompleted,
        evaluated_at AS evaluatedAt, compensation_days AS compensationDays
      FROM student_quran_tasks
-     WHERE plan_id = ? AND task_date = ? AND task_type = ?
+     WHERE plan_id = ? AND ${studyDateSql('task_date')} AND task_date = ? AND task_type = ?
      ORDER BY compensation_index ASC, id ASC`,
     [plan.id, date, taskType],
   );
@@ -3731,7 +3773,7 @@ async function refreshPendingMemorizationProgress({ existingTypes, connection, p
     const [[currentMemorization]] = await connection.query(
       `SELECT from_page AS fromPage, from_surah AS fromSurah, from_ayah AS fromAyah
        FROM student_quran_tasks
-       WHERE plan_id = ? AND task_date = ? AND task_type = 'memorization' AND compensation_index = 0
+       WHERE plan_id = ? AND ${studyDateSql('task_date')} AND task_date = ? AND task_type = 'memorization' AND compensation_index = 0
        ORDER BY id ASC LIMIT 1`,
       [plan.id, date]
     );
@@ -3746,7 +3788,7 @@ async function refreshPendingMemorizationProgress({ existingTypes, connection, p
         `UPDATE student_quran_tasks
          SET normal_to_page = ?, normal_to_surah = ?, normal_to_ayah = ?,
              scheduled_to_page = ?, scheduled_to_surah = ?, scheduled_to_ayah = ?
-         WHERE plan_id = ? AND task_date = ? AND task_type = 'memorization' AND compensation_index = 0
+         WHERE plan_id = ? AND ${studyDateSql('task_date')} AND task_date = ? AND task_type = 'memorization' AND compensation_index = 0
            AND student_status <> 'done' AND teacher_completed IS NULL
            AND executed_at IS NULL AND evaluated_at IS NULL`,
         [
@@ -3856,7 +3898,7 @@ async function markCarriedTaskForRetry(task, connection, plan, date) {
         SET teacher_rating_key = 'repeat_required',
             teacher_rating_label = 'يحتاج إعادة'
         WHERE plan_id = ?
-          AND task_date = ?
+          AND ${studyDateSql('task_date')} AND task_date = ?
           AND task_type = ?
           AND from_page = ?
           AND to_page = ?
@@ -3882,7 +3924,7 @@ async function previewStudentPlanDay(connection, plan, date, settings) {
     executed_at AS executedAt, evaluated_at AS evaluatedAt, actual_to_page AS actualToPage,
     EXISTS (SELECT 1 FROM student_quran_recitation_attempts attempt
       WHERE attempt.task_id = student_quran_tasks.id AND attempt.is_official = 1) AS hasAttempt
-    FROM student_quran_tasks WHERE student_id = ? AND plan_id = ? AND task_date = ?
+    FROM student_quran_tasks WHERE student_id = ? AND plan_id = ? AND ${studyDateSql('task_date')} AND task_date = ?
       AND task_type IN ('memorization', 'link', 'review') ORDER BY id`, [plan.studentId, plan.id, date]);
   if (saved.length && (date <= getSaudiDateTimeParts().date || !canContinueQuranRevision(plan))) return normalizeAmounts(saved);
   if (!canContinueQuranRevision(plan) || (plan.startDate && date < plan.startDate)) return [];
@@ -4096,6 +4138,7 @@ function normalizePlanRow(row) {
     status: row.status,
     track: normalizeQuranPlanTrack(row.track),
     trackLabel: QURAN_PLAN_TRACK_LABELS[normalizeQuranPlanTrack(row.track)],
+    queuedRanges: readQueuedPlanRanges(row.queuedRanges),
     startSurah: row.startSurah,
     startSurahName: row.startSurahName || '',
     startAyah: row.startAyah,
@@ -4108,6 +4151,7 @@ function normalizePlanRow(row) {
     linkPages: row.linkPages,
     reviewPages: row.reviewPages,
     reviewHizbs: Math.max(1, Number(row.reviewHizbs || 1)),
+    readingHizbs: row.readingHizbs == null ? null : Number(row.readingHizbs),
     readingFaces: row.readingFaces === null || row.readingFaces === undefined ? null : Number(row.readingFaces),
     reviewSplitWeekly: Boolean(Number(row.reviewSplitWeekly || 0)),
     reviewWeekStartDay: row.reviewWeekStartDay,
@@ -4148,6 +4192,7 @@ async function getActivePlanForStudent(connection, studentId) {
     SELECT
       p.id,
       p.previous_plan_id AS previousPlanId,
+      p.queued_ranges_json AS queuedRanges,
       p.student_id AS studentId,
       p.status,
       p.track,
@@ -4162,6 +4207,7 @@ async function getActivePlanForStudent(connection, studentId) {
       p.review_pages AS reviewPages,
       p.review_hizbs AS reviewHizbs,
       p.reading_faces AS readingFaces,
+      p.reading_hizbs AS readingHizbs,
       p.review_split_weekly AS reviewSplitWeekly,
       p.review_week_start_day AS reviewWeekStartDay,
       p.review_week_end_day AS reviewWeekEndDay,
@@ -4210,7 +4256,7 @@ async function getActivePlanForStudent(connection, studentId) {
         JOIN student_quran_plans schedule_p ON schedule_p.id = schedule_t.plan_id
         WHERE schedule_p.student_id = ? AND ${currentQuranPlanSql('schedule_p')}
           AND schedule_t.task_type = 'memorization'
-          AND schedule_t.task_date <= CURDATE()
+          AND ${studyDateSql('schedule_t.task_date')} AND schedule_t.task_date <= CURDATE()
           AND schedule_t.task_date >= COALESCE(schedule_p.start_date, DATE(schedule_p.created_at))
         GROUP BY schedule_t.plan_id
       ) schedule ON schedule.planId = p.id
@@ -4220,6 +4266,17 @@ async function getActivePlanForStudent(connection, studentId) {
     [studentId, studentId, studentId, studentId]
   );
   return normalizePlanRow(row);
+}
+
+async function buildStudentPlanForecast(connection, plan, settings) {
+  const today = getSaudiDateTimeParts().date;
+  const ranges = plan.track === 'mastery'
+    ? await getCompletedMemorizationRanges(connection, { studentId: plan.studentId, planId: plan.id, approvedOnly: true })
+    : await getStudentMemorizedRanges(connection, plan.studentId, { approvedOnly: true });
+  const credit = await loadCompensatedPlanRanges(connection, { studentId: plan.studentId, planId: plan.id, throughDate: today });
+  const forecast = await forecastQuranPlan(connection, { plan, acceptedRanges: [...ranges, ...credit], priorRanges: plan.track === 'mastery' ? [] : await getPriorMemorizationRanges(connection, plan.id), today, workDays: getStoredPlanScheduleDays(plan, settings) });
+  const context = await getPlanProgressContext(connection, plan, addUtcDays(today, -1), settings);
+  return { ...forecast, planPaused: studentPlanPauseStatus(settings.planPause).paused, progress: { ...await getPlanProgressSummary(connection, context), shortageFaces: forecast.delayedFaces, aheadFaces: forecast.aheadFaces } };
 }
 
 function normalizeTaskRow(row, referenceMode = 'ayah') {
@@ -4295,6 +4352,7 @@ function normalizeTaskRow(row, referenceMode = 'ayah') {
     teacherRatingKey: row.teacherRatingKey,
     teacherRatingLabel: row.teacherRatingLabel,
     warningCount: Number(row.warningCount || 0),
+    hesitationCount: Number(row.hesitationCount || 0),
     mistakeCount: Number(row.mistakeCount || 0),
     evaluationScore: row.evaluationScore === null || row.evaluationScore === undefined ? null : Number(row.evaluationScore),
     evaluationMaxScore: row.evaluationMaxScore === null || row.evaluationMaxScore === undefined ? null : Number(row.evaluationMaxScore),
@@ -4687,6 +4745,10 @@ function serializeRegistrationRequest(row, { juzRanges = [] } = {}) {
     guardianPhone: row.guardianPhone,
     nationalId: row.nationalId,
     age: Number(row.age || 0),
+    complexId: row.complexId ? Number(row.complexId) : null,
+    complexName: row.complexName || null,
+    committeeId: row.committeeId ? Number(row.committeeId) : null,
+    committeeName: row.committeeName || null,
     memorization: {
       items: memorizationItems,
       juzs: getRegistrationMemorizedJuzs(memorizationItems, juzRanges),
@@ -4708,6 +4770,8 @@ async function getRegistrationRequestById(connection, id, { lock = false } = {})
       age,
       memorization_json AS memorizationJson,
       test_results_json AS testResultsJson,
+      complex_id AS complexId,
+      committee_id AS committeeId,
       DATE_FORMAT(preliminary_sent_at, '%Y-%m-%d %H:%i:%s') AS preliminarySentAt,
       DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS createdAt
     FROM registration_requests
@@ -4791,7 +4855,7 @@ async function markPendingQuranTasksForDate(connection, date) {
     SET student_status = 'not_done'
     WHERE student_status = 'pending'
       AND teacher_completed IS NULL
-      AND task_date = ?
+      AND ${studyDateSql('task_date')} AND task_date = ?
     `,
     [date]
   );
@@ -4807,6 +4871,7 @@ async function processAutomaticExecutionMessages() {
     if (!hasStudentQuranExecution(settings) || !settings.automaticExecutionMessageEnabled || !settings.executionReminderTemplate) return;
 
     const now = getSaudiDateTimeParts();
+    if (isStudentStudyHoliday(now.date, settings)) return;
     if (settings.automaticExecutionLastRunDate === now.date) return;
     if (!isCurrentTimeAtOrAfter(now.time, settings.automaticExecutionMessageTime)) return;
 
@@ -4843,7 +4908,7 @@ async function processAutomaticExecutionMessages() {
         t.student_status AS studentStatus,
         t.teacher_rating_key AS teacherRatingKey,
         t.teacher_rating_label AS teacherRatingLabel,
-        t.warning_count AS warningCount,
+        t.warning_count AS warningCount, t.hesitation_count AS hesitationCount,
         t.mistake_count AS mistakeCount,
         t.evaluation_score AS evaluationScore,
         t.evaluation_max_score AS evaluationMaxScore,
@@ -4853,7 +4918,7 @@ async function processAutomaticExecutionMessages() {
       JOIN student_quran_tasks t ON t.student_id = s.id
       LEFT JOIN quran_surahs qsf ON qsf.surah_number = t.from_surah
       LEFT JOIN quran_surahs qst ON qst.surah_number = t.to_surah
-      WHERE t.task_date = ?
+      WHERE ${studyDateSql('t.task_date')} AND ${uncompensatedTaskSql('t')} AND t.task_date = ?
         AND t.task_type IN ('memorization', 'review', 'link')
         AND COALESCE(t.target_pages, 0) > 0
         AND t.from_page BETWEEN 1 AND 604
@@ -4970,6 +5035,7 @@ async function prepareAutomaticExecutionTasks(connection, now, settings) {
           p.review_pages AS reviewPages,
       p.review_hizbs AS reviewHizbs,
       p.reading_faces AS readingFaces,
+      p.reading_hizbs AS readingHizbs,
           p.review_split_weekly AS reviewSplitWeekly,
           p.review_week_start_day AS reviewWeekStartDay,
           p.review_week_end_day AS reviewWeekEndDay,
@@ -5261,6 +5327,8 @@ function normalizeSettings(rows) {
     registrationPreAcceptTemplate: settings.registrationPreAcceptTemplate || 'السلام عليكم، تم قبول طلب تسجيل الطالب {name} مبدئياً، وسيتم التواصل معكم لإكمال الإجراء.',
     registrationAcceptTemplate: settings.registrationAcceptTemplate || 'السلام عليكم، تم قبول الطالب {name} في حلقة {committee}. رقم الدخول: {login}.',
     registrationRejectTemplate: settings.registrationRejectTemplate || 'السلام عليكم، نعتذر عن قبول طلب تسجيل الطالب {name} حالياً.',
+    seasonalHolidays: normalizeSeasonalHolidays(settings.seasonalHolidays || []),
+    planPause: parseStudentPlanPause(settings.studentPlanPause),
     weeklyHolidayDays: normalizeWeeklyHolidayDays(settings.weeklyHolidayDays),
     holidayTaskTypes: normalizeHolidayTaskTypes(settings.holidayTaskTypes),
     recitationSessionDays: normalizeWeekDayList(settings.recitationSessionDays, DEFAULT_RECITATION_SESSION_DAYS),
@@ -5288,6 +5356,7 @@ function normalizeSettings(rows) {
     quranPlanEndDate: isValidDateOnly(settings.quranPlanEndDate) ? settings.quranPlanEndDate : '',
     narrationMaxScore: Math.max(1, Number(settings.narrationMaxScore || 100)),
     narrationWarningDeduction: Math.max(0, Number(settings.narrationWarningDeduction || 1)),
+    narrationHesitationDeduction: Math.max(0, Number(settings.narrationHesitationDeduction ?? 0)),
     narrationMistakeDeduction: Math.max(0, Number(settings.narrationMistakeDeduction || 5)),
     narrationStartTemplate: settings.narrationStartTemplate || 'السلام عليكم، بدأ {eventName} من {fromDate} إلى {toDate}.',
     narrationEndTemplate: settings.narrationEndTemplate || 'السلام عليكم، انتهى {eventName}.',
@@ -5311,6 +5380,7 @@ function publicSettingsForClient(settings) {
     teacherManualPointsEnabled: Boolean(settings.teacherManualPointsEnabled),
     storeEnabled: Boolean(settings.storeEnabled),
     storePurchaseDeductsRanking: Boolean(settings.storePurchaseDeductsRanking),
+    seasonalHolidays: normalizeSeasonalHolidays(settings.seasonalHolidays || []),
     weeklyHolidayDays: normalizeWeeklyHolidayDays(settings.weeklyHolidayDays),
     holidayTaskTypes: normalizeHolidayTaskTypes(settings.holidayTaskTypes),
     recitationSessionDays: normalizeWeekDayList(settings.recitationSessionDays, DEFAULT_RECITATION_SESSION_DAYS),
@@ -5849,8 +5919,8 @@ const studentPointSourceLabels = {
   family_achievement: 'وسام الحلقة',
   family_adjustment: 'تعديل نقاط الحلقة',
   family_points_setting_adjustment: 'تعطيل تحويل نقاط الحلقة إلى الطلاب',
-  supervisor_award: 'إضافة نقاط من معلم',
-  supervisor_deduction: 'خصم نقاط من معلم',
+  supervisor_award: 'إضافة نقاط من مشرف المسار',
+  supervisor_deduction: 'خصم نقاط من مشرف المسار',
   manager_adjustment: 'تعديل نقاط من المدير',
   manual_award: 'منح نقاط من المدير',
   manual: 'إدخال يدوي',
@@ -6017,6 +6087,7 @@ async function reconcileAllTenantStartupState() {
   });
 }
 
+app.use('/api/complexes', createComplexRouter());
 app.use('/api/calls', callRouter);
 
 function getNarrationRating(score, maxScore = 100) {
@@ -6088,7 +6159,7 @@ async function getNarrationEvent(eventId, auth) {
       SELECT p.id, p.event_student_id AS eventStudentId, p.juz_number AS juzNumber,
         p.start_surah AS startSurah, p.start_ayah AS startAyah, p.start_page AS startPage,
         p.end_surah AS endSurah, p.end_ayah AS endAyah, p.end_page AS endPage,
-        p.faces, p.warning_count AS warningCount, p.mistake_count AS mistakeCount,
+        p.faces, p.warning_count AS warningCount, p.hesitation_count AS hesitationCount, p.mistake_count AS mistakeCount,
         p.score, p.evaluation_mode AS evaluationMode, p.word_marks_json AS wordMarks,
         qsf.name_arabic AS startSurahName, qst.name_arabic AS endSurahName,
         COALESCE(p.evaluated_by_name, sp.name) AS evaluatorName, DATE_FORMAT(p.evaluated_at, '%Y-%m-%d %H:%i') AS evaluatedAt
@@ -6155,6 +6226,7 @@ async function getNarrationEvent(eventId, auth) {
     evaluationPolicy: {
       maxScore: Number(settings.narrationMaxScore),
       warningDeduction: Number(settings.narrationWarningDeduction),
+      hesitationDeduction: Number(settings.narrationHesitationDeduction ?? 0),
       mistakeDeduction: Number(settings.narrationMistakeDeduction),
     },
     summary: summarizeNarrationStudents(students),
@@ -6466,24 +6538,26 @@ app.put('/api/narration-events/:eventId/students/:studentEntryId/juz/:juzNumber'
       return res.status(422).json({ message: 'لا ترسل علامات كلمات مع النتيجة اليدوية.' });
     }
     const allMarks = [...marksByPart.values()].flat();
+    const hesitations = evaluationMode === 'mushaf' ? allMarks.filter(mark => mark.markType === 'hesitation').length : Number(req.body.hesitationCount ?? 0);
     const warnings = evaluationMode === 'mushaf'
       ? allMarks.filter((mark) => mark.markType === 'warning').length
       : Math.max(0, Number(req.body.warningCount || 0));
     const mistakes = evaluationMode === 'mushaf'
       ? allMarks.filter((mark) => isMistakeMark(mark.markType)).length
       : Math.max(0, Number(req.body.mistakeCount || 0));
-    if (![warnings, mistakes].every(value => Number.isInteger(value) && value >= 0 && value <= 1000)) return res.status(422).json({ message: 'الأخطاء والتنبيهات يجب أن تكون أعدادًا صحيحة من 0 إلى 1000.' });
+    if (![warnings, hesitations, mistakes].every(value => Number.isInteger(value) && value >= 0 && value <= 1000)) return res.status(422).json({ message: 'الأخطاء والتنبيهات والترددات يجب أن تكون أعدادًا صحيحة من 0 إلى 1000.' });
     const settings = await loadSettings();
-    const score = Math.max(0, Number(settings.narrationMaxScore) - warnings * Number(settings.narrationWarningDeduction) - mistakes * Number(settings.narrationMistakeDeduction));
+    const score = Math.max(0, Number(settings.narrationMaxScore) - hesitations * Number(settings.narrationHesitationDeduction ?? 0) - warnings * Number(settings.narrationWarningDeduction) - mistakes * Number(settings.narrationMistakeDeduction));
     await connection.beginTransaction();
     for (const [index, part] of parts.entries()) {
       const partMarks = marksByPart.get(String(part.id)) || [];
       // Manual counts belong to the juz as a whole, so they are kept once on its first segment.
+      const partHesitations = evaluationMode === 'mushaf' ? partMarks.filter(mark => mark.markType === 'hesitation').length : (index === 0 ? hesitations : 0);
       const partWarnings = evaluationMode === 'mushaf' ? partMarks.filter((mark) => mark.markType === 'warning').length : (index === 0 ? warnings : 0);
       const partMistakes = evaluationMode === 'mushaf' ? partMarks.filter((mark) => isMistakeMark(mark.markType)).length : (index === 0 ? mistakes : 0);
       await connection.query(
-        'UPDATE narration_event_parts SET warning_count = ?, mistake_count = ?, score = ?, notes = NULL, evaluated_by = ?, evaluated_by_name = ?, evaluated_at = NOW(), evaluation_mode = ?, word_marks_json = ? WHERE id = ?',
-        [partWarnings, partMistakes, score, Number(req.auth.id || 0) || null, req.auth.name || (req.auth.role === 'manager' ? 'المدير' : 'المعلم'), evaluationMode, evaluationMode === 'mushaf' ? JSON.stringify(partMarks) : null, part.id]
+        'UPDATE narration_event_parts SET warning_count = ?, hesitation_count = ?, mistake_count = ?, score = ?, notes = NULL, evaluated_by = ?, evaluated_by_name = ?, evaluated_at = NOW(), evaluation_mode = ?, word_marks_json = ? WHERE id = ?',
+        [partWarnings, partHesitations, partMistakes, score, Number(req.auth.id || 0) || null, req.auth.name || (req.auth.role === 'manager' ? 'المدير' : 'مشرف المسار'), evaluationMode, evaluationMode === 'mushaf' ? JSON.stringify(partMarks) : null, part.id]
       );
     }
     const { complete, finalScore } = await refreshNarrationStudentResult(connection, entryId, req.auth, settings.narrationMaxScore);
@@ -6493,7 +6567,7 @@ app.put('/api/narration-events/:eventId/students/:studentEntryId/juz/:juzNumber'
         .then((updatedEvent) => updatedEvent && sendNarrationMessages(updatedEvent, { type: 'result', eventStudentId: String(entryId) }))
         .catch(() => undefined);
     }
-    res.json({ ok: true, score, warningCount: warnings, mistakeCount: mistakes, finalScore, finalRating: complete ? getNarrationRating(finalScore, settings.narrationMaxScore) : null });
+    res.json({ ok: true, score, warningCount: warnings, hesitationCount: hesitations, mistakeCount: mistakes, finalScore, finalRating: complete ? getNarrationRating(finalScore, settings.narrationMaxScore) : null });
   } catch (error) { await connection.rollback().catch(() => undefined); next(error); } finally { connection.release(); }
 });
 
@@ -6513,7 +6587,7 @@ app.put('/api/narration-events/:eventId/students/:studentEntryId/status', requir
     }
     await connection.query(
       'INSERT INTO narration_event_reciters (event_student_id, actor_role, actor_id, actor_name) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE actor_name = VALUES(actor_name)',
-      [entryId, req.auth.role, Number(req.auth.id || 0), req.auth.name || (req.auth.role === 'manager' ? 'المدير' : 'المعلم')]
+      [entryId, req.auth.role, Number(req.auth.id || 0), req.auth.name || (req.auth.role === 'manager' ? 'المدير' : 'مشرف المسار')]
     );
     await connection.commit();
     res.json({ ok: true });
@@ -6676,7 +6750,7 @@ app.put('/api/dashboard-permissions/:supervisorId', requirePermission, async (re
     const supervisorId = Number(req.params.supervisorId);
     const permissions = cleanDashboardPermissions(req.body.permissions);
     const [[supervisor]] = await connection.query("SELECT id FROM supervisors WHERE id = ? AND role = 'supervisor'", [supervisorId]);
-    if (!supervisor) return res.status(404).json({ message: 'المعلم غير موجود.' });
+    if (!supervisor) return res.status(404).json({ message: 'مشرف المسار غير موجود.' });
 
     await connection.beginTransaction();
     await connection.query('DELETE FROM supervisor_dashboard_permissions WHERE supervisor_id = ?', [supervisorId]);
@@ -6747,6 +6821,7 @@ app.use('/api/staff-attendance', createStaffAttendanceRouter({
 }));
 app.use('/api/recitation-preferences', createStaffRecitationPreferencesRouter({ loadSettings }));
 app.use('/api/grading', createGradingRouter({ db, loadSettings, today: () => getSaudiDateTimeParts().date }));
+app.use('/api/student-plans/pause', createStudentPlanPauseRouter({ db, requireRead: requireStudentPlanAccess }));
 app.use('/api/offline-recitation', createOfflineRecitationRouter({
   getToday: () => getSaudiDateTimeParts().date,
   prepareOfflineWindow: async ({ connection, accountId, fromDate, cacheDays }) => {
@@ -7059,6 +7134,7 @@ app.put('/api/settings', requirePermission('settings'), async (req, res, next) =
         ('registrationPreAcceptTemplate', ?),
         ('registrationAcceptTemplate', ?),
         ('registrationRejectTemplate', ?),
+        ('seasonalHolidays', ?),
         ('weeklyHolidayDays', ?),
         ('holidayTaskTypes', ?),
         ('recitationSessionDays', ?),
@@ -7080,6 +7156,7 @@ app.put('/api/settings', requirePermission('settings'), async (req, res, next) =
         ('linkRecitationMode', ?),
         ('narrationMaxScore', ?),
         ('narrationWarningDeduction', ?),
+        ('narrationHesitationDeduction', ?),
         ('narrationMistakeDeduction', ?),
         ('narrationStartTemplate', ?),
         ('narrationEndTemplate', ?),
@@ -7124,6 +7201,7 @@ app.put('/api/settings', requirePermission('settings'), async (req, res, next) =
         settings.registrationPreAcceptTemplate,
         settings.registrationAcceptTemplate,
         settings.registrationRejectTemplate,
+        JSON.stringify(settings.seasonalHolidays),
         JSON.stringify(settings.weeklyHolidayDays),
         JSON.stringify(settings.holidayTaskTypes),
         JSON.stringify(settings.recitationSessionDays),
@@ -7145,6 +7223,7 @@ app.put('/api/settings', requirePermission('settings'), async (req, res, next) =
         settings.linkRecitationMode,
         String(settings.narrationMaxScore),
         String(settings.narrationWarningDeduction),
+        String(settings.narrationHesitationDeduction),
         String(settings.narrationMistakeDeduction),
         settings.narrationStartTemplate,
         settings.narrationEndTemplate,
@@ -7308,10 +7387,10 @@ app.post('/api/administrators', requirePermission('administrators'), async (req,
     await ensureLoginNumberIsAvailable(connection, loginNumber);
     const [result] = await connection.query(
       `
-      INSERT INTO supervisors (name, login_number, national_id, phone, job_title, role)
-      VALUES (?, ?, ?, ?, ?, 'admin')
+      INSERT INTO supervisors (name, login_number, national_id, phone, job_title, role, password_hash)
+      VALUES (?, ?, ?, ?, ?, 'admin', ?)
       `,
-      [name, loginNumber, nationalId, phone, jobTitle]
+      [name, loginNumber, nationalId, phone, jobTitle, await hashStudentPassword(req.body.password)]
     );
     if (permissions.length) {
       await connection.query(
@@ -7369,7 +7448,9 @@ app.put('/api/administrators/:id', requirePermission('administrators'), async (r
         [permissions.map((permission) => [req.params.id, permission])]
       );
     }
-    if (String(administrator.loginNumber || '').trim() !== loginNumber) {
+    const passwordChanged = req.body.password !== undefined && req.body.password !== '';
+    if (passwordChanged) await connection.query('UPDATE supervisors SET password_hash = ? WHERE id = ?', [await hashStudentPassword(req.body.password), req.params.id]);
+    if (passwordChanged || String(administrator.loginNumber || '').trim() !== loginNumber) {
       await revokeAuthSessionsForUser(connection, 'admin', req.params.id);
     }
     await connection.commit();
@@ -7435,11 +7516,13 @@ app.get('/api/committees', async (_req, res, next) => {
   try {
     const [rows] = await db().query(`
       SELECT
-        id,
-        name,
-        points
-      FROM committees
-      ORDER BY name ASC
+        c.id,
+        c.name,
+        c.points,
+        c.complex_id AS complexId,
+        x.name AS complexName
+      FROM committees c LEFT JOIN complexes x ON x.id = c.complex_id
+      ORDER BY c.name ASC
     `);
     res.json(rows);
   } catch (error) {
@@ -7450,10 +7533,13 @@ app.get('/api/committees', async (_req, res, next) => {
 app.get('/api/registration/public', async (_req, res, next) => {
   try {
     const settings = await loadSettings();
-    const juzRanges = settings.registrationEnabled ? await getQuranJuzRangesForClient(db()) : [];
+    const [juzRanges, placement] = settings.registrationEnabled
+      ? await Promise.all([getQuranJuzRangesForClient(db()), loadRegistrationPlacementOptions(db())])
+      : [[], { complexes: [], committees: [] }];
     res.json({
       enabled: Boolean(settings.registrationEnabled),
       juzRanges,
+      ...placement,
     });
   } catch (error) {
     next(error);
@@ -7484,16 +7570,20 @@ app.post('/api/registration/public', async (req, res, next) => {
       return res.status(409).json({ message: 'يوجد طلب تسجيل قائم لهذا الطالب.' });
     }
 
+    await connection.beginTransaction();
+    const placement = await requireRegistrationPlacement(connection, req.body, { lock: true });
     const memorization = await normalizeRegistrationMemorization(connection, req.body.memorization || {});
     const [result] = await connection.query(
       `
-      INSERT INTO registration_requests (name, guardian_phone, national_id, age, memorization_json)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO registration_requests (name, guardian_phone, national_id, age, memorization_json, complex_id, committee_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
       `,
-      [person.name, person.guardianPhone, person.nationalId, person.age, JSON.stringify(memorization)]
+      [person.name, person.guardianPhone, person.nationalId, person.age, JSON.stringify(memorization), placement.complexId, placement.committeeId]
     );
+    await connection.commit();
     res.status(201).json({ ok: true, id: result.insertId });
   } catch (error) {
+    await connection.rollback();
     next(error);
   } finally {
     await releaseNamedLock(connection, registrationLock);
@@ -7506,17 +7596,23 @@ app.get('/api/registration-requests', requirePermission('registrationRequests'),
     const [rows] = await db().query(
       `
       SELECT
-        id,
-        name,
-        guardian_phone AS guardianPhone,
-        national_id AS nationalId,
-        age,
-        memorization_json AS memorizationJson,
-        test_results_json AS testResultsJson,
-        DATE_FORMAT(preliminary_sent_at, '%Y-%m-%d %H:%i:%s') AS preliminarySentAt,
-        DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS createdAt
-      FROM registration_requests
-      ORDER BY created_at DESC, id DESC
+        r.id,
+        r.name,
+        r.guardian_phone AS guardianPhone,
+        r.national_id AS nationalId,
+        r.age,
+        r.complex_id AS complexId,
+        x.name AS complexName,
+        r.committee_id AS committeeId,
+        c.name AS committeeName,
+        r.memorization_json AS memorizationJson,
+        r.test_results_json AS testResultsJson,
+        DATE_FORMAT(r.preliminary_sent_at, '%Y-%m-%d %H:%i:%s') AS preliminarySentAt,
+        DATE_FORMAT(r.created_at, '%Y-%m-%d %H:%i:%s') AS createdAt
+      FROM registration_requests r
+      LEFT JOIN complexes x ON x.id = r.complex_id
+      LEFT JOIN committees c ON c.id = r.committee_id
+      ORDER BY r.created_at DESC, r.id DESC
       `
     );
     const [settings, juzRanges] = await Promise.all([loadSettings(), getQuranJuzRangesForClient(db())]);
@@ -7594,8 +7690,7 @@ app.post('/api/registration-requests/:id/accept', requirePermission('registratio
     const guardianPhone = normalizeAccountPhone(req.body.guardianPhone ?? request.guardianPhone);
     const nationalId = normalizeOptionalNationalId(req.body.nationalId ?? request.nationalId);
     const age = Number(toDigitsOnly(req.body.age || request.age));
-    const committeeId = normalizeOptionalCommitteeId(req.body.committeeId);
-    if (!name || !loginNumber || !committeeId) {
+    if (!name || !loginNumber) {
       await connection.rollback();
       return res.status(422).json({ message: 'الاسم ورقم الدخول والحلقة مطلوبة.' });
     }
@@ -7604,12 +7699,12 @@ app.post('/api/registration-requests/:id/accept', requirePermission('registratio
       return res.status(422).json({ message: 'العمر غير صحيح.' });
     }
 
-    const [[committee]] = await connection.query('SELECT id, name FROM committees WHERE id = ? LIMIT 1', [committeeId]);
-    if (!committee) {
-      await connection.rollback();
-      return res.status(422).json({ message: 'الحلقة المختارة غير موجودة.' });
-    }
-    committeeName = committee.name;
+    const placement = await requireRegistrationPlacement(connection, {
+      committeeId: req.body.committeeId ?? request.committeeId,
+      complexId: req.body.complexId ?? request.complexId,
+    }, { allowDerivedComplex: !request.complexId && req.body.complexId === undefined, lock: true });
+    const { committeeId } = placement;
+    committeeName = placement.committeeName;
     await ensureLoginNumberIsAvailable(connection, loginNumber);
     await assertStudentIdentityAvailable(connection, nationalId);
 
@@ -7644,6 +7739,8 @@ app.post('/api/registration-requests/:id/accept', requirePermission('registratio
       age,
       committeeId,
       committeeName,
+      complexId: placement.complexId,
+      complexName: placement.complexName,
     };
     requestForMessage = { ...request, ...createdStudent };
   } catch (error) {
@@ -7743,6 +7840,7 @@ app.get('/api/student-plans', requireStudentPlanAccess, async (req, res, next) =
         c.name AS committeeName,
         p.id,
         p.previous_plan_id AS previousPlanId,
+      p.queued_ranges_json AS queuedRanges,
         p.status,
         p.track,
         p.start_surah AS startSurah,
@@ -7756,6 +7854,7 @@ app.get('/api/student-plans', requireStudentPlanAccess, async (req, res, next) =
         p.review_pages AS reviewPages,
       p.review_hizbs AS reviewHizbs,
       p.reading_faces AS readingFaces,
+      p.reading_hizbs AS readingHizbs,
         p.review_split_weekly AS reviewSplitWeekly,
         p.review_week_start_day AS reviewWeekStartDay,
         p.review_week_end_day AS reviewWeekEndDay,
@@ -7803,7 +7902,7 @@ app.get('/api/student-plans', requireStudentPlanAccess, async (req, res, next) =
         FROM student_quran_tasks schedule_t
         JOIN student_quran_plans schedule_p ON schedule_p.id = schedule_t.plan_id
         WHERE schedule_t.task_type = 'memorization'
-          AND schedule_t.task_date <= CURDATE()
+          AND ${studyDateSql('schedule_t.task_date')} AND schedule_t.task_date <= CURDATE()
           AND schedule_t.task_date >= COALESCE(schedule_p.start_date, DATE(schedule_p.created_at))
         GROUP BY schedule_t.plan_id
       ) schedule ON schedule.planId = p.id
@@ -7885,13 +7984,7 @@ app.get('/api/student-plans', requireStudentPlanAccess, async (req, res, next) =
           priorMemorization,
           completedMemorization,
         });
-        const progressContext = await getPlanProgressContext(
-          db(),
-          normalizedPlan,
-          addUtcDays(getSaudiDateTimeParts().date, -1),
-          planSettings,
-        );
-        plan = { ...normalizedPlan, progress: await getPlanProgressSummary(db(), progressContext) };
+        plan = { ...normalizedPlan, ...await buildStudentPlanForecast(db(), normalizedPlan, planSettings) };
       }
       return {
         studentId: row.studentId,
@@ -7919,14 +8012,16 @@ app.put('/api/student-plans/:studentId', requireStudentPlanAccess, async (req, r
     const requestedStartPage = Number(req.body.startPage || 0);
     const requestedEndPage = Number(req.body.endPage || 0);
     const dailyPages = toPositiveQuarterFace(req.body.dailyPages, 1);
+    assertPlanDailyThreshold(await loadGradingPolicy(connection), dailyPages);
     const linkPages = toPositiveInt(req.body.linkPages, 10);
     const reviewPages = toPositiveInt(req.body.reviewPages, 20);
     const reviewHizbs = Math.min(60, toPositiveInt(req.body.reviewHizbs, 1));
+    let readingHizbs = validatePlanReadingHizbs(req.body.readingHizbs);
     const requestedReadingFaces = Math.floor(Number(req.body.readingFaces) || 0);
     const readingFaces = requestedReadingFaces > 0 ? Math.min(MAX_PLAN_READING_FACES, requestedReadingFaces) : DEFAULT_PLAN_READING_FACES;
     const planSaveMode = req.body.mode === PLAN_SAVE_MODES.new ? PLAN_SAVE_MODES.new : PLAN_SAVE_MODES.continue;
-    if (req.body.track && req.body.track !== 'memorization') return res.status(422).json({ message: 'مسار الخطة غير متاح.' });
-    const track = 'memorization';
+    if (req.body.track && !QURAN_PLAN_TRACKS.has(req.body.track)) return res.status(422).json({ message: 'مسار الخطة غير صحيح.' });
+    const track = normalizeQuranPlanTrack(req.body.track);
     const reviewSplitWeekly = req.body.reviewSplitWeekly === true || req.body.reviewSplitWeekly === 1 ? 1 : 0;
     const reviewWeekStartDay = normalizeWeekDay(req.body.reviewWeekStartDay, 0);
     const reviewWeekEndDay = normalizeWeekDay(req.body.reviewWeekEndDay, 6);
@@ -7963,6 +8058,7 @@ app.put('/api/student-plans/:studentId', requireStudentPlanAccess, async (req, r
         student_id AS studentId,
         status,
         plan_version AS planVersion,
+        queued_ranges_json AS queuedRanges,
         EXISTS (SELECT 1 FROM student_quran_tasks done_task WHERE done_task.plan_id = student_quran_plans.id
           AND (done_task.teacher_completed IS NOT NULL OR done_task.student_status = 'done'
             OR EXISTS (SELECT 1 FROM student_quran_recitation_attempts attempt WHERE attempt.task_id = done_task.id AND attempt.is_official = 1))) AS hasExecutedTasks,
@@ -7974,6 +8070,7 @@ app.put('/api/student-plans/:studentId', requireStudentPlanAccess, async (req, r
         end_ayah AS endAyah,
         end_page AS endPage,
         daily_pages AS dailyPages,
+        reading_hizbs AS readingHizbs,
         DATE_FORMAT(start_date, '%Y-%m-%d') AS startDate,
         DATE_FORMAT(effective_from, '%Y-%m-%d') AS effectiveFrom,
         schedule_days_json AS scheduleDays,
@@ -7993,7 +8090,31 @@ app.put('/api/student-plans/:studentId', requireStudentPlanAccess, async (req, r
     );
     // "continue" keeps the running plan (start date, schedule and review cursor) with new amounts;
     // "new" keeps the current plan as history and starts a fresh one from the requested date.
+    if (req.body.readingHizbs === undefined) readingHizbs = existingPlan?.readingHizbs ?? null;
     const continuedPlan = planSaveMode === PLAN_SAVE_MODES.continue ? existingPlan : null;
+    if (continuedPlan && Number(continuedPlan.hasExecutedTasks) && continuedPlan.track !== track) {
+      await connection.rollback();
+      return res.status(422).json({ message: 'اختر بدء خطة جديدة لتغيير مسار خطة بدأ تنفيذها.' });
+    }
+    const queueInput = req.body.queuedRanges === undefined ? readQueuedPlanRanges(continuedPlan?.queuedRanges) : req.body.queuedRanges;
+    const queuedRanges = await validateQueuedPlanRanges(queueInput,
+      { startSurah, startAyah, startPage: start.page, endSurah, endAyah, endPage: end.page }, {
+        expand: range => expandQuranTraversalRange(connection, range),
+        resolve: async raw => {
+          const startPage = Number(raw?.startPage || 0), endPage = Number(raw?.endPage || 0);
+          if (startPage && (!Number.isInteger(startPage) || startPage < 1 || startPage > 604)) return null;
+          if (endPage && (!Number.isInteger(endPage) || endPage < 1 || endPage > 604)) return null;
+          if ((!startPage && (!Number.isInteger(Number(raw?.startSurah)) || Number(raw.startSurah) < 1 || Number(raw.startSurah) > 114 || !Number.isInteger(Number(raw.startAyah)) || Number(raw.startAyah) < 1))
+            || (!endPage && (!Number.isInteger(Number(raw?.endSurah)) || Number(raw.endSurah) < 1 || Number(raw.endSurah) > 114 || !Number.isInteger(Number(raw.endAyah)) || Number(raw.endAyah) < 1))) return null;
+          const bounds = await resolveRequestedPlanPageBounds(startPage, endPage, connection);
+          if ((startPage && !bounds.requestedStartBoundary) || (endPage && !bounds.requestedEndBoundary)) return null;
+          const resolved = await resolvePlanPositions({ ...bounds, startSurah: Number(raw?.startSurah), startAyah: Number(raw?.startAyah), endSurah: Number(raw?.endSurah), endAyah: Number(raw?.endAyah), connection });
+          if (!resolved.start || !resolved.end) return null;
+          return { startSurah: resolved.start.surah, startAyah: resolved.start.ayah, startPage: resolved.start.page,
+            endSurah: resolved.end.surah, endAyah: resolved.end.ayah, endPage: resolved.end.page };
+        },
+      });
+
     // A plan that has not started yet may move its start date (never into the past).
     const notStartedPlan = Boolean(continuedPlan && !Number(continuedPlan.hasExecutedTasks) && String(continuedPlan.startDate || '') >= todayDate && req.body.startDate);
     const startDate = notStartedPlan ? requestedStartDate : continuedPlan?.startDate || requestedStartDate;
@@ -8008,7 +8129,7 @@ app.put('/api/student-plans/:studentId', requireStudentPlanAccess, async (req, r
       ...completedMemorization,
       ...submittedPriorMemorization,
     ]);
-    const memorizedPlanAyahs = await countMemorizedAyahsInRange(connection, priorMemorization, start, end);
+    const memorizedPlanAyahs = await countMemorizedAyahsInRange(connection, track === 'mastery' ? [] : priorMemorization, start, end);
     const rejectFullyMemorizedPlanResult = await rejectFullyMemorizedPlan({ memorizedPlanAyahs, connection, res });
     if (rejectFullyMemorizedPlanResult) { return rejectFullyMemorizedPlanResult; }
 
@@ -8020,13 +8141,14 @@ app.put('/api/student-plans/:studentId', requireStudentPlanAccess, async (req, r
       } : null);
       await updateContinuedQuranPlan(connection, {
         plan: continuedPlan, effectiveFrom: changeDate, scheduleDays: getMemorizationScheduleDays(planSettings), scheduleAnchor: anchor,
-        values: { startDate, start, end, track, dailyPages, linkPages, reviewPages, reviewHizbs, readingFaces,
+        values: { startDate, start, end, track, dailyPages, linkPages, reviewPages, reviewHizbs, readingFaces, readingHizbs,
           reviewSplitWeekly, reviewWeekStartDay, reviewWeekEndDay, reviewMinDailyPages },
       });
       for (const range of submittedPriorMemorization) {
         const coverage = await countMemorizedAyahsInRange(connection, [...existingPriorMemorization, ...completedMemorization], getQuranRangeStart(range), getQuranRangeEnd(range));
         if (coverage.memorizedAyahs < coverage.totalAyahs) await savePriorMemorizationRange(connection, continuedPlan.id, studentId, range);
       }
+      await connection.query('UPDATE student_quran_plans SET queued_ranges_json = ? WHERE id = ?', [JSON.stringify(queuedRanges), continuedPlan.id]);
       const savedPlan = await getActivePlanForStudent(connection, studentId);
       await recomputePlanMemorizationCursor(connection, savedPlan);
       if (startDate <= todayDate) await ensureStudentPlanTasks(connection, savedPlan, todayDate, planSettings);
@@ -8034,7 +8156,7 @@ app.put('/api/student-plans/:studentId', requireStudentPlanAccess, async (req, r
       return res.json({ ok: true, id: continuedPlan.id });
     }
 
-    const fullyMemorizedPages = await getFullyMemorizedPages(connection, priorMemorization, 1, 604);
+    const fullyMemorizedPages = await getFullyMemorizedPages(connection, track === 'mastery' ? [] : priorMemorization, 1, 604);
     const nextMemorizationStart = await skipFullyMemorizedTraversalPages(
       connection,
       start,
@@ -8052,7 +8174,7 @@ app.put('/api/student-plans/:studentId', requireStudentPlanAccess, async (req, r
       await connection.query(
         `DELETE t FROM student_quran_tasks t
          WHERE t.plan_id = ?
-           AND t.task_date >= ?
+           AND ${studyDateSql('t.task_date')} AND ${uncompensatedTaskSql('t')} AND t.task_date >= ?
            AND t.teacher_completed IS NULL
            AND COALESCE(t.student_status, 'not_done') <> 'done'
            AND NOT EXISTS (
@@ -8069,8 +8191,8 @@ app.put('/api/student-plans/:studentId', requireStudentPlanAccess, async (req, r
     const [result] = await connection.query(
       `
       INSERT INTO student_quran_plans
-        (student_id, previous_plan_id, status, plan_version, start_date, target_end_date, effective_from, schedule_days_json, schedule_anchor_page, schedule_anchor_surah, schedule_anchor_ayah, track, start_surah, start_ayah, start_page, end_surah, end_ayah, end_page, daily_pages, link_pages, review_pages, review_hizbs, reading_faces, review_split_weekly, review_week_start_day, review_week_end_day, review_min_daily_pages, next_memorization_page, next_memorization_surah, next_memorization_ayah, next_review_page)
-      VALUES (?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (student_id, previous_plan_id, status, plan_version, start_date, target_end_date, effective_from, schedule_days_json, schedule_anchor_page, schedule_anchor_surah, schedule_anchor_ayah, track, start_surah, start_ayah, start_page, end_surah, end_ayah, end_page, daily_pages, link_pages, review_pages, review_hizbs, reading_faces, reading_hizbs, review_split_weekly, review_week_start_day, review_week_end_day, review_min_daily_pages, next_memorization_page, next_memorization_surah, next_memorization_ayah, next_review_page)
+      VALUES (?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       [
         studentId,
@@ -8095,6 +8217,7 @@ app.put('/api/student-plans/:studentId', requireStudentPlanAccess, async (req, r
         reviewPages,
         reviewHizbs,
         readingFaces,
+        readingHizbs,
         reviewSplitWeekly,
         reviewWeekStartDay,
         reviewWeekEndDay,
@@ -8106,6 +8229,7 @@ app.put('/api/student-plans/:studentId', requireStudentPlanAccess, async (req, r
       ]
     );
 
+    await connection.query('UPDATE student_quran_plans SET queued_ranges_json = ? WHERE id = ?', [JSON.stringify(queuedRanges), result.insertId]);
     await savePriorMemorizationRanges(connection, result.insertId, studentId, priorMemorization);
     if (startDate <= todayDate) {
       const savedPlan = await getActivePlanForStudent(connection, studentId);
@@ -8123,6 +8247,25 @@ app.put('/api/student-plans/:studentId', requireStudentPlanAccess, async (req, r
   } finally {
     connection.release();
   }
+});
+
+app.post('/api/student-plans/:studentId/close', requireStudentPlanAccess, async (req, res, next) => {
+  const connection = await db().getConnection();
+  try {
+    const studentId = Number(req.params.studentId);
+    if (req.auth?.role === 'supervisor' && !await hasSupervisorStudentPlanAccess(req, studentId)) return res.status(403).json({ message: 'الطالب خارج حلقاتك.' });
+    await connection.beginTransaction();
+    const [[student]] = await connection.query('SELECT id FROM students WHERE id = ? FOR UPDATE', [studentId]);
+    if (!student) { await connection.rollback(); return res.status(404).json({ message: 'الطالب غير موجود.' }); }
+    const plan = await getActivePlanForStudent(connection, studentId);
+    if (!plan) { await connection.rollback(); return res.status(404).json({ message: 'لا توجد خطة حالية.' }); }
+    if (Number(req.body?.planId) !== Number(plan.id)) { await connection.rollback(); return res.status(409).json({ message: 'تغيّرت الخطة الحالية. حدّث القائمة قبل الإغلاق.' }); }
+    const id = await activateQueuedQuranPlan(connection, { planId: plan.id, startDate: addUtcDays(getSaudiDateTimeParts().date, 1), manual: true });
+    if (!id) { await connection.rollback(); return res.status(422).json({ message: 'أضف خطة تالية قبل إغلاق الحالية.' }); }
+    await connection.commit();
+    return res.json({ ok: true, id });
+  } catch (error) { await connection.rollback(); return next(error); }
+  finally { connection.release(); }
 });
 
 app.delete('/api/student-plans/:studentId', requireStudentPlanAccess, async (req, res, next) => {
@@ -8202,8 +8345,11 @@ app.get('/api/families', async (req, res, next) => {
         c.id,
         c.name,
         c.points,
+        c.complex_id AS complexId,
+        x.name AS complexName,
         COALESCE(sc.studentsCount, 0) AS studentsCount
       FROM committees c
+      LEFT JOIN complexes x ON x.id = c.complex_id
       LEFT JOIN (
         SELECT committee_id, COUNT(*) AS studentsCount
         FROM students
@@ -8234,14 +8380,15 @@ app.post('/api/families', requirePermission('families'), async (req, res, next) 
       return res.status(422).json({ message: 'اسم الحلقة مطلوب.' });
     }
 
+    const complexId = await requireComplex(connection, req.body.complexId);
     await connection.beginTransaction();
     await assertCommitteeNameAvailable(connection, name);
     const [result] = await connection.query(
       `
-      INSERT INTO committees (name)
-      VALUES (?)
+      INSERT INTO committees (name, complex_id)
+      VALUES (?, ?)
       `,
-      [name]
+      [name, complexId]
     );
 
     await connection.commit();
@@ -8265,6 +8412,7 @@ app.put('/api/families/:id', requirePermission('families'), async (req, res, nex
       return res.status(422).json({ message: 'اسم الحلقة مطلوب.' });
     }
 
+    const complexId = await requireComplex(connection, req.body.complexId);
     await connection.beginTransaction();
     await assertCommitteeNameAvailable(connection, name, req.params.id);
     const [[current]] = await connection.query(
@@ -8276,7 +8424,7 @@ app.put('/api/families/:id', requirePermission('families'), async (req, res, nex
       return res.status(404).json({ message: 'الحلقة غير موجودة.' });
     }
 
-    await connection.query('UPDATE committees SET name = ? WHERE id = ?', [name, req.params.id]);
+    await connection.query('UPDATE committees SET name = ?, complex_id = ? WHERE id = ?', [name, complexId, req.params.id]);
     await connection.commit();
 
     res.json({ ok: true, pointDelta: 0, affectedStudents: 0 });
@@ -8357,7 +8505,7 @@ app.get('/api/rankings/students', async (req, res, next) => {
         s.points,
         s.committee_id AS committeeId,
         c.name AS committeeName,
-        RANK() OVER (ORDER BY s.points DESC) AS rank,
+        RANK() OVER (ORDER BY s.points DESC) AS \`rank\`,
         ROW_NUMBER() OVER (ORDER BY s.points DESC, s.name ASC, s.id ASC) AS position
       FROM students s
       LEFT JOIN committees c ON c.id = s.committee_id
@@ -8424,6 +8572,7 @@ app.get('/api/supervisors', async (req, res, next) => {
       params
     );
 
+    const [grants] = await db().query('SELECT supervisor_id AS supervisorId, permission_key AS permissionKey FROM supervisor_dashboard_permissions');
     const [links] = await db().query('SELECT supervisor_id AS supervisorId, committee_id AS committeeId FROM supervisor_committees');
     const committeeMap = new Map();
     for (const link of links) {
@@ -8435,6 +8584,7 @@ app.get('/api/supervisors', async (req, res, next) => {
     res.json(rows.map((row) => ({
       ...row,
       committeeIds: committeeMap.get(String(row.id)) || [],
+      permissions: cleanDashboardPermissions(grants.filter(grant => Number(grant.supervisorId) === Number(row.id)).map(grant => grant.permissionKey)),
     })));
   } catch (error) {
     next(error);
@@ -8444,21 +8594,23 @@ app.get('/api/supervisors', async (req, res, next) => {
 app.post('/api/supervisors', requirePermission('supervisors'), async (req, res, next) => {
   const connection = await db().getConnection();
   try {
-    const name = normalizeAccountName(req.body.name, 'اسم المعلم');
+    const name = normalizeAccountName(req.body.name, 'اسم مشرف المسار');
     const loginNumber = normalizeAccountLoginNumber(req.body.loginNumber);
     const cleanNationalId = normalizeOptionalNationalId(req.body.nationalId);
     const phone = normalizeAccountPhone(req.body.phone);
-    const jobTitle = 'معلم';
+    const jobTitle = 'مشرف المسار';
     const committeeIds = await ensureCommitteeIdsExist(connection, req.body.committeeIds, { required: false });
 
+    const permissions = cleanDashboardPermissions(req.body.permissions || []);
     await connection.beginTransaction();
+    await assertAdministratorScope(connection, req.auth, { permissions, managementPermission: 'supervisors' });
     await ensureLoginNumberIsAvailable(connection, loginNumber);
     const [result] = await connection.query(
       `
-      INSERT INTO supervisors (name, login_number, national_id, phone, job_title, role)
-      VALUES (?, ?, ?, ?, ?, 'supervisor')
+      INSERT INTO supervisors (name, login_number, national_id, phone, job_title, role, password_hash)
+      VALUES (?, ?, ?, ?, ?, 'supervisor', ?)
       `,
-      [name, loginNumber, cleanNationalId, phone, jobTitle]
+      [name, loginNumber, cleanNationalId, phone, jobTitle, await hashStudentPassword(req.body.password)]
     );
     if (committeeIds.length > 0) {
       await connection.query(
@@ -8466,6 +8618,7 @@ app.post('/api/supervisors', requirePermission('supervisors'), async (req, res, 
         [committeeIds.map((committeeId) => [result.insertId, committeeId])]
       );
     }
+    if (permissions.length) await connection.query('INSERT INTO supervisor_dashboard_permissions (supervisor_id, permission_key) VALUES ?', [permissions.map(key => [result.insertId, key])]);
     await connection.commit();
 
     res.status(201).json({
@@ -8476,6 +8629,7 @@ app.post('/api/supervisors', requirePermission('supervisors'), async (req, res, 
       phone,
       jobTitle,
       role: 'supervisor',
+      permissions,
       committeeIds: committeeIds.map(String),
     });
   } catch (error) {
@@ -8489,21 +8643,23 @@ app.post('/api/supervisors', requirePermission('supervisors'), async (req, res, 
 app.put('/api/supervisors/:id', requirePermission('supervisors'), async (req, res, next) => {
   const connection = await db().getConnection();
   try {
-    const name = normalizeAccountName(req.body.name, 'اسم المعلم');
-    const jobTitle = 'معلم';
+    const name = normalizeAccountName(req.body.name, 'اسم مشرف المسار');
+    const jobTitle = 'مشرف المسار';
     const cleanLoginNumber = normalizeAccountLoginNumber(req.body.loginNumber);
     const cleanNationalId = normalizeOptionalNationalId(req.body.nationalId);
     const phone = normalizeAccountPhone(req.body.phone);
     const committeeIds = await ensureCommitteeIdsExist(connection, req.body.committeeIds, { required: false });
 
+    const permissions = req.body.permissions === undefined ? null : cleanDashboardPermissions(req.body.permissions);
     await connection.beginTransaction();
+    await assertAdministratorScope(connection, req.auth, { targetId: Number(req.params.id), permissions: permissions || [], managementPermission: 'supervisors' });
     const [[currentSupervisor]] = await connection.query(
       "SELECT id, login_number AS loginNumber FROM supervisors WHERE id = ? AND role = 'supervisor' FOR UPDATE",
       [req.params.id]
     );
     if (!currentSupervisor) {
       await connection.rollback();
-      return res.status(404).json({ message: 'المعلم غير موجود.' });
+      return res.status(404).json({ message: 'مشرف المسار غير موجود.' });
     }
     await ensureLoginNumberIsAvailable(connection, cleanLoginNumber, { type: 'supervisor', id: req.params.id });
     await connection.query(
@@ -8521,8 +8677,14 @@ app.put('/api/supervisors/:id', requirePermission('supervisors'), async (req, re
         [committeeIds.map((committeeId) => [req.params.id, committeeId])]
       );
     }
-    if (String(currentSupervisor.loginNumber || '').trim() !== cleanLoginNumber) {
+    const passwordChanged = req.body.password !== undefined && req.body.password !== '';
+    if (passwordChanged) await connection.query('UPDATE supervisors SET password_hash = ? WHERE id = ?', [await hashStudentPassword(req.body.password), req.params.id]);
+    if (passwordChanged || String(currentSupervisor.loginNumber || '').trim() !== cleanLoginNumber) {
       await revokeAuthSessionsForUser(connection, 'supervisor', req.params.id);
+    }
+    if (permissions !== null) {
+      await connection.query('DELETE FROM supervisor_dashboard_permissions WHERE supervisor_id = ?', [req.params.id]);
+      if (permissions.length) await connection.query('INSERT INTO supervisor_dashboard_permissions (supervisor_id, permission_key) VALUES ?', [permissions.map(key => [req.params.id, key])]);
     }
     await connection.commit();
 
@@ -8536,31 +8698,37 @@ app.put('/api/supervisors/:id', requirePermission('supervisors'), async (req, re
 });
 
 app.delete('/api/supervisors/:id', requirePermission('supervisors'), async (req, res, next) => {
+  const connection = await db().getConnection();
   try {
-    const [[supervisor]] = await db().query('SELECT id, role FROM supervisors WHERE id = ? LIMIT 1', [req.params.id]);
+    await connection.beginTransaction();
+    await assertAdministratorScope(connection, req.auth, { targetId: Number(req.params.id), managementPermission: 'supervisors' });
+    const [[supervisor]] = await connection.query('SELECT id, role FROM supervisors WHERE id = ? FOR UPDATE', [req.params.id]);
     if (!supervisor) {
-      return res.status(404).json({ message: 'المعلم غير موجود.' });
+      await connection.rollback();
+      return res.status(404).json({ message: 'مشرف المسار غير موجود.' });
     }
     if (supervisor.role !== 'supervisor') {
-      return res.status(409).json({ message: 'هذا الحساب ليس معلماً.' });
+      await connection.rollback();
+      return res.status(409).json({ message: 'هذا الحساب ليس مشرف مسار.' });
     }
-
-    const [[history]] = await db().query(
-      `
-      SELECT
+    const [[history]] = await connection.query(
+      `SELECT
         (SELECT COUNT(*) FROM supervisor_student_point_awards WHERE supervisor_id = ?) +
-        (SELECT COUNT(*) FROM supervisor_family_point_awards WHERE supervisor_id = ?) AS count
-      `,
-      [req.params.id, req.params.id]
+        (SELECT COUNT(*) FROM supervisor_family_point_awards WHERE supervisor_id = ?) AS count`,
+      [req.params.id, req.params.id],
     );
     if (Number(history.count || 0) > 0) {
-      return res.status(409).json({ message: 'لا يمكن حذف معلم لديه سجل نقاط. عدل بياناته بدلًا من الحذف.' });
+      await connection.rollback();
+      return res.status(409).json({ message: 'لا يمكن حذف مشرف المسار لديه سجل نقاط. عدل بياناته بدلًا من الحذف.' });
     }
-    await db().query('DELETE FROM supervisors WHERE id = ?', [req.params.id]);
+    await revokeAuthSessionsForUser(connection, 'supervisor', req.params.id);
+    await connection.query('DELETE FROM supervisors WHERE id = ?', [req.params.id]);
+    await connection.commit();
     res.json({ ok: true });
   } catch (error) {
+    await connection.rollback();
     next(error);
-  }
+  } finally { connection.release(); }
 });
 
 app.get('/api/students/:id/quran-today', async (req, res, next) => {
@@ -8573,12 +8741,14 @@ app.get('/api/students/:id/quran-today', async (req, res, next) => {
     const date = getSaudiDateTimeParts().date;
     const settings = await loadSettings();
     const plan = await getActivePlanForStudent(connection, studentId);
-    if (!plan) return res.json(studentVisibleToday({ plan: null, tasks: [], isHoliday: isWeeklyHoliday(date, settings), date }, settings, req.auth?.role));
+    if (!plan) return res.json(studentVisibleToday({ plan: null, tasks: [], isPlanPaused: studentPlanPauseStatus(settings.planPause).paused, isSeasonalHoliday: isSeasonalHoliday(date, settings.seasonalHolidays), isHoliday: isStudentStudyHoliday(date, settings) || isWeeklyHoliday(date, settings), date }, settings, req.auth?.role));
     const completedRanges = await getCompletedMemorizationRanges(connection, { studentId, planId: plan.id });
     const { totalAyahs, memorizedAyahs } = await countMemorizedAyahsInRange(connection, completedRanges,
       { page: plan.startPage, surah: plan.startSurah, ayah: plan.startAyah },
       { page: plan.endPage, surah: plan.endSurah, ayah: plan.endAyah });
     plan.progressPercent = totalAyahs > 0 ? Math.round(memorizedAyahs / totalAyahs * 100) : plan.progressPercent;
+    Object.assign(plan, await buildStudentPlanForecast(connection, plan, settings));
+    if (isStudentStudyHoliday(date, settings)) return res.json(studentVisibleToday({plan, tasks:[], todayAmounts:[], isHoliday:true, isPlanPaused:studentPlanPauseStatus(settings.planPause).paused, isSeasonalHoliday:isSeasonalHoliday(date, settings.seasonalHolidays), date}, settings, req.auth?.role));
     await markExpiredPendingQuranTasks(connection, date);
     await ensureStudentPlanTasks(connection, plan, date, settings);
     await ensureRepeatTasksForMemorizationDate(connection, plan, date);
@@ -8620,7 +8790,7 @@ app.get('/api/students/:id/quran-today', async (req, res, next) => {
         t.student_status AS studentStatus,
         t.teacher_rating_key AS teacherRatingKey,
         t.teacher_rating_label AS teacherRatingLabel,
-        t.warning_count AS warningCount,
+        t.warning_count AS warningCount, t.hesitation_count AS hesitationCount,
         t.mistake_count AS mistakeCount,
         t.evaluation_score AS evaluationScore,
         t.points,
@@ -8630,7 +8800,7 @@ app.get('/api/students/:id/quran-today', async (req, res, next) => {
       LEFT JOIN committees c ON c.id = s.committee_id
       LEFT JOIN quran_surahs qsf ON qsf.surah_number = t.from_surah
       LEFT JOIN quran_surahs qst ON qst.surah_number = t.to_surah
-      WHERE t.student_id = ? AND t.task_date = ? AND t.plan_id = ?
+      WHERE t.student_id = ? AND ${studyDateSql('t.task_date')} AND ${uncompensatedTaskSql('t')} AND t.task_date = ? AND t.plan_id = ?
         AND t.task_type IN ('memorization', 'repeat', 'review', 'link')
       ORDER BY FIELD(t.task_type, 'memorization', 'repeat', 'review', 'link'), t.from_page ASC
       `,
@@ -8660,7 +8830,7 @@ app.get('/api/students/:id/quran-today', async (req, res, next) => {
     if (nextDay) nextDay.tasks = nextDay.tasks.map((task) => ({ ...task, repeatCount, listeningCount }));
     res.json(studentVisibleToday({
       nextDay,
-      plan: { ...plan, progress },
+      plan: { ...plan, progress: { ...progress, shortageFaces: plan.delayedFaces, aheadFaces: plan.aheadFaces } },
       todayAmounts: normalizedTasks.filter((task) => task.taskType !== 'repeat'),
       tasks: normalizedTasks
         .filter((row) => req.auth?.role !== 'student'
@@ -8747,7 +8917,7 @@ app.get('/api/students/:id/quran-sessions', async (req, res, next) => {
         t.student_status AS studentStatus,
         t.teacher_rating_key AS teacherRatingKey,
         t.teacher_rating_label AS teacherRatingLabel,
-        t.warning_count AS warningCount,
+        t.warning_count AS warningCount, t.hesitation_count AS hesitationCount,
         t.mistake_count AS mistakeCount,
         t.evaluation_score AS evaluationScore,
         t.evaluation_max_score AS evaluationMaxScore,
@@ -8775,7 +8945,7 @@ app.get('/api/students/:id/quran-sessions', async (req, res, next) => {
       LEFT JOIN supervisors sp ON sp.id = t.evaluated_by
       WHERE t.student_id = ?
         AND t.task_type IN ('memorization', 'review', 'link')
-        ${planView ? 'AND t.task_date <= ?' : 'AND t.teacher_completed IS NOT NULL'}
+        ${planView ? `AND ${studyDateSql('t.task_date')} AND ${uncompensatedTaskSql('t')} AND t.task_date <= ?` : 'AND t.teacher_completed IS NOT NULL'}
       ORDER BY sessionDate DESC, FIELD(t.task_type, 'memorization', 'review', 'link'), t.from_page ASC
       ${planView ? '' : 'LIMIT 200'}
       `,
@@ -8797,7 +8967,7 @@ app.get('/api/students/:id/quran-sessions', async (req, res, next) => {
       ...normalizeTaskRow(row, settings.quranReferenceMode),
       ...(_resolveResultRows()),
       sessionDate: row.sessionDate,
-      teacherName: row.teacherName || 'المعلم',
+      teacherName: row.teacherName || 'مشرف المسار',
       evaluatedAt: row.evaluatedAt || '',
       ayahMarks: marksByTask.get(Number(row.id)) || [],
     }); });
@@ -8811,10 +8981,12 @@ app.get('/api/students/:id/quran-sessions', async (req, res, next) => {
           WHERE student_id = ? AND record_date <= ?`, [studentId, today]),
       ]);
       const points = buildStudentPlanPoints({ total: student?.points, transactions, attendance, today, rows });
-      const grades = await computeStudentsWeeklyGrades(db(), { studentIds: [studentId], weekStart: weekStartOf(today), today });
-      const currentGrade = grades.get(studentId);
+      const weeklyGrades = await computeStudentSessionGrades(db(), {
+        studentId, today, dates: [...rows.map(row => row.taskDate), ...points.days.map(day => day.date)],
+      });
+      const currentGrade = weeklyGrades.find(grade => grade.weekStart === weekStartOf(today));
       const weeklyGrade = currentGrade ? { total: currentGrade.total, max: currentGrade.max, weekStart: currentGrade.weekStart, weekEnd: currentGrade.weekEnd } : null;
-      return res.json({ rows: studentVisibleTasks(resultRows, settings, req.auth?.role), points, weeklyGrade });
+      return res.json({ rows: studentVisibleTasks(resultRows, settings, req.auth?.role), points, weeklyGrade, weeklyGrades: studentVisibleSessionGrades(weeklyGrades, settings, req.auth?.role) });
     }
     res.json(studentVisibleTasks(resultRows, settings, req.auth?.role));
   } catch (error) {
@@ -8869,7 +9041,7 @@ async function resolveContinuedReviewCursor(connection, plan, fromDate) {
      FROM student_quran_tasks t
      WHERE t.plan_id = ?
        AND t.task_type = 'review'
-       AND t.task_date >= ?
+       AND ${studyDateSql('t.task_date')} AND ${uncompensatedTaskSql('t')} AND t.task_date >= ?
        AND t.teacher_completed IS NULL
        AND COALESCE(t.student_status, 'not_done') <> 'done'
        AND NOT EXISTS (
@@ -8931,7 +9103,7 @@ async function resolveRequestedPlanPageBounds(requestedStartPage, requestedEndPa
 async function getStudentReviewCycle(connection, plan, date, rows) {
   if (!rows.length) return null;
   const saved = await getStudentMemorizedRanges(connection, plan.studentId, { beforeDate: date });
-  const [links] = await connection.query("SELECT from_page AS startPage, from_surah AS startSurah, from_ayah AS startAyah, to_page AS endPage, to_surah AS endSurah, to_ayah AS endAyah FROM student_quran_tasks WHERE student_id = ? AND task_date = ? AND task_type = 'link'", [plan.studentId, date]);
+  const [links] = await connection.query(`SELECT from_page AS startPage, from_surah AS startSurah, from_ayah AS startAyah, to_page AS endPage, to_surah AS endSurah, to_ayah AS endAyah FROM student_quran_tasks WHERE student_id = ? AND ${studyDateSql('task_date')} AND task_date = ? AND task_type = 'link'`, [plan.studentId, date]);
   return loadReviewCycle({ connection, plan, date, rows, ayahs: await readQuranRange(connection, 1, 604),
     isAvailable: ayah => quranPositionInRanges(ayah, saved) && !quranPositionInRanges(ayah, links),
     fallbackPage: await getReviewStartForDate(connection, plan, date) });
@@ -8941,7 +9113,7 @@ async function getStudentReviewEnd(connection, plan, date, start, expectedEnd) {
   const direction = getQuranRangeDirection(start, expectedEnd);
   const saved = await getStudentMemorizedRanges(connection, plan.studentId, { beforeDate: addUtcDays(date, 1) });
   const [links] = await connection.query(
-    "SELECT from_page AS startPage, from_surah AS startSurah, from_ayah AS startAyah, to_page AS endPage, to_surah AS endSurah, to_ayah AS endAyah FROM student_quran_tasks WHERE student_id = ? AND task_date = ? AND task_type = 'link'",
+    `SELECT from_page AS startPage, from_surah AS startSurah, from_ayah AS startAyah, to_page AS endPage, to_surah AS endSurah, to_ayah AS endAyah FROM student_quran_tasks WHERE student_id = ? AND ${studyDateSql('task_date')} AND task_date = ? AND task_type = 'link'`,
     [plan.studentId, date],
   );
   const ayahs = await getQuranAyahsInPageRange(connection, direction < 0 ? 1 : expectedEnd.page, 604);
@@ -9037,6 +9209,7 @@ function buildEvaluationSettingsUpdate({ req, previousSettings, teacherMemorizat
     linkRecitationMode: teacherLinkRecitationMode,
     narrationMaxScore: Number(req.body.narrationMaxScore ?? previousSettings.narrationMaxScore ?? 100),
     narrationWarningDeduction: Math.max(0, Number(req.body.narrationWarningDeduction ?? previousSettings.narrationWarningDeduction ?? 1)),
+    narrationHesitationDeduction: Number(req.body.narrationHesitationDeduction ?? previousSettings.narrationHesitationDeduction ?? 0),
     narrationMistakeDeduction: Math.max(0, Number(req.body.narrationMistakeDeduction ?? previousSettings.narrationMistakeDeduction ?? 5)),
     narrationStartTemplate: req.body.narrationStartTemplate === undefined ? String(previousSettings.narrationStartTemplate || '') : String(req.body.narrationStartTemplate || ''),
     narrationEndTemplate: req.body.narrationEndTemplate === undefined ? String(previousSettings.narrationEndTemplate || '') : String(req.body.narrationEndTemplate || ''),
@@ -9079,6 +9252,7 @@ function buildExecutionEditingSettingsUpdate(req, previousSettings) {
 function buildExecutionSourceSettingsUpdate(req, previousSettings) {
   return {
     // Session days and holidays follow the grading weekly program and are saved from its settings only.
+    seasonalHolidays: normalizeSeasonalHolidays(req.body.seasonalHolidays ?? previousSettings.seasonalHolidays ?? []),
     weeklyHolidayDays: normalizeWeeklyHolidayDays(previousSettings.weeklyHolidayDays),
     holidayTaskTypes: normalizeHolidayTaskTypes(req.body.holidayTaskTypes),
     recitationSessionDays: normalizeWeekDayList(previousSettings.recitationSessionDays, DEFAULT_RECITATION_SESSION_DAYS),
@@ -9527,6 +9701,7 @@ async function recomputePlanMemorizationCursor(connection, plan) {
       plan.id,
     ],
   );
+  if (!next && !awaitingApproval) await activateQueuedQuranPlan(connection, { planId: plan.id, startDate: addUtcDays(getSaudiDateTimeParts().date, 1) });
   return next;
 }
 
@@ -9546,7 +9721,7 @@ async function saveQuranExecutionSegments(connection, {
   await connection.query(
     `UPDATE student_quran_execution_segments
      SET is_current = 0
-     WHERE plan_id = ? AND task_date = ? AND task_type = ? AND source_type = ? AND is_current = 1`,
+     WHERE plan_id = ? AND ${studyDateSql('task_date')} AND task_date = ? AND task_type = ? AND source_type = ? AND is_current = 1`,
     [plan.id, date, plan.track === 'mastery' ? 'mastery' : 'memorization', sourceType],
   );
   for (const segment of segments) {
@@ -9584,6 +9759,7 @@ const executeStudentQuranTasks = async (req, res, next) => {
     if (rejectForeignStudentExecutionResult) { return rejectForeignStudentExecutionResult; }
 
     const settings = await loadSettings();
+    await assertStudyDate(connection, getSaudiDateTimeParts().date);
 
     const taskIds = [...new Set((Array.isArray(req.body.taskIds) ? req.body.taskIds : [req.body.taskId]).map(Number).filter(Boolean))];
     if (!taskIds.length) return res.status(422).json({ message: 'اختر مهمة للتنفيذ.' });
@@ -9634,6 +9810,7 @@ const executeStudentQuranTasks = async (req, res, next) => {
       JOIN student_quran_plans p ON p.id = t.plan_id
       WHERE t.id IN (${placeholders})
         AND t.student_id = ?
+        AND ${studyDateSql('t.task_date')}
         AND t.teacher_completed IS NULL
         AND t.compensation_index = 0
       FOR UPDATE
@@ -9669,7 +9846,7 @@ const executeStudentQuranTasks = async (req, res, next) => {
       return await executeRepeatTaskGroup({ first, settings, status, req, connection, placeholders, studentId, taskIds, res });
     }
     if (first.taskType === 'review' && (req.body.reviewFaces !== undefined || taskRows.some(row => row.reviewExecution))) {
-      const [[group]] = await connection.query("SELECT COUNT(*) AS count FROM student_quran_tasks WHERE plan_id = ? AND task_date = ? AND task_type = 'review'", [first.planId, first.taskDate]);
+      const [[group]] = await connection.query(`SELECT COUNT(*) AS count FROM student_quran_tasks WHERE plan_id = ? AND ${studyDateSql('task_date')} AND task_date = ? AND task_type = 'review'`, [first.planId, first.taskDate]);
       if (Number(group.count) !== taskRows.length) {
         await connection.rollback();
         return res.status(409).json({ message: 'أعد فتح المراجعة لتنفيذ مقدار اليوم كاملًا.' });
@@ -9881,7 +10058,7 @@ async function loadExecutionRepeatTasks({ first, connection, plan, studentId, ta
         FROM student_quran_tasks
         WHERE plan_id = ?
           AND student_id = ?
-          AND task_date = ?
+          AND ${studyDateSql('task_date')} AND task_date = ?
           AND task_type = 'repeat' AND track = ?
           AND teacher_completed IS NULL
         ORDER BY from_page ASC, from_surah ASC, from_ayah ASC
@@ -9933,7 +10110,7 @@ async function createExtraExecutionTasks({ actualEnd, expectedEnd, executionDire
             to_ayah AS toAyah,
             target_pages AS targetPages
           FROM student_quran_tasks
-          WHERE plan_id = ? AND student_id = ? AND task_date = ? AND task_type = ? AND track = ?
+          WHERE plan_id = ? AND student_id = ? AND ${studyDateSql('task_date')} AND task_date = ? AND task_type = ? AND track = ?
           ORDER BY from_page ASC, from_surah ASC, from_ayah ASC
           FOR UPDATE
           `,
@@ -10200,7 +10377,7 @@ app.get('/api/supervisors/:id/quran-evaluation', async (req, res, next) => {
         t.execution_actor_role AS executionActorRole,
         t.teacher_rating_key AS teacherRatingKey,
         t.teacher_rating_label AS teacherRatingLabel,
-        t.warning_count AS warningCount,
+        t.warning_count AS warningCount, t.hesitation_count AS hesitationCount,
         t.mistake_count AS mistakeCount,
         t.evaluation_score AS evaluationScore,
         t.points,
@@ -10271,7 +10448,7 @@ app.get('/api/supervisors/:id/quran-evaluation', async (req, res, next) => {
       LEFT JOIN quran_surahs qpe ON qpe.surah_number = p.end_surah
       JOIN supervisor_committees sc ON sc.committee_id = s.committee_id AND sc.supervisor_id = ?
       WHERE (${currentQuranPlanSql('p')} OR ${retryableAttemptFilter} OR ${studentExecutedMemorizationCondition})
-        AND t.task_date <= ?
+        AND ${studyDateSql('t.task_date')} AND ${uncompensatedTaskSql('t')} AND t.task_date <= ?
         AND t.task_type IN ('memorization', 'review', 'link')
         AND (
           t.teacher_completed IS NULL
@@ -10482,6 +10659,8 @@ app.put('/api/supervisors/:id/quran-evaluation/reading', async (req, res, next) 
       date,
       completed,
       faces: req.body?.faces,
+      fromHizb: req.body?.fromHizb,
+      toHizb: req.body?.toHizb,
       actor: { role: req.auth.role, id: req.auth.id, name: req.auth.name },
     });
     if (!reading) return res.status(403).json({ message: 'لا يمكنك تسجيل قراءة طالب خارج حلقاتك.' });
@@ -10526,7 +10705,7 @@ app.post('/api/supervisors/:id/quran-evaluation/:taskId/range', async (req, res,
        JOIN student_quran_plans p ON p.id = t.plan_id
        JOIN students s ON s.id = t.student_id
        JOIN supervisor_committees sc ON sc.committee_id = s.committee_id AND sc.supervisor_id = ?
-       WHERE t.id = ? AND t.task_type IN ('memorization','review') AND t.task_date <= ?
+       WHERE t.id = ? AND t.task_type IN ('memorization','review') AND ${studyDateSql('t.task_date')} AND ${uncompensatedTaskSql('t')} AND t.task_date <= ?
          AND t.compensation_index = 0
          AND EXISTS (
            SELECT 1 FROM attendance_records attendance
@@ -10640,7 +10819,7 @@ app.get('/api/supervisors/:id/quran-evaluation/:taskId/ayahs', async (req, res, 
       [supervisorId, taskId]
     );
     if (!task || !canTeacherExecuteQuranTask(settings, task.taskType)) {
-      return res.status(404).json({ message: 'المهمة غير موجودة ضمن جلسات هذا المعلم.' });
+      return res.status(404).json({ message: 'المهمة غير موجودة ضمن جلسات هذا مشرف المسار.' });
     }
     const ayahs = await getQuranAyahsForTask(connection, task);
     const marksByTask = await getQuranTaskAyahMarks(connection, [taskId]);
@@ -10693,8 +10872,8 @@ const rateSupervisorQuranTaskHandler = async (req, res, next) => {
       req.auth.role,
       settings,
     );
-    let { warningCount, mistakeCount, notMemorized, requestId, ayahMarksPayload, wordMarksPayload, markLimit } = normalizeRecitationEvaluationInput(req);
-    if (!Number.isFinite(warningCount) || !Number.isFinite(mistakeCount)) {
+    let { warningCount, hesitationCount, mistakeCount, notMemorized, requestId, ayahMarksPayload, wordMarksPayload, markLimit } = normalizeRecitationEvaluationInput(req);
+    if (!Number.isFinite(warningCount) || !Number.isFinite(mistakeCount) || !Number.isInteger(hesitationCount) || hesitationCount < 0 || hesitationCount > markLimit) {
       return res.status(422).json({ message: 'التقييم غير صحيح.' });
     }
     const now = getSaudiDateTimeParts();
@@ -10767,7 +10946,7 @@ const rateSupervisorQuranTaskHandler = async (req, res, next) => {
             AND ar.status IN ('present', 'late')
         )
         AND t.task_type IN ('memorization', 'review', 'link')
-        AND t.task_date <= ?
+        AND ${studyDateSql('t.task_date')} AND ${uncompensatedTaskSql('t')} AND t.task_date <= ?
         AND (
           t.teacher_completed IS NULL
           OR t.teacher_completed = 0
@@ -10801,6 +10980,7 @@ const rateSupervisorQuranTaskHandler = async (req, res, next) => {
     if (rejectInvalidRecitationTaskResult) { return rejectInvalidRecitationTaskResult; }
     if (notMemorized) {
       warningCount = 0;
+      hesitationCount = 0;
       mistakeCount = 0;
     }
     const teacherExecutionMode = task.studentStatus !== 'done';
@@ -10830,8 +11010,8 @@ const rateSupervisorQuranTaskHandler = async (req, res, next) => {
     if (replyToExistingRecitationAttemptResult) { return replyToExistingRecitationAttemptResult; }
     let normalizedAyahMarks = null;
     let normalizedWordMarks = null;
-    ({ mistakeCount, warningCount } = await saveValidatedRecitationMarks({ ayahMarksPayload, wordMarksPayload, connection, task, normalizedWordMarks, markLimit, normalizedAyahMarks, mistakeCount, warningCount, taskId, supervisorId }));
-    const { ratingLabel, score, policy, completed: rowCompleted, evaluatedFaces } = await calculateTaskEvaluationOutcome({ task, connection, notMemorized, warningCount, mistakeCount });
+    ({ mistakeCount, warningCount, hesitationCount } = await saveValidatedRecitationMarks({ ayahMarksPayload, wordMarksPayload, connection, task, normalizedWordMarks, markLimit, normalizedAyahMarks, mistakeCount, warningCount, hesitationCount, taskId, supervisorId }));
+    const { ratingLabel, score, policy, completed: rowCompleted, evaluatedFaces } = await calculateTaskEvaluationOutcome({ task, connection, notMemorized, warningCount, hesitationCount, mistakeCount });
     let completed = rowCompleted;
     await connection.query(
       `
@@ -10839,10 +11019,12 @@ const rateSupervisorQuranTaskHandler = async (req, res, next) => {
       SET teacher_rating_key = ?,
           teacher_rating_label = ?,
           warning_count = ?,
+          hesitation_count = ?,
           mistake_count = ?,
           evaluation_score = ?,
           evaluation_max_score = ?,
           evaluation_warning_deduction = ?,
+          evaluation_hesitation_deduction = ?,
           evaluation_mistake_deduction = ?,
           evaluation_passing_score = ?,
           teacher_completed = ?,
@@ -10862,10 +11044,12 @@ const rateSupervisorQuranTaskHandler = async (req, res, next) => {
         notMemorized ? MANUAL_FAIL_RATING_KEY : 'score',
         ratingLabel,
         warningCount,
+        hesitationCount,
         mistakeCount,
         score,
         policy.maxScore,
         policy.warningDeduction,
+        policy.hesitationDeduction,
         policy.mistakeDeduction,
         policy.passingScore,
         completed ? 1 : 0,
@@ -10895,11 +11079,11 @@ const rateSupervisorQuranTaskHandler = async (req, res, next) => {
       INSERT INTO student_quran_recitation_attempts
         (
           task_id, student_id, evaluator_id, session_date, attempt_number, request_id, session_id, is_official,
-          warning_count, mistake_count, evaluation_score, evaluation_max_score,
-          evaluation_warning_deduction, evaluation_mistake_deduction,
+          warning_count, hesitation_count, mistake_count, evaluation_score, evaluation_max_score,
+          evaluation_warning_deduction, evaluation_hesitation_deduction, evaluation_mistake_deduction,
           evaluation_passing_score, teacher_completed, ayah_marks_json, word_marks_json
         )
-      VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       [
         taskId,
@@ -10910,10 +11094,12 @@ const rateSupervisorQuranTaskHandler = async (req, res, next) => {
         requestId,
         sessionClaim.sessionId,
         warningCount,
+        hesitationCount,
         mistakeCount,
         score,
         policy.maxScore,
         policy.warningDeduction,
+        policy.hesitationDeduction,
         policy.mistakeDeduction,
         policy.passingScore,
         completed ? 1 : 0,
@@ -10944,7 +11130,7 @@ const rateSupervisorQuranTaskHandler = async (req, res, next) => {
           to_page AS toPage, to_surah AS toSurah, to_ayah AS toAyah,
           actual_to_page AS actualToPage, actual_to_surah AS actualToSurah, actual_to_ayah AS actualToAyah
          FROM student_quran_tasks
-         WHERE plan_id = ? AND task_date = ? AND task_type = ? AND track = ? AND compensation_index = ?
+         WHERE plan_id = ? AND ${studyDateSql('task_date')} AND task_date = ? AND task_type = ? AND track = ? AND compensation_index = ?
          FOR UPDATE`,
         [task.planId, task.taskDate, task.taskType, task.track, Number(task.compensationIndex || 0)],
       );
@@ -10953,6 +11139,7 @@ const rateSupervisorQuranTaskHandler = async (req, res, next) => {
     }
     const recitationResult = {
       warningCount,
+      hesitationCount,
       mistakeCount,
       evaluationScore: score,
       evaluationMaxScore: policy.maxScore,
@@ -10974,6 +11161,7 @@ const rateSupervisorQuranTaskHandler = async (req, res, next) => {
     res.json({
       ok: true,
       warningCount,
+      hesitationCount,
       mistakeCount,
       evaluationScore: score,
       evaluationMaxScore: policy.maxScore,
@@ -11142,7 +11330,7 @@ app.post('/api/supervisors/:id/quran-compensations', async (req, res, next) => {
     }
     const [created] = await connection.query(
       `SELECT id FROM student_quran_tasks
-       WHERE plan_id = ? AND task_date = ? AND task_type = ? AND compensation_index = ? ORDER BY id`,
+       WHERE plan_id = ? AND ${studyDateSql('task_date')} AND task_date = ? AND task_type = ? AND compensation_index = ? ORDER BY id`,
       [plan.id, date, taskType, index],
     );
     if (!created.length) {
@@ -11311,6 +11499,8 @@ app.get('/api/students', async (req, res, next) => {
         s.login_number AS loginNumber,
         s.national_id AS nationalId,
         s.guardian_phone AS guardianPhone,
+        s.phone,
+        c.complex_id AS complexId,
         s.committee_id AS committeeId,
         s.points,
         s.store_balance AS storeBalance,
@@ -11382,7 +11572,7 @@ const sanitizeWhatsAppAttachmentName = (value) => Array.from(String(value || 'at
 
 app.post('/api/whatsapp/send', requirePermission('whatsappSend'), async (req, res, next) => {
   try {
-    const recipientType = ['students', 'supervisors'].includes(req.body.recipientType)
+    const recipientType = ['students', 'guardians', 'supervisors'].includes(req.body.recipientType)
       ? req.body.recipientType
       : null;
     const normalizeRecipientIds = (value) => [...new Set(
@@ -11426,7 +11616,7 @@ app.post('/api/whatsapp/send', requirePermission('whatsappSend'), async (req, re
             s.id,
             s.name,
             s.login_number AS loginNumber,
-            s.guardian_phone AS guardianPhone,
+            ${recipientType === 'guardians' ? 's.guardian_phone' : 's.phone'} AS guardianPhone,
             c.name AS committeeName
           FROM students s
           LEFT JOIN committees c ON c.id = s.committee_id
@@ -11457,6 +11647,8 @@ app.get('/api/students/:id', async (req, res, next) => {
         s.login_number AS loginNumber,
         s.national_id AS nationalId,
         s.guardian_phone AS guardianPhone,
+        s.phone,
+        c.complex_id AS complexId,
         s.committee_id AS committeeId,
         s.points,
         c.name AS committeeName
@@ -11484,19 +11676,22 @@ app.post('/api/students', requirePermission('students'), async (req, res, next) 
     const loginNumber = normalizeAccountLoginNumber(req.body.loginNumber, 1);
     const cleanNationalId = normalizeOptionalNationalId(req.body.nationalId);
     const guardianPhone = normalizeAccountPhone(req.body.guardianPhone);
+    const phone = req.body.phone === undefined ? null : normalizeAccountPhone(req.body.phone);
     const { committeeId } = req.body;
     const cleanCommitteeId = normalizeOptionalCommitteeId(committeeId);
     const [validatedCommitteeId] = await ensureCommitteeIdsExist(connection, cleanCommitteeId);
+    await assertSupervisorStudentScope(connection, req.auth, { studentId: req.params.id, committeeIds: [validatedCommitteeId] });
+    await assertStudentComplex(connection, validatedCommitteeId, req.body.complexId);
 
     await connection.beginTransaction();
     await ensureLoginNumberIsAvailable(connection, loginNumber);
     await assertStudentIdentityAvailable(connection, cleanNationalId);
     const [result] = await connection.query(
       `
-      INSERT INTO students (name, login_number, national_id, guardian_phone, committee_id, password_hash)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO students (name, login_number, national_id, guardian_phone, committee_id, password_hash, phone)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
       `,
-      [name, loginNumber, cleanNationalId, guardianPhone, validatedCommitteeId, await hashStudentPassword(req.body.password)]
+      [name, loginNumber, cleanNationalId, guardianPhone, validatedCommitteeId, await hashStudentPassword(req.body.password), phone]
     );
 
     const [rows] = await connection.query(
@@ -11507,6 +11702,8 @@ app.post('/api/students', requirePermission('students'), async (req, res, next) 
         s.login_number AS loginNumber,
         s.national_id AS nationalId,
         s.guardian_phone AS guardianPhone,
+        s.phone,
+        c.complex_id AS complexId,
         s.committee_id AS committeeId,
         s.points,
         c.name AS committeeName
@@ -11544,6 +11741,8 @@ app.post('/api/students/bulk', requirePermission('students'), async (req, res, n
           name: normalizeAccountName(student.name, 'اسم الطالب'),
           nationalId: normalizeOptionalNationalId(student.nationalId),
           guardianPhone: normalizeAccountPhone(student.guardianPhone),
+          phone: normalizeAccountPhone(student.phone),
+          complexId: student.complexId,
           committeeId: Number(normalizeOptionalCommitteeId(student.committeeId)),
           requestedLoginNumber: normalizeAccountLoginNumber(student.loginNumber, 1),
           password: validateStudentPassword(student.password),
@@ -11558,10 +11757,12 @@ app.post('/api/students/bulk', requirePermission('students'), async (req, res, n
       throw invalidInput('إحدى الحلقات المختارة غير موجودة.');
     }
 
+    await assertSupervisorStudentScope(connection, req.auth, { committeeIds });
     await connection.beginTransaction();
     const usedLoginNumbers = await loadUsedLoginNumbers(connection);
     const inserted = [];
     for (const student of cleaned) {
+      await assertStudentComplex(connection, student.committeeId, student.complexId);
       const loginNumber = student.requestedLoginNumber;
       if (usedLoginNumbers.has(loginNumber)) {
         await connection.rollback();
@@ -11572,10 +11773,10 @@ app.post('/api/students/bulk', requirePermission('students'), async (req, res, n
       await assertStudentIdentityAvailable(connection, student.nationalId);
       const [result] = await connection.query(
         `
-        INSERT INTO students (name, login_number, national_id, guardian_phone, committee_id, password_hash)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO students (name, login_number, national_id, guardian_phone, committee_id, password_hash, phone)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         `,
-        [student.name, loginNumber, student.nationalId, student.guardianPhone, student.committeeId, await hashStudentPassword(student.password)]
+        [student.name, loginNumber, student.nationalId, student.guardianPhone, student.committeeId, await hashStudentPassword(student.password), student.phone]
       );
       inserted.push(result.insertId);
     }
@@ -11594,9 +11795,12 @@ app.put('/api/students/:id', requirePermission('students'), async (req, res, nex
   try {
     const name = normalizeAccountName(req.body.name, 'اسم الطالب');
     const guardianPhone = normalizeAccountPhone(req.body.guardianPhone);
+    const phone = req.body.phone === undefined ? null : normalizeAccountPhone(req.body.phone);
     const { committeeId } = req.body;
     const cleanCommitteeId = normalizeOptionalCommitteeId(committeeId);
     const [validatedCommitteeId] = await ensureCommitteeIdsExist(connection, cleanCommitteeId);
+    await assertSupervisorStudentScope(connection, req.auth, { studentId: req.params.id, committeeIds: [validatedCommitteeId] });
+    await assertStudentComplex(connection, validatedCommitteeId, req.body.complexId);
     const cleanLoginNumber = normalizeAccountLoginNumber(req.body.loginNumber, 1);
     const cleanNationalId = normalizeOptionalNationalId(req.body.nationalId);
     // The balance is only changed by an «إضافة / خصم» amount, never by writing the final value.
@@ -11622,10 +11826,10 @@ app.put('/api/students/:id', requirePermission('students'), async (req, res, nex
     await connection.query(
       `
       UPDATE students
-      SET name = ?, login_number = ?, national_id = ?, guardian_phone = ?, committee_id = ?
+      SET name = ?, login_number = ?, national_id = ?, guardian_phone = ?, committee_id = ?, phone = COALESCE(?, phone)
       WHERE id = ?
       `,
-      [name, cleanLoginNumber, cleanNationalId, guardianPhone, validatedCommitteeId, req.params.id]
+      [name, cleanLoginNumber, cleanNationalId, guardianPhone, validatedCommitteeId, phone, req.params.id]
     );
     const passwordChanged = req.body.password !== undefined && req.body.password !== '';
     if (passwordChanged) {
@@ -11671,6 +11875,7 @@ app.patch('/api/students/:id/committee', requirePermission('students'), async (r
   try {
     const cleanCommitteeId = normalizeOptionalCommitteeId(req.body.committeeId);
     const [validatedCommitteeId] = await ensureCommitteeIdsExist(connection, cleanCommitteeId);
+    await assertSupervisorStudentScope(connection, req.auth, { studentId: req.params.id, committeeIds: [validatedCommitteeId] });
     const settings = await loadSettings(connection);
     await connection.beginTransaction();
     await transferStudentCommittee(connection, req.params.id, validatedCommitteeId, settings);
@@ -11686,6 +11891,7 @@ app.delete('/api/students/:id', requirePermission('students'), async (req, res, 
   const connection = await db().getConnection();
   try {
     await connection.beginTransaction();
+    await assertSupervisorStudentScope(connection, req.auth, { studentId: req.params.id });
     const affectedRows = await deleteStudentWithRelations(connection, req.params.id);
     if (!affectedRows) {
       await connection.rollback();
@@ -11897,14 +12103,14 @@ app.post('/api/supervisors/:id/attendance', async (req, res, next) => {
   const connection = await db().getConnection();
   try {
     if (['supervisor', 'reciter'].includes(req.auth?.role) && req.body.mode === 'manual') {
-      return res.status(403).json({ message: 'تحضير المعلمين والإدارة متاح للمشرف فقط.' });
+      return res.status(403).json({ message: 'تحضير مشرفي المسارات والإدارة متاح للمشرف فقط.' });
     }
     const now = getSaudiDateTimeParts();
     const settings = await loadSettings();
     const manualMode = req.body.mode === 'manual' && await canUseManualAttendance(req);
     if (!manualMode) return res.status(403).json({ message: 'استخدم تحضير الحساب.' });
     if (settings.staffAttendanceSource !== 'supervisor') {
-      return res.status(403).json({ message: 'تحضير المعلمين والإدارة مضبوط عن طريق حساباتهم.' });
+      return res.status(403).json({ message: 'تحضير مشرفي المسارات والإدارة مضبوط عن طريق حساباتهم.' });
     }
     const requestedDate = manualMode ? (req.body.date || now.date) : now.date;
     const date = requestedDate;
@@ -11959,7 +12165,7 @@ app.post('/api/supervisors/:id/absence', requirePermission('manualAttendance'), 
   const connection = await db().getConnection();
   try {
     if (['supervisor', 'reciter'].includes(req.auth?.role)) {
-      return res.status(403).json({ message: 'تحضير المعلمين والإدارة متاح للمشرف فقط.' });
+      return res.status(403).json({ message: 'تحضير مشرفي المسارات والإدارة متاح للمشرف فقط.' });
     }
     const now = getSaudiDateTimeParts();
     const settings = await loadSettings();
@@ -11971,11 +12177,11 @@ app.post('/api/supervisors/:id/absence', requirePermission('manualAttendance'), 
       return res.status(422).json({ message: 'لا يمكن تسجيل الغياب في تاريخ مستقبلي.' });
     }
     if (settings.staffAttendanceSource !== 'supervisor') {
-      return res.status(403).json({ message: 'تحضير المعلمين والإدارة مضبوط عن طريق حساباتهم.' });
+      return res.status(403).json({ message: 'تحضير مشرفي المسارات والإدارة مضبوط عن طريق حساباتهم.' });
     }
     const [supervisors] = await connection.query("SELECT id FROM supervisors WHERE id = ? AND role IN ('supervisor', 'reciter', 'admin')", [req.params.id]);
     if (!supervisors[0]) {
-      return res.status(404).json({ message: 'المعلم غير موجود.' });
+      return res.status(404).json({ message: 'مشرف المسار غير موجود.' });
     }
 
     await connection.beginTransaction();
@@ -12022,7 +12228,7 @@ app.get('/api/reports/recitation-session-dates', requireReportsOrOwnCommittee, a
       FROM (
         SELECT task_date AS session_date
         FROM student_quran_tasks
-        WHERE task_date BETWEEN ? AND ?
+        WHERE ${studyDateSql('task_date')} AND task_date BETWEEN ? AND ?
         UNION
         SELECT DATE(evaluated_at) AS session_date
         FROM student_quran_tasks
@@ -12150,9 +12356,10 @@ function normalizeRecitationEvaluationInput(req) {
   const rawRequestId = String(req.body.requestId || '').trim();
   const requestId = /^[A-Za-z0-9:_-]{8,80}$/.test(rawRequestId) ? rawRequestId : null;
   const markLimit = 1000;
+  const hesitationCount = Number(req.body.hesitationCount ?? 0);
   let warningCount = Math.min(markLimit, Math.max(0, Number(req.body.warningCount ?? req.body.warningsCount ?? 0)));
   let mistakeCount = Math.min(markLimit, Math.max(0, Number(req.body.mistakeCount ?? req.body.mistakesCount ?? 0)));
-  return { warningCount, mistakeCount, notMemorized, requestId, ayahMarksPayload, wordMarksPayload, markLimit };
+  return { warningCount, hesitationCount, mistakeCount, notMemorized, requestId, ayahMarksPayload, wordMarksPayload, markLimit };
 }
 
 /** Notify an absence only when the attendance status actually changed and automatic messages are enabled. */
@@ -12227,7 +12434,7 @@ async function buildTeacherExecutionChoices(allRows, executionOptionsByGroup, co
 }
 
 /** Calculate bounded evaluation scores from the actual range and the current task policy. */
-async function calculateTaskEvaluationOutcome({ task, connection, notMemorized, warningCount, mistakeCount }) {
+async function calculateTaskEvaluationOutcome({ task, connection, notMemorized, warningCount, hesitationCount, mistakeCount }) {
   const evaluatedRange = {
     startPage: task.fromPage,
     startSurah: task.fromSurah,
@@ -12245,6 +12452,7 @@ async function calculateTaskEvaluationOutcome({ task, connection, notMemorized, 
     taskType: task.taskType,
     mistakes: mistakeCount,
     warnings: warningCount,
+    hesitations: hesitationCount,
     manualFail: notMemorized,
   });
   // Scores are stored on a 100 scale for display; the exact grade lives in student_daily_grades.
@@ -12252,6 +12460,7 @@ async function calculateTaskEvaluationOutcome({ task, connection, notMemorized, 
   const policy = {
     maxScore: 100,
     warningDeduction: toPercent(gradingPolicy.weeklyProgram.warningDeduction),
+    hesitationDeduction: toPercent(gradingPolicy.weeklyProgram.hesitationDeduction),
     mistakeDeduction: toPercent(gradingPolicy.weeklyProgram.mistakeDeduction),
     passingScore: toPercent(row.threshold),
   };
@@ -12300,7 +12509,7 @@ async function getFirstGroupMemorizationTask(connection, task) {
        p.end_page AS endPage, p.end_surah AS endSurah, p.end_ayah AS endAyah
      FROM student_quran_tasks t
      JOIN student_quran_plans p ON p.id = t.plan_id
-     WHERE t.plan_id = ? AND t.task_date = ? AND t.task_type = 'memorization'`,
+     WHERE t.plan_id = ? AND ${studyDateSql('t.task_date')} AND ${uncompensatedTaskSql('t')} AND t.task_date = ? AND t.task_type = 'memorization'`,
     [task.planId, task.taskDate],
   );
   if (!rows.length) return task;
@@ -12427,7 +12636,7 @@ async function extendRecitationTaskRange({ actualEnd, currentEnd, direction, tas
           normal_to_ayah AS normalToAyah, scheduled_to_page AS scheduledToPage,
           scheduled_to_surah AS scheduledToSurah, scheduled_to_ayah AS scheduledToAyah
          FROM student_quran_tasks
-         WHERE plan_id = ? AND student_id = ? AND task_date = ? AND task_type = 'memorization'
+         WHERE plan_id = ? AND student_id = ? AND ${studyDateSql('task_date')} AND task_date = ? AND task_type = 'memorization'
            AND NOT EXISTS (
              SELECT 1
              FROM student_quran_tasks newer
@@ -12567,7 +12776,7 @@ async function applyEvaluatedCompensationGroup({ groupEvaluated, task, groupTask
   const passed = groupTasks.every((row) => Number(row.teacherCompleted) === 1);
   await connection.query(
     `UPDATE student_quran_execution_segments SET is_current = 0
-     WHERE plan_id = ? AND task_date = ? AND source_type = 'teacher' AND segment_type = 'compensation'
+     WHERE plan_id = ? AND ${studyDateSql('task_date')} AND task_date = ? AND source_type = 'teacher' AND segment_type = 'compensation'
        AND from_page = ? AND from_surah = ? AND from_ayah = ? AND is_current = 1`,
     [task.planId, task.taskDate, start.page, start.surah, start.ayah],
   );
@@ -12645,7 +12854,7 @@ async function saveTeacherExecutedRepetitions({ notMemorized, teacherExecutionMo
              execution_actor_role = 'teacher', execution_actor_id = ?, executed_at = NOW(3)
          WHERE plan_id = ?
            AND student_id = ?
-           AND task_date = ?
+           AND ${studyDateSql('task_date')} AND task_date = ?
            AND task_type = 'repeat' AND track = ?
            AND from_page = ?
            AND to_page = ?
@@ -12678,7 +12887,7 @@ async function saveTeacherExecutedRepetitions({ notMemorized, teacherExecutionMo
 }
 
 /** Validate all selected verses and words before replacing marks, using the caller transaction and bound SQL values. */
-async function saveValidatedRecitationMarks({ ayahMarksPayload, wordMarksPayload, connection, task, normalizedWordMarks, markLimit, normalizedAyahMarks, mistakeCount, warningCount, taskId, supervisorId }) {
+async function saveValidatedRecitationMarks({ ayahMarksPayload, wordMarksPayload, connection, task, normalizedWordMarks, markLimit, normalizedAyahMarks, mistakeCount, warningCount, hesitationCount, taskId, supervisorId }) {
   if (ayahMarksPayload || wordMarksPayload) {
     const allowedAyahs = await getQuranAyahsForTask(connection, task);
     const allowedByKey = new Map(allowedAyahs.map((ayah) => [`${ayah.surah}:${ayah.ayah}`, ayah]));
@@ -12693,10 +12902,11 @@ async function saveValidatedRecitationMarks({ ayahMarksPayload, wordMarksPayload
     } else {
       normalizeSelectedAyahMarks(ayahMarksPayload, allowedByKey, marksByKey, markLimit);
     }
-    normalizedAyahMarks = [...marksByKey.values()].filter((mark) => mark.mistakeCount > 0 || mark.warningCount > 0);
+    normalizedAyahMarks = [...marksByKey.values()].filter((mark) => mark.mistakeCount > 0 || mark.warningCount > 0 || mark.hesitationCount > 0);
     mistakeCount = normalizedAyahMarks.reduce((sum, mark) => sum + mark.mistakeCount, 0);
     warningCount = normalizedAyahMarks.reduce((sum, mark) => sum + mark.warningCount, 0);
-    if (mistakeCount > markLimit || warningCount > markLimit) {
+    hesitationCount = normalizedAyahMarks.reduce((sum, mark) => sum + mark.hesitationCount, 0);
+    if (mistakeCount > markLimit || warningCount > markLimit || hesitationCount > markLimit) {
       throw Object.assign(new Error(`الحد الأعلى لكل نوع في الجلسة هو ${markLimit}.`), { statusCode: 422 });
     }
     await connection.query('DELETE FROM student_quran_task_ayah_marks WHERE task_id = ?', [taskId]);
@@ -12708,6 +12918,9 @@ async function saveValidatedRecitationMarks({ ayahMarksPayload, wordMarksPayload
           : null,
         mark.warningCount > 0
           ? [taskId, mark.surah, mark.ayah, verse.textUthmani, 'warning', mark.warningCount, supervisorId]
+          : null,
+        mark.hesitationCount > 0
+          ? [taskId, mark.surah, mark.ayah, verse.textUthmani, 'hesitation', mark.hesitationCount, supervisorId]
           : null,
       ].filter(Boolean);
     });
@@ -12723,7 +12936,7 @@ async function saveValidatedRecitationMarks({ ayahMarksPayload, wordMarksPayload
     }
     await persistSelectedWordMarks(normalizedWordMarks, connection, taskId, supervisorId);
   }
-  return { normalizedWordMarks, normalizedAyahMarks, mistakeCount, warningCount };
+  return { normalizedWordMarks, normalizedAyahMarks, mistakeCount, warningCount, hesitationCount };
 }
 
 /** Replace word marks inside the caller transaction using parameterized bulk inserts. */
@@ -12756,13 +12969,14 @@ async function persistSelectedWordMarks(normalizedWordMarks, connection, taskId,
   }
 }
 
-async function buildSupervisorAttendanceReport(query = {}) {
-  return loadStaffAttendanceReport(query, db(), getSaudiDateTimeParts().date);
+async function buildSupervisorAttendanceReport(query = {}, auth = null) {
+  const scopedQuery = auth?.role === 'supervisor' ? { ...query, staffId: String(auth.id) } : query;
+  return loadStaffAttendanceReport(scopedQuery, db(), getSaudiDateTimeParts().date);
 }
 
 app.get('/api/reports/supervisors', requireManagementReportAccess, async (req, res, next) => {
   try {
-    const report = await buildSupervisorAttendanceReport(req.query);
+    const report = await buildSupervisorAttendanceReport(req.query, req.auth);
 
     res.json(report.rows);
   } catch (error) {
@@ -12770,8 +12984,8 @@ app.get('/api/reports/supervisors', requireManagementReportAccess, async (req, r
   }
 });
 
-async function buildOverviewReport({ from, startDate: requestedStartDate, date, to, endDate: requestedEndDate, queryExecutor = null, auth = null, committeeId = 'all' } = {}) {
-    const reportDb = createOverviewReportScope(queryExecutor || db(), { auth, committeeId });
+async function buildOverviewReport({ from, startDate: requestedStartDate, date, to, endDate: requestedEndDate, queryExecutor = null, auth = null, committeeId = 'all', complexId = 'all' } = {}) {
+    const reportDb = createOverviewReportScope(queryExecutor || db(), { auth, committeeId, complexId });
     const today = getSaudiDateTimeParts().date;
     let defaultStartDate = from || requestedStartDate || date;
     defaultStartDate = await resolveOverviewStartDate(defaultStartDate, reportDb, today);
@@ -12799,10 +13013,11 @@ async function buildOverviewReport({ from, startDate: requestedStartDate, date, 
       `
       SELECT
         COALESCE(SUM(CASE
-          WHEN t.task_type = 'memorization' AND ${acceptedMemorizationSql('t')}
+          WHEN t.task_type = 'memorization' AND t.track = 'memorization' AND ${acceptedMemorizationSql('t')}
           THEN ${quranTaskFacesSql}
           ELSE 0
         END), 0) AS memorizationFaces,
+        COALESCE(SUM(CASE WHEN t.task_type = 'memorization' AND t.track = 'mastery' AND ${acceptedMemorizationSql('t')} THEN ${quranTaskFacesSql} ELSE 0 END), 0) AS masteryFaces,
         COALESCE(SUM(CASE
           WHEN t.task_type = 'review' AND ${acceptedQuranExecutionSql('t')}
           THEN ${quranTaskFacesSql}
@@ -12814,7 +13029,7 @@ async function buildOverviewReport({ from, startDate: requestedStartDate, date, 
           ELSE 0
         END), 0) AS linkFaces
       FROM student_quran_tasks t
-      WHERE t.task_date BETWEEN ? AND ? AND ${reportDb.student('t.student_id')}
+      WHERE ${studyDateSql('t.task_date')} AND ${uncompensatedTaskSql('t', { retainAccepted: true })} AND t.task_date BETWEEN ? AND ? AND ${reportDb.student('t.student_id')}
       `,
       [startDate, endDate]
     );
@@ -12822,7 +13037,7 @@ async function buildOverviewReport({ from, startDate: requestedStartDate, date, 
       from: startDate,
       to: endDate,
       quranFaces: {
-        memorization: quranFaceTotals.memorizationFaces,
+        memorization: Number(quranFaceTotals.memorizationFaces || 0) + Number(quranFaceTotals.masteryFaces || 0),
         review: quranFaceTotals.reviewFaces,
         link: quranFaceTotals.linkFaces,
       },
@@ -12899,7 +13114,7 @@ async function buildOverviewReport({ from, startDate: requestedStartDate, date, 
         FROM students s
         LEFT JOIN committees c ON c.id = s.committee_id
         JOIN student_quran_tasks t ON t.student_id = s.id
-        WHERE t.task_date BETWEEN ? AND ? AND ${reportDb.student('t.student_id')}
+        WHERE ${studyDateSql('t.task_date')} AND ${uncompensatedTaskSql('t', { retainAccepted: true })} AND t.task_date BETWEEN ? AND ? AND ${reportDb.student('t.student_id')}
           AND t.task_type = ?
           ${trackClause}
         GROUP BY s.id, s.name, c.name
@@ -12921,7 +13136,7 @@ async function buildOverviewReport({ from, startDate: requestedStartDate, date, 
     ] = await Promise.all([
       buildStudentQuranLeaderboard({ taskType: 'review', completionCondition: acceptedQuranExecutionSql('t') }),
       buildStudentQuranLeaderboard({ taskType: 'link', completionCondition: acceptedQuranExecutionSql('t') }),
-      buildStudentQuranLeaderboard({ taskType: 'memorization', completionCondition: acceptedMemorizationSql('t') }),
+      buildStudentQuranLeaderboard({ taskType: 'memorization', track: 'memorization', completionCondition: acceptedMemorizationSql('t') }),
     ]);
     const [committeeAchievementRows] = await reportDb.query(
       `
@@ -12938,7 +13153,7 @@ async function buildOverviewReport({ from, startDate: requestedStartDate, date, 
       FROM committees c
       JOIN students s ON s.committee_id = c.id
       JOIN student_quran_tasks t ON t.student_id = s.id
-      WHERE t.task_date BETWEEN ? AND ? AND ${reportDb.student('t.student_id')}
+      WHERE ${studyDateSql('t.task_date')} AND ${uncompensatedTaskSql('t', { retainAccepted: true })} AND t.task_date BETWEEN ? AND ? AND ${reportDb.student('t.student_id')}
         AND t.task_type IN ('memorization', 'review', 'link')
       GROUP BY c.id, c.name
       HAVING expectedFaces > 0
@@ -12962,7 +13177,7 @@ async function buildOverviewReport({ from, startDate: requestedStartDate, date, 
         || b.achievedFaces - a.achievedFaces
         || String(a.name || '').localeCompare(String(b.name || ''), 'ar')
       ));
-    const indicatorKeys = ['attendance', 'review', 'link', 'memorization'];
+    const indicatorKeys = ['attendance', 'review', 'link', 'memorization', 'mastery'];
     const createIndicatorTotals = () => Object.fromEntries(
       indicatorKeys.map((key) => [key, { done: 0, total: 0 }])
     );
@@ -13043,10 +13258,12 @@ async function buildOverviewReport({ from, startDate: requestedStartDate, date, 
         COALESCE(SUM(CASE
           WHEN t.task_type = 'link' AND ${acceptedQuranExecutionSql('t')} THEN ${quranTaskFacesSql}
           ELSE 0 END), 0) AS linkDone,
-        COALESCE(SUM(CASE WHEN t.task_type = 'memorization' THEN ${expectedQuranTaskFacesSql} ELSE 0 END), 0) AS memorizationTotal,
-        COALESCE(SUM(CASE WHEN t.task_type = 'memorization' AND ${acceptedMemorizationSql('t')} THEN ${quranTaskFacesSql} ELSE 0 END), 0) AS memorizationDone
+        COALESCE(SUM(CASE WHEN t.task_type = 'memorization' AND t.track = 'memorization' THEN ${expectedQuranTaskFacesSql} ELSE 0 END), 0) AS memorizationTotal,
+        COALESCE(SUM(CASE WHEN t.task_type = 'memorization' AND t.track = 'memorization' AND ${acceptedMemorizationSql('t')} THEN ${quranTaskFacesSql} ELSE 0 END), 0) AS memorizationDone,
+        COALESCE(SUM(CASE WHEN t.task_type = 'memorization' AND t.track = 'mastery' THEN ${expectedQuranTaskFacesSql} ELSE 0 END), 0) AS masteryTotal,
+        COALESCE(SUM(CASE WHEN t.task_type = 'memorization' AND t.track = 'mastery' AND ${acceptedMemorizationSql('t')} THEN ${quranTaskFacesSql} ELSE 0 END), 0) AS masteryDone
       FROM student_quran_tasks t
-      WHERE t.task_date BETWEEN ? AND ? AND ${reportDb.student('t.student_id')}
+      WHERE ${studyDateSql('t.task_date')} AND ${uncompensatedTaskSql('t', { retainAccepted: true })} AND t.task_date BETWEEN ? AND ? AND ${reportDb.student('t.student_id')}
         AND t.task_type IN ('memorization', 'review', 'link')
       GROUP BY t.student_id
       `,
@@ -13055,7 +13272,7 @@ async function buildOverviewReport({ from, startDate: requestedStartDate, date, 
     for (const row of quranIndicatorRows) {
       const entry = studentIndicatorMap.get(String(row.studentId));
       if (!entry) continue;
-      for (const key of ['review', 'link', 'memorization']) {
+      for (const key of ['review', 'link', 'memorization', 'mastery']) {
         const total = Number(row[`${key}Total`] || 0);
         const done = Number(row[`${key}Done`] || 0);
         addIndicatorValue(entry.student.totals, key, done, total);
@@ -13096,7 +13313,7 @@ async function buildOverviewReport({ from, startDate: requestedStartDate, date, 
     const expectedStudentAttendance = grades.weeklyProgram.studentsList
       .reduce((sum, row) => sum + Number(row.attendanceDays || 0), 0);
     Object.assign(studentAttendance, normalizeRangeAttendance(studentAttendanceRows, expectedStudentAttendance));
-    const [staffJoined] = await reportDb.query(`SELECT DATE_FORMAT(created_at, '%Y-%m-%d') AS joined FROM supervisors WHERE role IN ('supervisor', 'reciter', 'admin') AND is_active = 1 AND ${reportDb.staff('id')}`);
+    const [staffJoined] = await reportDb.query(`SELECT DATE_FORMAT(created_at, '%Y-%m-%d') AS joined FROM supervisors WHERE role IN ('supervisor', 'reciter', 'admin') AND is_active = 1 AND ${reportDb.staff('supervisors.id')}`);
     const expectedStaffAttendance = staffJoined.reduce((sum, row) => sum + attendanceDates.filter(date => !row.joined || date >= row.joined).length, 0);
     Object.assign(supervisorAttendance, normalizeRangeAttendance(supervisorAttendanceRows, expectedStaffAttendance));
     const increasePoints = Number(pointTotals.increasePoints || 0);
@@ -13118,6 +13335,7 @@ async function buildOverviewReport({ from, startDate: requestedStartDate, date, 
         familyPoints: Number(totals.familyPoints || 0),
         quranFaces: {
           memorization: Number(quranFaceTotals.memorizationFaces || 0),
+          mastery: Number(quranFaceTotals.masteryFaces || 0),
           review: Number(quranFaceTotals.reviewFaces || 0),
           link: Number(quranFaceTotals.linkFaces || 0),
         },
@@ -13146,6 +13364,10 @@ async function buildOverviewReport({ from, startDate: requestedStartDate, date, 
         committees: topCommitteesByAchievement,
       },
       committeeIndicators,
+      planPerformance: await loadQuranPlanPerformance(reportDb, {
+        from: startDate, to: minDateOnly(endDate, addUtcDays(today, -1)), workDays: attendanceWeekDays,
+        expand: range => expandQuranTraversalRange(queryExecutor || db(), range),
+      }),
       studentLevels: await loadStudentLevels({
         query: reportDb.query,
         referenceConnection: queryExecutor || db(),
@@ -13160,7 +13382,7 @@ async function buildOverviewReport({ from, startDate: requestedStartDate, date, 
 app.get('/api/reports/committees', requireReportsOrOwnCommittee, async (req, res, next) => {
   try {
     const scope = createOverviewReportScope(db(), { auth: req.auth });
-    const [rows] = await scope.query(`SELECT id, name FROM committees WHERE ${scope.committee('committees.id')} ORDER BY name`);
+    const [rows] = await scope.query(`SELECT c.id, c.name, c.complex_id AS complexId FROM committees c WHERE ${scope.committee('c.id')} ORDER BY c.name`);
     res.json(rows);
   } catch (error) { next(error); }
 });
@@ -13553,7 +13775,7 @@ async function buildProgressReport({
         t.student_status AS studentStatus,
         t.teacher_rating_key AS teacherRatingKey,
         t.teacher_rating_label AS teacherRatingLabel,
-        t.warning_count AS warningCount,
+        t.warning_count AS warningCount, t.hesitation_count AS hesitationCount,
         t.mistake_count AS mistakeCount,
         t.evaluation_score AS evaluationScore,
         t.points,
@@ -13566,7 +13788,7 @@ async function buildProgressReport({
       LEFT JOIN quran_surahs ts ON ts.surah_number = t.to_surah
       LEFT JOIN quran_surahs ats ON ats.surah_number = t.actual_to_surah
       WHERE t.student_id IN (${placeholders})
-        AND t.task_date BETWEEN ? AND ?
+        AND ${studyDateSql('t.task_date')} AND ${uncompensatedTaskSql('t', { retainAccepted: true })} AND t.task_date BETWEEN ? AND ?
         AND t.task_type IN ('memorization', 'review', 'link', 'repeat')
       ORDER BY t.task_date ASC, FIELD(t.task_type, 'memorization', 'repeat', 'review', 'link'), t.from_page ASC
       `,
@@ -13577,7 +13799,7 @@ async function buildProgressReport({
         source_type AS sourceType, segment_type AS segmentType,
         SUM(amount_faces) AS amountFaces
        FROM student_quran_execution_segments
-       WHERE student_id IN (${placeholders}) AND task_date BETWEEN ? AND ? AND is_current = 1
+       WHERE student_id IN (${placeholders}) AND ${studyDateSql('task_date')} AND task_date BETWEEN ? AND ? AND is_current = 1
        GROUP BY student_id, plan_id, task_date, source_type, segment_type`,
       [...studentIds, startDate, endDate],
     );
@@ -14117,9 +14339,10 @@ const recitationSessionColumns = [
   { key: 'executionBreakdown', label: 'تصنيف التنفيذ', width: 32 },
   { key: 'mistakeCount', label: 'الأخطاء', width: 10 },
   { key: 'warningCount', label: 'التنبيهات', width: 12 },
+  { key: 'hesitationCount', label: 'الترددات', width: 12 },
   { key: 'score', label: 'الدرجة', width: 12 },
   { key: 'ayahTexts', label: 'التحديدات والملاحظات', width: 70 },
-  { key: 'teacherName', label: 'المعلم', width: 22 },
+  { key: 'teacherName', label: 'مشرف المسار', width: 22 },
   { key: 'statusLabel', label: 'الحالة', width: 14 },
 ];
 
@@ -14184,6 +14407,7 @@ function getRecitationRowValues(row) {
     executionBreakdown: executionBreakdown || '-',
     mistakeCount: Number(row.mistakeCount || 0),
     warningCount: Number(row.warningCount || 0),
+    hesitationCount: Number(row.hesitationCount || 0),
     score: row.evaluationScore === null || row.evaluationScore === undefined
       ? '-'
       : `${Number(row.evaluationScore).toFixed(2)} / ${Number(row.evaluationMaxScore || 100).toFixed(2)}`,
@@ -14260,7 +14484,7 @@ async function buildRecitationSessionsReport({ from, startDate: requestedStartDa
       t.student_status AS studentStatus,
       t.teacher_rating_key AS teacherRatingKey,
       t.teacher_rating_label AS teacherRatingLabel,
-      a.warning_count AS warningCount,
+      a.warning_count AS warningCount, a.hesitation_count AS hesitationCount,
       a.mistake_count AS mistakeCount,
       a.evaluation_score AS evaluationScore,
       a.evaluation_max_score AS evaluationMaxScore,
@@ -14322,6 +14546,7 @@ async function buildRecitationSessionsReport({ from, startDate: requestedStartDa
       return historicalMarks?.marks || [];
     };
     const displayMarks = _resolveDisplayMarks();
+    const detailedHesitationCount = displayMarks.reduce((sum, mark) => sum + (mark.markType === 'hesitation' ? Number(mark.count || 1) : Number(mark.hesitationCount || 0)), 0);
     const detailedWarningCount = displayMarks.reduce((sum, mark) => (
       sum + (mark.markType === 'warning' ? Number(mark.count || 1) : Number(mark.warningCount || 0))
     ), 0);
@@ -14335,10 +14560,11 @@ async function buildRecitationSessionsReport({ from, startDate: requestedStartDa
       evaluatorId: Number(row.evaluatorId),
       sessionDate: row.sessionDate,
       taskDate: row.taskDate,
-      teacherName: row.teacherName || 'المعلم',
+      teacherName: row.teacherName || 'مشرف المسار',
       evaluatedAt: row.evaluatedAt || '',
       attemptNumber: Number(row.attemptNumber || 1),
       warningCount: currentMarks.length ? detailedWarningCount : Number(row.warningCount || 0),
+      hesitationCount: currentMarks.length ? detailedHesitationCount : Number(row.hesitationCount || 0),
       mistakeCount: currentMarks.length ? detailedMistakeCount : Number(row.mistakeCount || 0),
       ayahMarks: displayMarks,
       wordMarks,
@@ -14437,6 +14663,7 @@ async function buildRecitationSessionsPdf(report) {
     const columns = [
       { label: 'الحالة', width: 70, value: (row) => getRecitationStatusLabel(row) },
       { label: 'تنبيهات', width: 45, value: (row) => row.warningCount },
+      { label: 'ترددات', width: 45, value: (row) => row.hesitationCount },
       { label: 'أخطاء', width: 45, value: (row) => row.mistakeCount },
       { label: 'التحديدات والملاحظات', width: 135, value: (row) => getRecitationAyahTexts(row) || '-' },
       { label: 'التصنيف', width: 100, value: (row) => getRecitationRowValues(row).executionBreakdown },
@@ -14898,9 +15125,9 @@ app.delete('/api/reports/archives/:id', requireManagementReportAccess, async (re
 app.get('/api/reports/supervisors/export', requireManagementReportAccess, async (req, res, next) => {
   try {
     const format = String(req.query.format || 'pdf').toLowerCase();
-    const report = await buildSupervisorAttendanceReport(req.query);
+    const report = await buildSupervisorAttendanceReport(req.query, req.auth);
     const extension = format === 'xlsx' || format === 'excel' ? 'xlsx' : 'pdf';
-    const filename = `تقرير-المعلمين-${report.period.from}.${extension}`;
+    const filename = `تقرير-مشرفي المسارات-${report.period.from}.${extension}`;
     if (extension === 'xlsx') {
       const buffer = await buildSupervisorExcel(report);
       setDownloadHeaders(res, filename, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -14985,7 +15212,7 @@ app.get('/api/reports/student-saved/export', requireReportsOrOwnCommittee, async
   }
 });
 
-app.get('/api/reports/whatsapp-recipients', requireManagementReportAccess, async (_req, res, next) => {
+app.get('/api/reports/whatsapp-recipients', requireManagementReportAccess, requirePermission('whatsappSend'), async (_req, res, next) => {
   try {
     const [rows] = await db().query(
       `
@@ -15005,11 +15232,11 @@ app.get('/api/reports/whatsapp-recipients', requireManagementReportAccess, async
   }
 });
 
-app.post('/api/reports/send-whatsapp', requireManagementReportAccess, async (req, res, next) => {
+app.post('/api/reports/send-whatsapp', requireManagementReportAccess, requirePermission('whatsappSend'), async (req, res, next) => {
   try {
     const supervisorIds = Array.isArray(req.body.supervisorIds) ? req.body.supervisorIds.map(Number).filter(Boolean) : [];
     if (supervisorIds.length === 0) {
-      return res.status(422).json({ message: 'اختر معلماً واحداً على الأقل.' });
+      return res.status(422).json({ message: 'اختر مشرف مسار واحداً على الأقل.' });
     }
     const reportType = ['progress', 'recitationSessions', 'studentSaved', 'overview', 'supervisors', 'archive'].includes(req.body.reportType)
       ? req.body.reportType
@@ -15072,17 +15299,17 @@ app.post('/api/reports/send-whatsapp', requireManagementReportAccess, async (req
 /** Build the requested report with the same authorization context and export format handlers. */
 async function prepareWhatsAppReport({ reportType, report, req, reportTitle, buildPdf, buildExcel, getFileName }) {
   if (reportType === 'overview') {
-    report = await buildOverviewReport(req.body);
+    report = await buildOverviewReport({ ...req.body, auth: req.auth });
     reportTitle = 'تقرير الإحصائيات';
     buildPdf = (data) => buildOverviewPdf(data, { fontPair: resolvePdfFontPair() });
     buildExcel = buildOverviewExcel;
     getFileName = (data, extension) => `الإحصائيات-${data.period.from}-إلى-${data.period.to}.${extension}`;
   } else if (reportType === 'supervisors') {
-    report = await buildSupervisorAttendanceReport(req.body);
+    report = await buildSupervisorAttendanceReport(req.body, req.auth);
     reportTitle = 'تقرير الكادر';
     buildPdf = (data) => buildSupervisorPdf(data, { fontPair: resolvePdfFontPair(), siteName: currentSiteConfig().name });
     buildExcel = buildSupervisorExcel;
-    getFileName = (data, extension) => `تقرير-المعلمين-${data.period.from}.${extension}`;
+    getFileName = (data, extension) => `تقرير-مشرفي المسارات-${data.period.from}.${extension}`;
   } else if (reportType === 'archive') {
     report = await getReportArchiveById(Number(req.body.archiveId || 0), req.body);
     reportTitle = report.title || 'أرشيف التقارير';
@@ -15143,7 +15370,7 @@ async function getTeacherPointsTermStart(settings, queryExecutor = db()) {
 app.get('/api/teacher-points/students', async (req, res, next) => {
   try {
     if (req.auth?.role !== 'supervisor') {
-      return res.status(403).json({ message: 'الإضافة والخصم متاحان للمعلم فقط.' });
+      return res.status(403).json({ message: 'الإضافة والخصم متاحان لمشرف المسار فقط.' });
     }
     const settings = await loadSettings();
     if (!settings.teacherManualPointsEnabled) {
@@ -15189,7 +15416,7 @@ app.post('/api/teacher-points/adjustments', async (req, res, next) => {
   let transactionStarted = false;
   try {
     if (req.auth?.role !== 'supervisor') {
-      return res.status(403).json({ message: 'الإضافة والخصم متاحان للمعلم فقط.' });
+      return res.status(403).json({ message: 'الإضافة والخصم متاحان لمشرف المسار فقط.' });
     }
     const studentId = Number(req.body.studentId || 0);
     const adjustmentTypeId = String(req.body.adjustmentTypeId || '').trim();
@@ -15253,7 +15480,7 @@ app.post('/api/teacher-points/adjustments', async (req, res, next) => {
     const used = Number(usage.used || 0);
     const remaining = Math.max(0, limit - used);
     if (!limit || effectiveRequestedPoints > remaining) {
-      const error = new Error(`تجاوزت حد المعلم في الفصل. المتبقي ${remaining} نقطة.`);
+      const error = new Error(`تجاوزت حد مشرف المسار في الفصل. المتبقي ${remaining} نقطة.`);
       error.statusCode = 422;
       throw error;
     }
@@ -15270,7 +15497,7 @@ app.post('/api/teacher-points/adjustments', async (req, res, next) => {
       studentId,
       supervisorId: req.auth.id,
       actorRole: 'supervisor',
-      actorName: req.auth.name || 'المعلم',
+      actorName: req.auth.name || 'مشرف المسار',
       type,
       points: Math.abs(effectiveDelta),
       reason,
@@ -15321,9 +15548,10 @@ app.get('/api/reports/teacher-points', requireReportsOrOwnCommittee, async (req,
     const to = isValidDateOnly(req.query.to) ? req.query.to : getSaudiDateTimeParts().date;
     if (from > to) return res.status(422).json({ message: 'نطاق التاريخ غير صحيح.' });
     const params = [from, to];
+    const scope = createOverviewReportScope(db(), { auth: req.auth, committeeId: req.query.committeeId, complexId: req.query.complexId });
     const teacherFilter = req.auth?.role === 'supervisor' ? 'AND t.supervisor_id = ?' : '';
     if (teacherFilter) params.push(req.auth.id);
-    const [rows] = await db().query(
+    const [rows] = await scope.query(
       `
       SELECT
         t.id,
@@ -15334,7 +15562,7 @@ app.get('/api/reports/teacher-points', requireReportsOrOwnCommittee, async (req,
         t.points,
         t.reason,
         DATE_FORMAT(t.transaction_date, '%Y-%m-%d') AS transactionDate,
-        COALESCE(t.actor_name, sp.name, 'المعلم') AS teacherName
+        COALESCE(t.actor_name, sp.name, 'مشرف المسار') AS teacherName
       FROM student_point_transactions t
       JOIN students st ON st.id = t.student_id
       LEFT JOIN committees c ON c.id = st.committee_id
@@ -15342,6 +15570,7 @@ app.get('/api/reports/teacher-points', requireReportsOrOwnCommittee, async (req,
       WHERE t.source_type IN ('supervisor_award', 'supervisor_deduction')
         AND t.transaction_date BETWEEN ? AND ?
         ${teacherFilter}
+        AND ${scope.student('st.id')}
       ORDER BY t.created_at DESC, t.id DESC
       `,
       params,
@@ -15657,7 +15886,7 @@ async function loadFamilyPointDetails(familyIds, addFamilyDetail) {
           SELECT
             a.committee_id AS familyId,
             COALESCE(i.name, 'بند تقييم حلقة') AS itemName,
-            COALESCE(sp.name, 'المعلم') AS supervisorName,
+            COALESCE(sp.name, 'مشرف المسار') AS supervisorName,
             COALESCE(SUM(a.points), 0) AS points,
             COUNT(*) AS count,
             DATE_FORMAT(MAX(a.award_date), '%Y-%m-%d') AS latestDate
@@ -15849,6 +16078,7 @@ async function rejectInvalidEvaluationSettings({ settings, res }) {
       !Number.isFinite(settings.staffAttendanceLateAfterAsrMinutes) ||
       !Number.isFinite(settings.narrationMaxScore) ||
       !Number.isFinite(settings.narrationWarningDeduction) ||
+      !Number.isFinite(settings.narrationHesitationDeduction) ||
       !Number.isFinite(settings.narrationMistakeDeduction) ||
       settings.maxSupervisorStudentPoints < 0 ||
       settings.maxDailyStudentPoints < 0 ||
@@ -15859,6 +16089,8 @@ async function rejectInvalidEvaluationSettings({ settings, res }) {
       settings.staffAttendanceLateAfterAsrMinutes > 1440 ||
       settings.narrationMaxScore < 1 ||
       settings.narrationWarningDeduction < 0 ||
+      settings.narrationHesitationDeduction < 0 ||
+      settings.narrationHesitationDeduction > settings.narrationMaxScore ||
       settings.narrationMistakeDeduction < 0 ||
       settings.narrationWarningDeduction > settings.narrationMaxScore ||
       settings.narrationMistakeDeduction > settings.narrationMaxScore
@@ -15892,7 +16124,7 @@ if (settings.attendanceLocationUrl) {
     if (settings.staffAttendanceSource === 'teacher' && settings.staffAttendanceLocationUrl) {
       const coordinates = await resolveGoogleMapsCoordinates(settings.staffAttendanceLocationUrl);
       if (!coordinates) {
-        return res.status(422).json({ message: 'تعذر استخراج موقع تحضير المعلمين والإدارة من رابط قوقل ماب.' });
+        return res.status(422).json({ message: 'تعذر استخراج موقع تحضير مشرفي المسارات والإدارة من رابط قوقل ماب.' });
       }
       settings.staffAttendanceLocationLat = coordinates.lat;
       settings.staffAttendanceLocationLng = coordinates.lng;
@@ -15930,11 +16162,11 @@ const sameGroup = taskRows.every((task) =>
     }
     if (!canStudentExecuteQuranTask(settings, first.taskType)) {
       await connection.rollback();
-      return res.status(409).json({ message: 'تنفيذ هذه المهمة يتم عن طريق المعلم.' });
+      return res.status(409).json({ message: 'تنفيذ هذه المهمة يتم عن طريق مشرف المسار.' });
     }
     if (taskRows.some((task) => task.executionActorRole === 'teacher')) {
       await connection.rollback();
-      return res.status(409).json({ message: 'سبق أن اعتمد المعلم تنفيذ هذه المهمة.' });
+      return res.status(409).json({ message: 'سبق أن اعتمد مشرف المسار تنفيذ هذه المهمة.' });
     }
 
 
@@ -16008,7 +16240,7 @@ if (requestId) {
         `SELECT
           is_official AS isOfficial,
           attempt_number AS attemptNumber,
-          warning_count AS warningCount,
+          warning_count AS warningCount, hesitation_count AS hesitationCount,
           mistake_count AS mistakeCount,
           evaluation_score AS evaluationScore,
           evaluation_max_score AS evaluationMaxScore,

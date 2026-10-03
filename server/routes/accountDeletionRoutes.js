@@ -1,12 +1,14 @@
+import { assertAdministratorScope } from '../services/administratorScope.js';
+import { assertSupervisorStudentScope } from '../services/supervisorStudentScope.js';
 import express from 'express';
 import { db } from '../db.js';
 import { hasSupervisorDashboardPermission } from '../services/dashboardPermissions.js';
 
 const router = express.Router();
 
-/** The manager, or an administrator granted the settings pages. */
+/** Settings delegates may process requests within their account and student scope. */
 const canManageDeletionRequests = async (req) => req.auth?.role === 'manager'
-  || (req.auth?.role === 'admin' && await hasSupervisorDashboardPermission(req.auth.id, ['settings']));
+  || (['admin', 'supervisor'].includes(req.auth?.role) && await hasSupervisorDashboardPermission(req.auth.id, ['settings']));
 
 router.get('/me', async (req, res, next) => {
   try {
@@ -127,7 +129,7 @@ router.put('/requests/:id', async (req, res, next) => {
       return res.status(404).json({ message: 'الطلب غير موجود أو تمت معالجته مسبقاً.' });
     }
 
-    const processApprovedAccountDeletionResult = await processApprovedAccountDeletion({ status, deletionRequest, connection, res });
+    const processApprovedAccountDeletionResult = await processApprovedAccountDeletion({ status, deletionRequest, connection, res, actor: req.auth });
     if (processApprovedAccountDeletionResult) { return processApprovedAccountDeletionResult; }
         const [result] = await connection.query(
       `
@@ -154,12 +156,18 @@ router.put('/requests/:id', async (req, res, next) => {
 export default router;
 
 /** Delete only the approved account and related records within the existing manager-owned transaction. */
-async function processApprovedAccountDeletion({ status, deletionRequest, connection, res }) {
+async function processApprovedAccountDeletion({ status, deletionRequest, connection, res, actor }) {
 if (status !== 'completed') { return null; }
 
       if (deletionRequest.userRole === 'manager') {
         await connection.rollback();
         return res.status(409).json({ message: 'طلب حذف حساب المدير يُعالج من إدارة المنصة.' });
+      }
+
+      if (deletionRequest.userRole === 'student') {
+        await assertSupervisorStudentScope(connection, actor, { studentId: deletionRequest.userId });
+      } else {
+        await assertAdministratorScope(connection, actor, { targetId: deletionRequest.userId, managementPermission: 'settings' });
       }
 
       await connection.query(

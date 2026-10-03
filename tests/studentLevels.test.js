@@ -111,12 +111,13 @@ test('the student header shows the level and the statistics split the students b
   ]);
   assert.match(home, /progress=\{level\?\.progressPercent\} levelName=\{level\?\.name\}/);
   assert.doesNotMatch(home, /currentPlanProgress|تقدم الخطة الحالية/);
-  assert.match(header, /<span className="student-home-level-name">\{levelName\}<\/span>/);
+  assert.match(header, /<span className="student-home-level-name">\{studentName\}\{showProgress && <span> \(\{levelName\}\)<\/span>\}<\/span>/);
   assert.match(server, /app\.get\('\/api\/students\/:id\/quran-level'/);
   assert.match(server, /studentLevels: await loadStudentLevels\(\{/);
   assert.match(metrics, /studentLevelsMetric\(overview, inCommittee\),\s*committeesCountMetric/);
   assert.match(metrics, /narrationMetric\(grades\.narration, inCommittee, filtered\)/);
   assert.doesNotMatch(metrics, /studentsCountMetric|label: 'عدد الطلاب'/);
-  assert.match(metrics, /sort\(\(a, b\) => Number\(b\.days \|\| 0\) - Number\(a\.days \|\| 0\)/);
+  assert.match(metrics, /series: performance\.get\(String\(student\.id\)\) \|\| \[\]/);
+  assert.doesNotMatch(metrics, /formatNumber\(student\.days\)/);
   assert.match(card, /metric\.segments \? <SegmentedMetricCard/);
 });

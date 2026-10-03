@@ -6,7 +6,7 @@ const WINDOW_MS = 10_000;
 const MAX_STORED_BYTES = 64 * 1024 * 1024;
 const isStaff = req => ['manager', 'admin', 'supervisor', 'reciter'].includes(req.auth?.role);
 const identity = (req, database) => JSON.stringify([database, req.auth?.role, req.auth?.id, req.auth?.tokenHash]);
-const externalOperation = path => /(?:\/(?:auth|calls|whatsapp|backups|notification-management|account-deletion)(?:\/|$))|(?:\/(?:send|send-whatsapp|reset-points|delete-program-data|end-term)$)/.test(path);
+const externalOperation = path => /^\/api\/grading\/(?:track-compensation|program-compensation|excuse-approval|compensations\/)/.test(path) || /(?:\/(?:auth|calls|whatsapp|backups|notification-management|account-deletion)(?:\/|$))|(?:\/(?:send|send-whatsapp|reset-points|delete-program-data|end-term)$)/.test(path);
 
 export function createDashboardUndo({ db, databaseName, hasPermission, now = Date.now, schedule = setTimeout }) {
   const actions = new Map();

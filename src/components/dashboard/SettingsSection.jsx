@@ -1,3 +1,4 @@
+import SeasonalHolidaysSetting from './SeasonalHolidaysSetting';
 import useQueuedAutosave from '@/hooks/useQueuedAutosave';
 import StaffAttendanceSettings from './StaffAttendanceSettings';
 import EndTermDialog from './EndTermDialog';
@@ -24,8 +25,10 @@ import ResetPointsDialog from '@/components/dashboard/ResetPointsDialog';
 import { enforcePointsFeatureDependencies } from '../../../shared/points-feature-settings.js';
 import { writePublicSettingsCache } from '@/services/publicSettingsCache';
 import GradingSettingsPanel from '@/components/dashboard/GradingSettingsPanel';
+import { formatHijriDate } from '../../../shared/hijri-calendar.js';
 
 const defaultSettings = {
+  seasonalHolidays: [],
   attendanceManualEnabled: true,
   weeklyHolidayDays: [5, 6],
   holidayTaskTypes: [],
@@ -70,6 +73,7 @@ const defaultSettings = {
   executionReminderTemplate: 'السلام عليكم، لم يتم تنفيذ خطة الطالب {name} بتاريخ {date}.',
   narrationMaxScore: 100,
   narrationWarningDeduction: 1,
+  narrationHesitationDeduction: 0,
   narrationMistakeDeduction: 5,
   narrationStartTemplate: 'السلام عليكم، بدأ {eventName} من {fromDate} إلى {toDate}.',
   narrationEndTemplate: 'السلام عليكم، انتهى {eventName}.',
@@ -161,7 +165,7 @@ const SettingsSection = ({
       const result = await studentsApi.endTerm(endTermConfirmText);
       toast({
         title: 'تم إنهاء الفصل',
-        description: `تم إنشاء ${result.archive?.title || 'أرشيف جديد'}، ويبدأ الفصل الجديد بتاريخ ${result.archive?.nextTermStartDate || 'اليوم التالي'}.`,
+        description: `تم إنشاء ${result.archive?.title || 'أرشيف جديد'}، ويبدأ الفصل الجديد بتاريخ ${formatHijriDate(result.archive?.nextTermStartDate) || 'اليوم التالي'}.`,
       });
       setEndTermOpen(false);
       setEndTermConfirmText('');
@@ -183,6 +187,7 @@ const SettingsSection = ({
       section="program"
       onStatusChange={setPolicyStatus}
       extraCards={[
+        { title: 'الإجازات الموسمية', content: <SeasonalHolidaysSetting holidays={settings.seasonalHolidays} onChange={seasonalHolidays => setSettings(current => ({...current, seasonalHolidays}))} /> },
         {
           title: 'التحضير',
           content: (
@@ -203,7 +208,7 @@ const SettingsSection = ({
                           <SelectTrigger aria-label="مسؤول تحضير الطلاب" className="h-11 border-primary/30 bg-card"><SelectValue /></SelectTrigger>
                           <SelectContent>
                             <SelectItem value="supervisor">المشرف</SelectItem>
-                            <SelectItem value="teacher">المعلم</SelectItem>
+                            <SelectItem value="teacher">مشرف المسار</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
@@ -244,7 +249,12 @@ const SettingsSection = ({
   return (
     <div className="space-y-7">
       {activeCategory === 'settingsGrading' && <div className="mx-auto w-full max-w-5xl">{programPage}</div>}
-      {activeCategory !== 'settingsGrading' && <Card className="mx-auto w-full max-w-5xl overflow-visible rounded-2xl border-border bg-card shadow-[var(--app-shadow)]">
+      {activeCategory === 'settingsTrackSession' && <div className="mx-auto w-full max-w-5xl">
+        <SettingsCategoryPanel category="settingsTrackSession" activeCategory={activeCategory} title="جلسة المسار">
+          <GradingSettingsPanel section="track" onStatusChange={setPolicyStatus} />
+        </SettingsCategoryPanel>
+      </div>}
+      {activeCategory !== 'settingsGrading' && activeCategory !== 'settingsTrackSession' && <Card className="mx-auto w-full max-w-5xl overflow-visible rounded-2xl border-border bg-card shadow-[var(--app-shadow)]">
         <CardContent className="p-0 sm:p-0 lg:p-0">
           <SettingsCategoryPanel category="settingsNotifications" activeCategory={activeCategory} title="إعدادات الإشعارات">
             <NotificationSettings settings={settings} setSettings={setSettings} />
@@ -256,6 +266,10 @@ const SettingsSection = ({
               <div className="space-y-1">
                 <Label htmlFor="narration-max-score">أصل الدرجة</Label>
                 <Input id="narration-max-score" type="number" min="1" value={settings.narrationMaxScore} onChange={(event) => setSettings({ ...settings, narrationMaxScore: event.target.value === '' ? '' : Number(event.target.value) })} />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="narration-hesitation-deduction">خصم التردد</Label>
+                <Input id="narration-hesitation-deduction" type="number" min="0" value={settings.narrationHesitationDeduction} onChange={(event) => setSettings({ ...settings, narrationHesitationDeduction: Number(event.target.value || 0) })} />
               </div>
               <div className="space-y-1">
                 <Label htmlFor="narration-warning-deduction">خصم التنبيه</Label>
@@ -310,12 +324,12 @@ const SettingsSection = ({
                 />
               )}
               <InlineToggleNumberSetting
-                label="السماح للمعلم بالإضافة والخصم"
+                label="السماح لمشرف المسار بالإضافة والخصم"
                 checked={settings.teacherManualPointsEnabled}
                 onCheckedChange={(checked) => setSettings({ ...settings, teacherManualPointsEnabled: checked })}
                 value={settings.teacherManualPointsTermLimit}
                 onValueChange={(value) => setSettings({ ...settings, teacherManualPointsTermLimit: value })}
-                inputLabel="حد المعلم في الفصل"
+                inputLabel="حد مشرف المسار في الفصل"
                 valueLabel="الحد في الفصل"
                 min={1}
                 max={1000000}
@@ -333,10 +347,6 @@ const SettingsSection = ({
               )}
             </div>
           </SettingsGroup>
-          </SettingsCategoryPanel>
-
-          <SettingsCategoryPanel category="settingsTrackSession" activeCategory={activeCategory} title="جلسة المسار">
-            <GradingSettingsPanel section="track" onStatusChange={setPolicyStatus} />
           </SettingsCategoryPanel>
 
           <SettingsCategoryPanel category="settingsWeeklySession" activeCategory={activeCategory} title="الجلسة الأسبوعية">

@@ -31,6 +31,7 @@ const CountOnlyEvaluationDialog = ({
   title = 'تسجيل نتيجة التسميع',
   showItemLabels = true,
   initialWarningCount = 0,
+  initialHesitationCount = 0,
   initialMistakeCount = 0,
   onSubmit,
   secondaryAction = null,
@@ -44,6 +45,7 @@ const CountOnlyEvaluationDialog = ({
   taskType = '',
 }) => {
   const [warningCount, setWarningCount] = useState(0);
+  const [hesitationCount, setHesitationCount] = useState(0);
   const [mistakeCount, setMistakeCount] = useState(0);
   const [itemCounts, setItemCounts] = useState({});
   const [draftReady, setDraftReady] = useState(false);
@@ -51,10 +53,12 @@ const CountOnlyEvaluationDialog = ({
   useEffect(() => {
     if (!open) return;
     setWarningCount(normalizeCount(initialWarningCount));
+    setHesitationCount(normalizeCount(initialHesitationCount));
     setMistakeCount(normalizeCount(initialMistakeCount));
     setDraftReady(false);
     const defaults = Object.fromEntries(items.map((item) => [String(item.id), {
       warningCount: normalizeCount(item.warningCount),
+      hesitationCount: normalizeCount(item.hesitationCount),
       mistakeCount: normalizeCount(item.mistakeCount),
     }]));
     let active = true;
@@ -65,7 +69,7 @@ const CountOnlyEvaluationDialog = ({
       setDraftReady(true);
     })();
     return () => { active = false; };
-  }, [initialMistakeCount, initialWarningCount, items, open, studentId, supervisorId]);
+  }, [initialHesitationCount, initialMistakeCount, initialWarningCount, items, open, studentId, supervisorId]);
 
   useEffect(() => {
     if (!open || !draftReady || !supervisorId || !studentId) return undefined;
@@ -91,12 +95,13 @@ const CountOnlyEvaluationDialog = ({
         {items.length ? (
           <div className="max-h-[65dvh] space-y-3 overflow-y-auto pr-1">
             {items.map((item, index) => {
-              const counts = itemCounts[String(item.id)] || { warningCount: 0, mistakeCount: 0 };
+              const counts = itemCounts[String(item.id)] || { warningCount: 0, hesitationCount: 0, mistakeCount: 0 };
               return (
                 <section key={item.id} className="space-y-3 rounded-xl border border-primary/15 bg-background/60 p-3">
                   {showItemLabels && items.length > 1 && <div className="text-sm font-black text-foreground">{item.label || `المقطع ${index + 1}`}</div>}
                   <div className="grid grid-cols-1 gap-4 min-[390px]:grid-cols-2">
                     <CountField id={`recitation-warning-count-${item.id}`} label="عدد التنبيهات" value={counts.warningCount} onChange={(value) => updateItemCount(item.id, 'warningCount', value)} />
+                    <CountField id={`recitation-hesitation-count-${item.id}`} label="عدد الترددات" value={counts.hesitationCount} onChange={(value) => updateItemCount(item.id, 'hesitationCount', value)} />
                     <CountField id={`recitation-mistake-count-${item.id}`} label="عدد الأخطاء" value={counts.mistakeCount} onChange={(value) => updateItemCount(item.id, 'mistakeCount', value)} />
                   </div>
                   <RecitationItemResult outcome={groupEvaluation?.itemResults.get(String(item.id))} />
@@ -107,6 +112,7 @@ const CountOnlyEvaluationDialog = ({
         ) : (
           <div className="grid grid-cols-1 gap-4 min-[390px]:grid-cols-2">
             <CountField id="recitation-warning-count" label="عدد التنبيهات" value={warningCount} onChange={setWarningCount} />
+            <CountField id="recitation-hesitation-count" label="عدد الترددات" value={hesitationCount} onChange={setHesitationCount} />
             <CountField id="recitation-mistake-count" label="عدد الأخطاء" value={mistakeCount} onChange={setMistakeCount} />
           </div>
         )}
@@ -114,7 +120,7 @@ const CountOnlyEvaluationDialog = ({
           <Button type="button" variant="outline" className="min-h-11 px-3" onClick={() => onOpenChange?.(false)} disabled={isSaving}>إغلاق</Button>
           <div className="flex items-center gap-2">
             {secondaryAction}
-            <Button type="button" className="min-h-11 px-3 text-white hover:text-white" onClick={() => onSubmit?.({ warningCount, mistakeCount, itemCounts })} disabled={isSaving}>{submitLabel}</Button>
+            <Button type="button" className="min-h-11 px-3 text-white hover:text-white" onClick={() => onSubmit?.({ warningCount, hesitationCount, mistakeCount, itemCounts })} disabled={isSaving}>{submitLabel}</Button>
           </div>
         </DialogFooter>
       </DialogContent>

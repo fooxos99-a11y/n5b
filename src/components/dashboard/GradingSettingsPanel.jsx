@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import ErrorState from '@/components/ui/error-state';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import ManagementIconButton from '@/components/ui/management-icon-button';
 import MultiSelectSetting from '@/components/ui/multi-select-setting';
 import { useToast } from '@/components/ui/use-toast';
@@ -12,7 +13,7 @@ import DashboardLoader from '@/components/dashboard/DashboardLoader';
 import SettingsGroup from '@/components/dashboard/SettingsGroup';
 import { weekDayOptions } from '@/lib/weekDayOptions';
 import { gradingApi } from '@/services/gradingApi';
-import { normalizeGradingPolicy, gradingPolicyErrors } from '../../../shared/grading-policy.js';
+import { normalizeGradingPolicy, gradingPolicyErrors, trackSegmentDefinitions } from '../../../shared/grading-policy.js';
 
 const AMOUNT = { min: 0, max: 1000, step: 'any' };
 const RATIO = { min: 0, max: 1, step: '0.01' };
@@ -35,6 +36,7 @@ const dailyFields = [
 const deductionFields = [
   { path: 'weeklyProgram.mistakeDeduction', label: 'خصم الخطأ/اللحن', ...RATIO },
   { path: 'weeklyProgram.warningDeduction', label: 'خصم التنبيه', ...RATIO },
+  { path: 'weeklyProgram.hesitationDeduction', label: 'خصم التردد', ...RATIO },
   { path: 'weeklyProgram.linkFailThreshold', label: 'حد رسوب الربط', ...RATIO },
   { path: 'weeklyProgram.hizbDeductionLimit', label: 'حد الحزب في المراجعة', ...RATIO },
 ];
@@ -43,14 +45,21 @@ const programMarginField = { path: 'weeklyProgram.margin', label: 'هامش ال
 const programFields = [...dailyFields, ...deductionFields, programMarginField];
 
 const trackFields = [
-  { path: 'trackSession.attendance', label: 'درجة الحضور', ...AMOUNT },
-  { path: 'trackSession.segmentCount', label: 'عدد المقاطع', min: 0, max: 20, step: '1', integer: true },
-  { path: 'trackSession.segmentMax', label: 'درجة المقطع', ...AMOUNT },
+  { path: 'trackSession.attendance', label: 'حاضر', ...AMOUNT },
+  { path: 'trackSession.attendanceLate', label: 'متأخر', ...AMOUNT },
+  { path: 'trackSession.attendanceExcused', label: 'مستأذن', ...AMOUNT },
+  { path: 'trackSession.attendanceAbsent', label: 'غائب', ...AMOUNT },
   { path: 'trackSession.mistakeDeduction', label: 'خصم الخطأ/اللحن', ...AMOUNT },
   { path: 'trackSession.warningDeduction', label: 'خصم التنبيه', ...AMOUNT },
+  { path: 'trackSession.hesitationDeduction', label: 'خصم التردد', ...AMOUNT },
 ];
 
-const weeklySessionField = { path: 'weeklySession.attendance', label: 'درجة الحضور', ...AMOUNT };
+const weeklySessionFields = [
+  { path: 'weeklySession.attendance', label: 'حاضر', ...AMOUNT },
+  { path: 'weeklySession.attendanceLate', label: 'متأخر', ...AMOUNT },
+  { path: 'weeklySession.attendanceExcused', label: 'مستأذن', ...AMOUNT },
+  { path: 'weeklySession.attendanceAbsent', label: 'غائب', ...AMOUNT },
+];
 const generalMarginField = { path: 'generalMargin', label: 'الهامش العام', ...AMOUNT };
 const repetitionsField = { path: 'statistics.repetitionsPerFace', label: 'عدد التكرار لكل وجه', min: 0, max: 10000, step: '1', integer: true };
 
@@ -58,7 +67,7 @@ const numericFields = [
   ...attendanceFields,
   ...programFields,
   ...trackFields,
-  weeklySessionField,
+  ...weeklySessionFields,
   generalMarginField,
   repetitionsField,
 ];
@@ -89,6 +98,7 @@ const toDraft = (policy) => {
   const normalized = normalizeGradingPolicy(policy);
   return {
     ...normalized,
+    trackSession: { ...normalized.trackSession, segments: trackSegmentDefinitions(normalized) },
     weeklyProgram: {
       ...normalized.weeklyProgram,
       memorizationThresholds: normalized.weeklyProgram.memorizationThresholds.map((row, index) => ({
@@ -104,7 +114,8 @@ const toDraft = (policy) => {
 const toPolicy = (draft) => {
   const withNumbers = numericFields.reduce((policy, field) => setAt(policy, field.path, Number(getAt(draft, field.path))), draft);
   return setAt(
-    withNumbers,
+    { ...withNumbers, trackSession: { ...withNumbers.trackSession, segmentCount: draft.trackSession.segments.length,
+      segments: draft.trackSession.segments.map(({ source, max }) => ({ source, max: max === '' ? '' : Number(max) })) } },
     'weeklyProgram.memorizationThresholds',
     draft.weeklyProgram.memorizationThresholds.map(({ faces, threshold }) => ({ faces: Number(faces), threshold: Number(threshold) })),
   );
@@ -239,6 +250,7 @@ const GradingSettingsPanel = ({ section = 'program', extraCards = [], onStatusCh
   });
 
   const deleteThreshold = (rowKey) => updateThresholds((rows) => rows.filter((row) => row.isBase || row.rowKey !== rowKey));
+  const updateSegments = update => edit(current => ({ ...current, trackSession: { ...current.trackSession, segments: update(current.trackSession.segments) } }));
 
   useEffect(() => { if (editVersion && hasErrors) statusRef.current?.('error'); }, [editVersion, hasErrors]);
   useQueuedAutosave({ channel: 'grading-policy', value: draft, enabled: Boolean(editVersion && draft && !hasErrors),
@@ -255,15 +267,50 @@ const GradingSettingsPanel = ({ section = 'program', extraCards = [], onStatusCh
   const fieldProps = { draft, errors, onChange: updateField };
   const thresholds = draft.weeklyProgram.memorizationThresholds;
   const summary = errors.total ? <div className="p-4"><FieldError id="grading-total-error" message={errors.total} /></div> : null;
+  const sessionSection = section === 'track' ? 'trackSession' : 'weeklySession';
+  const sessionDayField = <SettingsGroup>
+    <Label htmlFor={`grading-${sessionSection}-day`}>يوم الجلسة</Label>
+    <Select value={draft[sessionSection].sessionDay == null ? '' : String(draft[sessionSection].sessionDay)} onValueChange={value => updateField(`${sessionSection}.sessionDay`, Number(value))}>
+      <SelectTrigger id={`grading-${sessionSection}-day`} className="sm:max-w-xs"><SelectValue placeholder="اختر يوم الجلسة" /></SelectTrigger>
+      <SelectContent>{weekDayOptions.map(day => <SelectItem key={day.value} value={String(day.value)}>{day.label}</SelectItem>)}</SelectContent>
+    </Select>
+  </SettingsGroup>;
   if (section === 'track') {
     return (
-      <div className="divide-y divide-border [font-family:var(--font-ui)]">
-        {summary}
-        <SettingsGroup>
-          <div className="grid grid-cols-1 gap-3 min-[390px]:grid-cols-2 lg:grid-cols-3">
-            {trackFields.map((field) => <NumberField key={field.path} field={field} {...fieldProps} />)}
-          </div>
-        </SettingsGroup>
+      <div className="space-y-4 [font-family:var(--font-ui)]">
+        <SettingsCard title="درجات جلسة المسار">
+          {summary}
+          {sessionDayField}
+          <SettingsGroup>
+            <div className="grid grid-cols-1 gap-3 min-[390px]:grid-cols-2 lg:grid-cols-3">
+              {trackFields.map((field) => <NumberField key={field.path} field={field} {...fieldProps} />)}
+            </div>
+          </SettingsGroup>
+        </SettingsCard>
+        <SettingsCard title="مقاطع جلسة المسار">
+          <SettingsGroup>
+            <Label htmlFor="track-segment-count">عدد المقاطع</Label>
+            <Select value={String(draft.trackSession.segments.length)} onValueChange={value => updateSegments(rows => Array.from({ length: Number(value) }, (_, index) => rows[index] || { source: 'link', max: 0 }))}>
+              <SelectTrigger id="track-segment-count" className="sm:max-w-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>{Array.from({ length: 21 }, (_, count) => <SelectItem key={count} value={String(count)}>{count}</SelectItem>)}</SelectContent>
+            </Select>
+            {draft.trackSession.segments.map((segment, index) => (
+              <div key={index} className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+                <div className="col-span-2 min-w-0 space-y-1.5 sm:col-span-1">
+                  <Label htmlFor={`track-source-${index}`} className="text-xs leading-5 sm:text-sm">نوع المقطع {index + 1}</Label>
+                  <Select value={segment.source} onValueChange={source => updateSegments(rows => rows.map((row, position) => position === index ? { ...row, source } : row))}>
+                    <SelectTrigger id={`track-source-${index}`}><SelectValue /></SelectTrigger>
+                    <SelectContent><SelectItem value="link">الربط</SelectItem><SelectItem value="review">المراجعة</SelectItem></SelectContent>
+                  </Select>
+                </div>
+                <NumberField field={{ path: `trackSession.segments.${index}.max`, label: `درجة المقطع ${index + 1}`, ...AMOUNT }} draft={draft} errors={errors}
+                  onChange={(_path, max) => updateSegments(rows => rows.map((row, position) => position === index ? { ...row, max } : row))} />
+                <ManagementIconButton className="self-end" tone="destructive" aria-label={`حذف المقطع ${index + 1}`} onClick={() => updateSegments(rows => rows.filter((_row, position) => position !== index))}><Trash2 className="h-4 w-4" /></ManagementIconButton>
+              </div>
+            ))}
+            <Button type="button" variant="outline" className="gap-2" disabled={draft.trackSession.segments.length >= 20} onClick={() => updateSegments(rows => [...rows, { source: 'link', max: 0 }])}><Plus className="h-4 w-4" />إضافة مقطع</Button>
+          </SettingsGroup>
+        </SettingsCard>
       </div>
     );
   }
@@ -272,9 +319,10 @@ const GradingSettingsPanel = ({ section = 'program', extraCards = [], onStatusCh
     return (
       <div className="divide-y divide-border [font-family:var(--font-ui)]">
         {summary}
+        {sessionDayField}
         <SettingsGroup>
           <div className="grid grid-cols-1 gap-3 min-[390px]:grid-cols-2 lg:grid-cols-3">
-            <NumberField field={weeklySessionField} {...fieldProps} />
+            {weeklySessionFields.map((field) => <NumberField key={field.path} field={field} {...fieldProps} />)}
           </div>
         </SettingsGroup>
       </div>

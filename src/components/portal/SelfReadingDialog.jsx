@@ -1,47 +1,23 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { FormField } from '@/components/dashboard/layout/ManagementPanel';
+import { formatQuranRangeText } from '@/lib/quranRangeText';
 
-/** Arabic-Indic digits and the Arabic decimal separator are accepted in the faces field. */
-const toLatinNumber = (value) => String(value || '')
-  .replace(/[٠-٩]/g, (digit) => String(digit.codePointAt(0) - 1632))
-  .replace(/[۰-۹]/g, (digit) => String(digit.codePointAt(0) - 1776))
-  .replace(/[٫,]/g, '.');
-
-/** Records a student's daily self reading: the faces read (prefilled from the plan), or not read. */
+/** The server assigns self reading from the student's memorized material. */
 export default function SelfReadingDialog({ entry, studentName, isSaving = false, onSave, onOpenChange }) {
-  const [faces, setFaces] = useState('');
-  useEffect(() => {
-    if (entry) setFaces(String(entry.recordedFaces ?? entry.faces ?? ''));
-  }, [entry]);
-  const parsedFaces = Number(toLatinNumber(faces));
-  const validFaces = Number.isFinite(parsedFaces) && parsedFaces > 0;
+  const amount = entry?.amount;
+  const available = Boolean(amount?.ranges?.length && amount.faces > 0);
   return (
     <Dialog open={Boolean(entry)} onOpenChange={onOpenChange}>
       <DialogContent aria-describedby={undefined} className="max-w-sm [font-family:var(--font-ui)]" dir="rtl">
-        <DialogHeader>
-          <DialogTitle>القراءة الذاتية — {studentName}</DialogTitle>
-        </DialogHeader>
-        <FormField label="عدد الأوجه" htmlFor="self-reading-faces">
-          <Input
-            id="self-reading-faces"
-            inputMode="decimal"
-            value={faces}
-            onChange={(event) => setFaces(event.target.value)}
-            aria-invalid={!validFaces}
-            className="h-11 text-center text-base font-bold tabular-nums"
-            dir="ltr"
-          />
-        </FormField>
+        <DialogHeader><DialogTitle>القراءة الذاتية — {studentName}</DialogTitle></DialogHeader>
+        {available ? <div className="max-h-[55dvh] space-y-2 overflow-y-auto text-sm">
+          {amount.ranges.map((range, index) => <p key={index}>{formatQuranRangeText(range)}</p>)}
+          <p className="font-bold">{entry.expectedHizbs ? `${amount.hizbCount} حزب` : `${amount.faces} أوجه`}</p>
+        </div> : <p className="text-sm text-muted-foreground">لا يوجد محفوظ لتحديد مقدار الذاتي.</p>}
         <DialogFooter className="grid grid-cols-2 gap-2">
-          <Button type="button" variant="outline" className="h-11" disabled={isSaving} onClick={() => onSave({ completed: false, faces: validFaces ? parsedFaces : entry?.faces })}>
-            لم يقرأ
-          </Button>
-          <Button type="button" className="h-11" disabled={isSaving || !validFaces} loading={isSaving} onClick={() => onSave({ completed: true, faces: parsedFaces })}>
-            نعم
-          </Button>
+          <Button type="button" variant="outline" className="h-11" disabled={isSaving || !available} onClick={() => onSave({ completed: false })}>لم يقرأ</Button>
+          <Button type="button" className="h-11" disabled={isSaving || !available} loading={isSaving} onClick={() => onSave({ completed: true })}>حفظ القراءة</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -9,6 +9,8 @@ export function studentHomePlan(today, date, executionEnabled = true) {
   const activeTypes = HOME_TASK_TYPES.filter(type => tasks.some(task => task.taskType === type));
   const completedTypes = activeTypes.filter(type => tasks.filter(task => task.taskType === type).every(done));
   return {
+    seasonalHoliday: Boolean(today.isSeasonalHoliday),
+    planPaused: Boolean(today.isPlanPaused),
     percent: activeTypes.length ? Math.floor(completedTypes.length / activeTypes.length * 100) : 0,
     groups: HOME_TASK_TYPES.flatMap((type) => {
       const rows = tasks.filter((task) => task.taskType === type);

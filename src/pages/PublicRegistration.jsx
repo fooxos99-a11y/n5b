@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Toaster } from '@/components/ui/toaster';
 import { useToast } from '@/components/ui/use-toast';
 import LoadingScreen from '@/components/LoadingScreen';
+import ErrorState from '@/components/ui/error-state';
 import { resolveAssetUrl } from '@/lib/assetUrl';
 import { expandJuzRanges, formatJuzRange, mergeJuzRanges } from '@/lib/juzRanges';
 import { studentsApi } from '@/services/studentsApi';
@@ -42,7 +43,11 @@ const PublicRegistration = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const submissionPending = useRef(false);
   const [enabled, setEnabled] = useState(false);
+  const [loadError, setLoadError] = useState('');
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [availableJuzs, setAvailableJuzs] = useState([]);
+  const [complexes, setComplexes] = useState([]);
+  const [committees, setCommittees] = useState([]);
   const [submitSuccess, setSubmitSuccess] = useState('');
   const [formError, setFormError] = useState('');
   const [form, setForm] = useState({
@@ -50,20 +55,27 @@ const PublicRegistration = () => {
     guardianPhone: '',
     nationalId: '',
     age: '',
+    complexId: '',
+    committeeId: '',
   });
   const [rangeDraft, setRangeDraft] = useState(emptyDraft);
   const [memorizedRanges, setMemorizedRanges] = useState([]);
 
   useEffect(() => {
     let mounted = true;
+    setIsLoading(true);
+    setLoadError('');
     studentsApi.getPublicRegistration(registrationNumber)
       .then((data) => {
         if (!mounted) return;
         setEnabled(Boolean(data.enabled));
+        setComplexes(data.complexes || []);
+        setCommittees(data.committees || []);
         setAvailableJuzs((data.juzRanges || []).map((range) => Number(range.juz)).filter(Boolean));
       })
       .catch((error) => {
         if (!mounted) return;
+        setLoadError(error.message || 'تعذر تحميل صفحة التسجيل.');
         toast({ title: 'تعذر تحميل صفحة التسجيل', description: error.message, variant: 'destructive' });
       })
       .finally(() => {
@@ -72,7 +84,7 @@ const PublicRegistration = () => {
     return () => {
       mounted = false;
     };
-  }, [registrationNumber, toast]);
+  }, [registrationNumber, loadAttempt, toast]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -98,7 +110,7 @@ const PublicRegistration = () => {
   const setFormField = (key, value) => {
     setSubmitSuccess('');
     setFormError('');
-    setForm((current) => ({ ...current, [key]: value }));
+    setForm((current) => ({ ...current, [key]: value, ...(key === 'complexId' ? { committeeId: '' } : {}) }));
   };
 
   const showFormError = (message) => {
@@ -131,6 +143,8 @@ const PublicRegistration = () => {
     if (!Number.isInteger(age) || age < 4 || age > 120) {
       return showFormError('العمر غير صحيح.');
     }
+    if (!complexes.some(row => String(row.id) === form.complexId)) return showFormError('اختر المجمع.');
+    if (!committees.some(row => String(row.id) === form.committeeId && String(row.complexId) === form.complexId)) return showFormError('اختر الحلقة.');
     if (Object.values(rangeDraft).some(Boolean)) {
       return showFormError('أضف نطاق المحفوظ أو امسحه قبل إرسال الطلب.');
     }
@@ -153,7 +167,7 @@ const PublicRegistration = () => {
       }, registrationNumber);
       toast({ title: 'تم إرسال الطلب بنجاح', description: 'سيتم التواصل معكم قريباً.' });
       setSubmitSuccess('تم إرسال الطلب بنجاح');
-      setForm({ name: '', guardianPhone: '', nationalId: '', age: '' });
+      setForm({ name: '', guardianPhone: '', nationalId: '', age: '', complexId: '', committeeId: '' });
       setMemorizedRanges([]);
       setRangeDraft(emptyDraft);
     } catch (error) {
@@ -168,6 +182,7 @@ const PublicRegistration = () => {
   if (isLoading) {
     return <LoadingScreen />;
   }
+  const formCommittees = committees.filter(row => String(row.complexId) === form.complexId);
 
   return (
     <main className="relative min-h-screen bg-background px-3 py-5 text-foreground [font-family:var(--font-ui)] sm:px-5 sm:py-8" dir="rtl">
@@ -195,7 +210,9 @@ const PublicRegistration = () => {
               <h1 className="text-2xl font-black leading-relaxed text-foreground sm:text-3xl">طلب التسجيل</h1>
             </div>
 
-            {!enabled ? (
+            {loadError ? (
+              <ErrorState message={loadError} onRetry={() => setLoadAttempt((attempt) => attempt + 1)} />
+            ) : !enabled ? (
               <div className="rounded-2xl border border-border bg-muted/45 p-7 text-center">
                 <span className="mx-auto grid h-12 w-12 place-items-center rounded-xl bg-card text-muted-foreground shadow-sm">
                   <LockKeyhole className="h-5 w-5" />
@@ -214,7 +231,7 @@ const PublicRegistration = () => {
                   <LabeledField label="اسم الطالب">
                     <Input value={form.name} onChange={(event) => setFormField('name', event.target.value)} required />
                   </LabeledField>
-                  <LabeledField label="رقم الجوال">
+                  <LabeledField label="رقم جوال ولي الأمر">
                     <Input
                       inputMode="numeric"
                       value={form.guardianPhone}
@@ -237,6 +254,18 @@ const PublicRegistration = () => {
                       onChange={(event) => setFormField('age', digitsOnly(event.target.value, 3))}
                       required
                     />
+                  </LabeledField>
+                  <LabeledField label="المجمع">
+                    <Select value={form.complexId} onValueChange={value => setFormField('complexId', value)} disabled={!complexes.length}>
+                      <SelectTrigger aria-label="المجمع"><SelectValue placeholder={complexes.length ? 'اختر المجمع' : 'لا توجد مجمعات متاحة'} /></SelectTrigger>
+                      <SelectContent>{complexes.map(row => <SelectItem key={row.id} value={String(row.id)}>{row.name}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </LabeledField>
+                  <LabeledField label="الحلقة">
+                    <Select value={form.committeeId} onValueChange={value => setFormField('committeeId', value)} disabled={!form.complexId || !formCommittees.length}>
+                      <SelectTrigger aria-label="الحلقة"><SelectValue placeholder={!form.complexId ? 'اختر المجمع أولًا' : formCommittees.length ? 'اختر الحلقة' : 'لا توجد حلقات في هذا المجمع'} /></SelectTrigger>
+                      <SelectContent>{formCommittees.map(row => <SelectItem key={row.id} value={String(row.id)}>{row.name}</SelectItem>)}</SelectContent>
+                    </Select>
                   </LabeledField>
                 </div>
 

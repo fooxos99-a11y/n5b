@@ -129,20 +129,20 @@ const baseSections = [
   { key: 'mushaf', label: 'المصحف', icon: BookOpen },
   { key: 'reports', label: 'الإحصائيات', icon: BarChart3 },
   { key: 'students', label: 'الطلاب', icon: GraduationCap },
-  { key: 'families', label: 'الحلقات', icon: Building2 },
+  { key: 'families', label: 'المجمعات والحلقات', icon: Building2 },
   { key: 'studentPlans', label: 'خطط الطلاب', icon: ListChecks },
   { key: 'teacherPoints', label: 'الإضافة والخصم', icon: PlusCircle, supervisorOnly: true },
-  { key: 'trackSession', label: 'جلسة المسار', icon: Route, permissionKey: 'grades', managementOnly: true },
-  { key: 'weeklySession', label: 'الجلسة الأسبوعية', icon: CalendarCheck2, permissionKey: 'grades', managementOnly: true },
-  { key: 'supervisors', label: 'المعلمين', icon: Users },
+  { key: 'trackSession', label: 'جلسة المسار', icon: Route, permissionKey: 'trackSession' },
+  { key: 'weeklySession', label: 'الجلسة الأسبوعية', icon: CalendarCheck2, permissionKey: 'weeklySession' },
+  { key: 'supervisors', label: 'مشرفي المسارات', icon: Users },
   { key: 'administrators', label: 'الإداريين', icon: ShieldCheck },
-  { key: 'narrationDay', label: 'يوم السرد', icon: BookMarked, managementOnly: true },
+  { key: 'narrationDay', label: 'يوم السرد', icon: BookMarked },
   { key: 'calls', label: 'المكالمات', icon: PhoneCall },
   { key: 'notifications', label: 'الإشعارات', icon: Bell },
   { key: 'whatsappSend', label: 'الإرسال عبر الواتس', icon: Send },
   { key: 'registrationRequests', label: 'طلبات التسجيل', icon: UserPlus },
-  { key: 'store', label: 'المتجر', icon: Store, managementOnly: true },
-  { key: 'settingsNews', label: 'الأخبار', icon: Newspaper, permissionKey: 'settings', managementOnly: true },
+  { key: 'store', label: 'المتجر', icon: Store },
+  { key: 'settingsNews', label: 'الأخبار', icon: Newspaper, permissionKey: 'settings' },
   { key: 'settings', label: 'الإعدادات', icon: Settings, children: settingsNavigationItems },
   { key: 'quranEvaluation', label: 'جلسات التسميع', icon: ClipboardCheck, supervisorOnly: true },
   {
@@ -348,7 +348,7 @@ const WajehDashboard = () => {
       <SettingsSection
         activeCategory={visibleActiveSection}
         onSettingsChange={setSettings}
-        canManageDeletionRequests={isManager || (isAdmin && dashboardPermissions.includes('settings'))}
+        canManageDeletionRequests={isManager || ((isAdmin || isSupervisor) && dashboardPermissions.includes('settings'))}
         canResetPoints={isManager}
       />
     );
@@ -441,11 +441,10 @@ export default WajehDashboard;
 function isDashboardSectionDisabled({ section, settings, isManager, isSupervisor, site }) {
       const featureKey = sectionFeatureKeys[section.key];
       if (featureKey && settings[featureKey] === false) return true;
-      if ((section.managerOnly && !isManager) || (section.managementOnly && isSupervisor)) return true;
+      if (section.managerOnly && !isManager) return true;
       if (section.key === 'store' && site.features?.store === false) return true;
       if (section.key === 'teacherPoints' && !settings.teacherManualPointsEnabled) return true;
       if (section.supervisorOnly && !isSupervisor) return true;
-      if (isSupervisor && ['manualAttendance', 'students'].includes(section.key)) return true;
 
   return false;
 }
@@ -454,7 +453,7 @@ function isDashboardSectionDisabled({ section, settings, isManager, isSupervisor
 function canDisplayStaffAttendance({ settings, alreadyPresentToday, isSupervisor, isAdmin, dashboardPermissions }) {
 return settings.staffAttendanceSource === 'teacher' && !alreadyPresentToday && (
           isSupervisor
-          || (isAdmin && dashboardPermissions.includes('staffAttendance'))
+          || isAdmin
         );
       
 }

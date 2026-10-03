@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import SegmentedMetricCard from './SegmentedMetricCard';
-import { formatStatisticsNumber as formatNumber } from '@/lib/statisticsNumber';
+import PlanPerformanceChart from './PlanPerformanceChart';
 
 export default function StudentLevelIndicators({ groups, records }) {
   const [selected, setSelected] = useState(null);
@@ -16,10 +16,10 @@ export default function StudentLevelIndicators({ groups, records }) {
       </section>)}
     </div>
     {level && <section aria-label={`طلاب ${level.name}`} className="border-t border-border pt-4">
-      <h3 className="mb-2 text-sm font-bold">{level.name} · {formatNumber(students.length)} طالب</h3>
+      <h3 className="mb-2 text-sm font-bold">{level.name}</h3>
       {students.length ? <ul className="divide-y divide-border">
         {students.map((student, index) => <li key={index} className="flex items-center justify-between gap-3 py-3 text-sm">
-          <span className="min-w-0 break-words font-bold">{student.label}</span><span className="shrink-0 text-muted-foreground">{student.value}</span>
+          <span className="min-w-0 break-words font-bold">{student.label}</span><div className="w-44 min-w-0 shrink-0 sm:w-56"><PlanPerformanceChart compact title={`أداء ${student.label}`} series={student.series} /></div>
         </li>)}
       </ul> : <p className="py-5 text-center text-sm text-muted-foreground">لا يوجد طلاب في هذا المستوى.</p>}
     </section>}

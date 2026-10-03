@@ -11,9 +11,9 @@ import { MetricTile } from './MetricCard';
 import { ALL_COMMITTEES } from './reportMetrics';
 
 const tint = (color, amount = 14) => `color-mix(in oklab, ${color} ${amount}%, transparent)`;
-// Summary cards and student figures fill one row on wide screens, whatever their count.
-const TILE_GRID = Object.freeze({ 2: 'grid-cols-2', 3: 'grid-cols-3', 4: 'grid-cols-2 sm:grid-cols-4', 5: 'grid-cols-3 sm:grid-cols-5' });
-const STAT_GRID = Object.freeze({ 1: 'grid-cols-1', 2: 'grid-cols-2', 3: 'grid-cols-3', 4: 'grid-cols-2 sm:grid-cols-4', 5: 'grid-cols-2 sm:grid-cols-5' });
+// Keep six indicators balanced across two rows.
+const TILE_GRID = Object.freeze({ 2: 'grid-cols-2', 3: 'grid-cols-3', 4: 'grid-cols-2 sm:grid-cols-4', 5: 'grid-cols-3 sm:grid-cols-5', 6: 'grid-cols-2 sm:grid-cols-3' });
+const STAT_GRID = Object.freeze({ 1: 'grid-cols-1', 2: 'grid-cols-2', 3: 'grid-cols-3', 4: 'grid-cols-2 sm:grid-cols-4', 5: 'grid-cols-2 sm:grid-cols-5', 6: 'grid-cols-2 sm:grid-cols-3' });
 
 const BarGroup = ({ group, color }) => (
   <section className={group.compact ? 'grid grid-cols-2 gap-2 sm:grid-cols-3' : 'space-y-3'}>
@@ -50,7 +50,7 @@ const RecordRow = ({ row }) => (
     {row.stats?.length > 0 && (
       <dl className={`mt-3 grid gap-2 ${STAT_GRID[row.stats.length] || 'grid-cols-2 sm:grid-cols-4'}`}>
         {row.stats.map((stat) => (
-          <div key={stat.label} className="min-w-0 rounded-lg bg-muted/50 px-3 py-2">
+          <div key={stat.label} className={`min-w-0 rounded-lg px-3 py-2 ${stat.tone || 'bg-muted/50'}`}>
             <dt className="text-xs text-muted-foreground">{stat.label}</dt>
             <dd className="mt-0.5 truncate text-sm font-bold tabular-nums">{stat.value}</dd>
           </div>

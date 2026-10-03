@@ -1,3 +1,5 @@
+import SessionCompensationActions from '@/components/dashboard/grades/SessionCompensationActions';
+import { getBusinessDate } from '../../../shared/business-date.js';
 import { isRecitationAttendanceVisible } from '../../../shared/recitation-attendance-policy.js';
 import React, { useMemo, useState } from 'react';
 import { isRecitationActionPending, shouldShowRecitationStudent } from '@/lib/recitationActionState';
@@ -39,6 +41,8 @@ const TeacherRecitationTaskList = ({
   reading = [],
   onReading,
   onOpenCompensation,
+  compensationDate,
+  onDayCompensated,
   onAttendanceChange,
   attendancePendingIds = [],
   teacherExecutionMode = false,
@@ -81,12 +85,12 @@ const TeacherRecitationTaskList = ({
       map.get(studentId).tasks.push(task);
     });
     return [...map.values()]
-      .filter((student) => !onRecite || (recitationAttendanceSource === 'teacher' && student.canSetAttendance) || student.readingOnly || readingByStudent.has(String(student.studentId)) || isRecitationAttendanceVisible(student.attendanceStatus, recitationAttendanceSource === 'teacher' && student.canSetAttendance))
+      .filter((student) => !onRecite || (onDayCompensated && ['excused', 'absent'].includes(student.attendanceStatus)) || (recitationAttendanceSource === 'teacher' && student.canSetAttendance) || student.readingOnly || readingByStudent.has(String(student.studentId)) || isRecitationAttendanceVisible(student.attendanceStatus, recitationAttendanceSource === 'teacher' && student.canSetAttendance))
       // A student stays listed while the day's self reading is still to be recorded.
-      .filter((student) => !onRecite || shouldShowRecitationStudent(student, student.tasks, taskQueue)
+      .filter((student) => !onRecite || (onDayCompensated && ['excused', 'absent'].includes(student.attendanceStatus)) || shouldShowRecitationStudent(student, student.tasks, taskQueue)
         || readingByStudent.get(String(student.studentId))?.status === null)
       .map((student) => ({ ...student, tasks: sortRecitationTasks(student.tasks) }));
-  }, [students, tasks, taskQueue, teacherAttendanceMode, recitationAttendanceSource, onRecite, readingByStudent]);
+  }, [students, tasks, taskQueue, teacherAttendanceMode, recitationAttendanceSource, onRecite, onDayCompensated, readingByStudent]);
 
   if (isLoading) return <DashboardLoader />;
   if (grouped.length === 0) {
@@ -172,8 +176,8 @@ const TeacherRecitationTaskList = ({
         const readingEntry = onReading ? readingByStudent.get(String(student.studentId)) : null;
         const canRecord = Boolean(readingEntry) && attendanceAllowsActions;
         const readingSummary = readingEntry?.status === 'read'
-          ? `قرأ ${readingEntry.recordedFaces ?? readingEntry.faces} وجه`
-          : readingEntry?.status === 'missed' ? 'لم يقرأ' : `${readingEntry?.faces ?? ''} وجه`;
+          ? (readingEntry.hizbCount != null ? `قرأ ${readingEntry.hizbCount} حزب` : `قرأ ${readingEntry.recordedFaces ?? readingEntry.faces} وجه`)
+          : readingEntry?.status === 'missed' ? 'لم يقرأ' : 'اختر أحزاب القراءة';
         const _resolveTeacherRecitationTaskList = () => {
           if (student.recitationPending) {
             return 'حُفظت النتيجة';
@@ -185,14 +189,14 @@ const TeacherRecitationTaskList = ({
         };
         const compensationAction = onOpenCompensation && canRecite && student.hasCompensation ? (
           <button type="button" className="recitation-compensation"
-            aria-label={`تعويض ${student.studentName}`} onClick={() => onOpenCompensation(student)}>
-            تعويض
+            aria-label={`تسميع المتعثر لدى ${student.studentName}`} onClick={() => onOpenCompensation(student)}>
+            تسميع المتعثر
           </button>
         ) : null;
         return (
           <div key={student.studentId} className="recitation-reference-card">
             <div className="min-w-0">
-              <RecitationIdentity name={student.studentName} nameAction={compensationAction}>
+              <RecitationIdentity name={student.studentName} nameAction={<>{compensationAction}{onDayCompensated && <SessionCompensationActions studentId={student.studentId} studentName={student.studentName} scope="program" date={compensationDate} today={getBusinessDate()} disabled={isLoading || navigator.onLine === false} onSaved={onDayCompensated} />}</>}>
                 {attendanceEditable && (
                   <Select
                     value={student.attendanceStatus || ''}
@@ -285,6 +289,7 @@ const TeacherRecitationTaskList = ({
                     const groupKey = groupTasks.map((task) => task.id).join('-');
                     const isCompletedGroup = groupTasks.every((task) => task.teacherCompleted != null);
                     const mistakeCount = groupTasks.reduce((total, task) => total + Number(task.mistakeCount || 0), 0);
+                    const hesitationCount = groupTasks.reduce((total, task) => total + Number(task.hesitationCount || 0), 0);
                     const warningCount = groupTasks.reduce((total, task) => total + Number(task.warningCount || 0), 0);
                     const marks = groupTasks.flatMap((task) => task.ayahMarks || []);
                     const _resolveTeacherCompleted = () => {
@@ -301,6 +306,7 @@ const TeacherRecitationTaskList = ({
                       teacherRatingKey: groupTasks.find((task) => task.teacherRatingKey)?.teacherRatingKey,
                       mistakeCount,
                       warningCount,
+                      hesitationCount,
                     });
                     const marksFromPreviousAttempt = groupTasks.some((task) => task.marksFromPreviousAttempt);
                     return (
@@ -330,6 +336,7 @@ const TeacherRecitationTaskList = ({
                             <div className="ms-auto flex shrink-0 items-center gap-1">
                               <span className="flex h-8 min-w-14 items-center justify-center rounded-md border border-red-200 px-1.5 text-[11px] font-black text-red-600">{mistakeCount} خطأ</span>
                               <span className="flex h-8 min-w-14 items-center justify-center rounded-md border border-amber-200 px-1.5 text-[11px] font-black text-amber-600">{warningCount} تنبيه</span>
+                              <span className="flex h-8 min-w-14 items-center justify-center rounded-md border border-sky-200 px-1.5 text-[11px] font-black text-sky-600">{hesitationCount} تردد</span>
                             </div>
                           ) : null}
                         </div>

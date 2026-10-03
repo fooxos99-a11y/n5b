@@ -78,15 +78,14 @@ test('the standalone Quran tests feature is gone; the track session is the test'
     .map((file) => assert.rejects(access(new URL(`../src/components/dashboard/${file}`, import.meta.url)))));
 });
 
-test('plans are always memorization and statistics drop the mastery track', async () => {
-  const [plans, metrics, reports] = await Promise.all([
-    readFile(new URL('../src/components/dashboard/StudentPlansSection.jsx', import.meta.url), 'utf8'),
-    readFile(new URL('../src/components/dashboard/reports/reportMetrics.js', import.meta.url), 'utf8'),
-    readFile(new URL('../src/components/dashboard/ReportsSection.jsx', import.meta.url), 'utf8'),
+test('plans offer memorization and mastery with separate achievement indicators', async () => {
+  const [plans, metrics, server] = await Promise.all([
+    read('../src/components/dashboard/StudentPlansSection.jsx'), read('../src/components/dashboard/reports/reportMetrics.js'), read('../server/index.js'),
   ]);
-  assert.doesNotMatch(plans, /quranPlanTracks|aria-label="المسار"/);
-  assert.match(plans, /track: 'memorization',\s*startDate: _resolveStartDate\(\)/);
-  for (const source of [metrics, reports]) assert.doesNotMatch(source, /mastery|الإتقان/);
+  assert.match(plans, /aria-label="مسار الخطة"/);
+  assert.match(plans, /track: form.track/);
+  assert.match(metrics, /أوجه الحفظ/); assert.match(metrics, /أوجه الإتقان/);
+  assert.match(server, /AS masteryTotal/); assert.match(server, /AS masteryDone/);
 });
 
 test('recitation mushaf reads any page with the index while marks stay inside the amount', async () => {

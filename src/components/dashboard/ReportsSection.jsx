@@ -10,14 +10,17 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
 import MetricCard from '@/components/dashboard/reports/MetricCard';
+import PlanPerformanceChart from '@/components/dashboard/reports/PlanPerformanceChart';
 import MetricDetails from '@/components/dashboard/reports/MetricDetails';
 import { RankingPanels, TeachersPanel } from '@/components/dashboard/reports/RankingPanels';
 import { ALL_COMMITTEES, buildReportMetrics, detailCommitteesOf } from '@/components/dashboard/reports/reportMetrics';
 import { DEFAULT_REPORT_PERIOD, REPORT_PERIOD_LABELS, reportRange } from '@/lib/reportPeriods';
 import { studentsApi } from '@/services/studentsApi';
+import { complexesApi } from '@/services/complexesApi';
 import useOnlineStatus from '@/hooks/useOnlineStatus';
 import { loadOfflineSnapshot } from '@/services/offlineOperationsService';
-import { getBusinessDate } from '../../../shared/business-date.js';
+import { getSaudiCalendarDate } from '../../../shared/business-date.js';
+import useSaudiClock from '@/hooks/useSaudiClock';
 
 const ARCHIVE_PREFIX = 'archive:';
 const controlClassName = 'h-11 min-w-0 flex-1 basis-36 text-sm sm:w-56 sm:flex-none [&_span]:truncate';
@@ -32,14 +35,17 @@ const ReportsSection = ({
   canViewTeacherPoints = false,
 }) => {
   const isOnline = useOnlineStatus();
+  const today = getSaudiCalendarDate(useSaudiClock());
   const { toast } = useToast();
   const accountId = Number(localStorage.getItem('wajeh_account_id') || localStorage.getItem('wajeh_supervisor_id') || 0);
   const actorRole = localStorage.getItem('wajeh_role') || 'manager';
   const [period, setPeriod] = useState(DEFAULT_REPORT_PERIOD);
-  const [custom, setCustom] = useState(() => ({ from: getBusinessDate(), to: getBusinessDate() }));
+  const [custom, setCustom] = useState(() => ({ from: today, to: today }));
   const [draft, setDraft] = useState(custom);
   const [customOpen, setCustomOpen] = useState(false);
   const [committeeId, setCommitteeId] = useState('all');
+  const [complexId, setComplexId] = useState('all');
+  const [complexes, setComplexes] = useState([]);
   const [committees, setCommittees] = useState([]);
   const [archives, setArchives] = useState([]);
   const [overview, setOverview] = useState(null);
@@ -53,10 +59,12 @@ const ReportsSection = ({
   const [isDeletingArchive, setIsDeletingArchive] = useState(false);
 
   const archiveId = period.startsWith(ARCHIVE_PREFIX) ? period.slice(ARCHIVE_PREFIX.length) : '';
-  const range = useMemo(() => (archiveId ? null : reportRange(period, custom)), [archiveId, period, custom]);
+  const range = useMemo(() => (archiveId ? null : reportRange(period, custom, today)), [archiveId, period, custom, today]);
   const from = range?.from || '';
   const to = range?.to || '';
   const scopeCommittee = archiveId ? 'all' : committeeId;
+  const scopeComplex = archiveId ? 'all' : complexId;
+  const visibleCommittees = committees.filter(committee => complexId === 'all' || String(committee.complexId) === complexId);
 
   const cachedReport = useCallback((key, loader) => loadOfflineSnapshot(accountId, `reports:${key}`, loader, { actorRole }), [accountId, actorRole]);
 
@@ -65,10 +73,12 @@ const ReportsSection = ({
     Promise.all([
       canViewStandardReports && !teacherScoped ? cachedReport('scoped-committees', () => studentsApi.getReportCommittees()) : Promise.resolve([]),
       canViewStandardReports && !teacherScoped ? cachedReport('archives', () => studentsApi.getReportArchives()).catch(() => []) : Promise.resolve([]),
-    ]).then(([committeeRows, archiveRows]) => {
+      canViewStandardReports && !teacherScoped ? cachedReport('complexes', () => complexesApi.list()) : Promise.resolve([]),
+    ]).then(([committeeRows, archiveRows, complexRows]) => {
       if (!active) return;
       setCommittees(committeeRows || []);
       setArchives(archiveRows || []);
+      setComplexes(complexRows || []);
     }).catch((error) => {
       if (active) toast({ title: 'تعذر تحميل الحلقات', description: error.message, variant: 'destructive' });
     });
@@ -90,7 +100,7 @@ const ReportsSection = ({
         setArchive(report);
         setOverview(report?.overviewReport || null);
       })
-      : cachedReport(`overview:${from}:${to}:${scopeCommittee}`, () => studentsApi.getOverviewReport({ from, to, committeeId: scopeCommittee })).then((report) => {
+      : cachedReport(`overview:${from}:${to}:${scopeCommittee}:${scopeComplex}`, () => studentsApi.getOverviewReport({ from, to, committeeId: scopeCommittee, complexId: scopeComplex })).then((report) => {
         if (!active) return;
         setArchive(null);
         setOverview(report);
@@ -99,7 +109,7 @@ const ReportsSection = ({
       if (active) setLoadError(error.message || 'تعذر تحميل الإحصائيات');
     }).finally(() => { if (active) setIsLoading(false); });
     return () => { active = false; };
-  }, [archiveId, cachedReport, canViewStandardReports, from, retry, scopeCommittee, to]);
+  }, [archiveId, cachedReport, canViewStandardReports, from, retry, scopeCommittee, scopeComplex, to]);
 
   // The teacher points list is needed for its card itself.
   const loadList = useCallback((key, loader) => {
@@ -110,8 +120,8 @@ const ReportsSection = ({
   }, []);
 
   const listLoaders = useMemo(() => ({
-    teacherPoints: () => cachedReport(`teacher-points:${from}:${to}`, () => studentsApi.getTeacherPointsReport({ from, to })).then((report) => report?.rows || []),
-  }), [cachedReport, from, to]);
+    teacherPoints: () => cachedReport(`teacher-points:${from}:${to}:${scopeCommittee}:${scopeComplex}`, () => studentsApi.getTeacherPointsReport({ from, to, committeeId: scopeCommittee, complexId: scopeComplex })).then((report) => report?.rows || []),
+  }), [cachedReport, from, to, scopeCommittee, scopeComplex]);
 
   useEffect(() => {
     setLists({});
@@ -206,6 +216,12 @@ const ReportsSection = ({
               <span className="truncate text-sm">{periodLabel}</span>
             </Button>
           )}
+          {canViewStandardReports && !teacherScoped && !archiveId && complexes.length > 0 && (
+            <Select value={complexId} onValueChange={value => { setComplexId(value); setCommitteeId('all'); setSelectedId(null); setDetailCommittee(ALL_COMMITTEES); }}>
+              <SelectTrigger aria-label="المجمع" className={controlClassName}><SelectValue /></SelectTrigger>
+              <SelectContent><SelectItem value="all">كل المجمعات</SelectItem>{complexes.map(complex => <SelectItem key={complex.id} value={String(complex.id)}>{complex.name}</SelectItem>)}</SelectContent>
+            </Select>
+          )}
           {canViewStandardReports && !archiveId && committees.length > 0 && (
             <Select value={committeeId} onValueChange={(value) => { setCommitteeId(value); setSelectedId(null); }}>
               <SelectTrigger aria-label="الحلقة" className={controlClassName}>
@@ -213,7 +229,7 @@ const ReportsSection = ({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">كل الحلقات</SelectItem>
-                {committees.map((committee) => (
+                {visibleCommittees.map((committee) => (
                   <SelectItem key={committee.id} value={String(committee.id)}>{committee.name}</SelectItem>
                 ))}
               </SelectContent>
@@ -237,6 +253,7 @@ const ReportsSection = ({
         ) : (
           <>
             {loadError && <ErrorState message={loadError} onRetry={() => setRetry((value) => value + 1)} />}
+            {canViewStandardReports && overview && <PlanPerformanceChart series={overview.planPerformance?.series} />}
             <section aria-label="مؤشرات الأداء" className={`grid grid-cols-2 gap-4 md:grid-cols-3 ${isLoading ? 'opacity-60' : ''}`}>
               {metrics.filter(metric => !(teacherScoped && metric.id === 'committees' && Number(metric.countValue) <= 1)).map((metric) => (
                 <MetricCard key={metric.id} metric={metric} onSelect={(item) => { setDetailCommittee(ALL_COMMITTEES); setSelectedId(item.id); }} />
@@ -244,7 +261,7 @@ const ReportsSection = ({
             </section>
 
             {canViewStandardReports && overview && (
-              <RankingPanels bestStudents={overview.bestStudents} bestCommittees={overview.bestCommittees} hideCommittees={teacherScoped && (overview.bestCommittees || []).length <= 1} />
+              <RankingPanels bestStudents={overview.bestStudents} bestCommittees={overview.bestCommittees} bestComplexes={overview.bestComplexes} />
             )}
 
             {canViewStandardReports && overview && !teacherScoped && (

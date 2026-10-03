@@ -62,6 +62,7 @@ const MadaniMushafPage = ({ page, surahName, theme = 'dark', marks = [], allowed
     });
     if (mark?.markType === 'mistake') return 'bg-red-400/20 shadow-[inset_0_-0.16em_0_hsl(0_72%_51%_/_0.38)] ring-1 ring-inset ring-red-500/35';
     if (mark?.markType === 'lahn') return 'bg-fuchsia-400/20 shadow-[inset_0_-0.16em_0_hsl(292_84%_45%_/_0.38)] ring-1 ring-inset ring-fuchsia-500/35';
+    if (mark?.markType === 'hesitation') return 'bg-sky-400/20 ring-1 ring-inset ring-sky-500/35';
     if (mark?.markType === 'warning') return 'bg-amber-400/20 shadow-[inset_0_-0.16em_0_hsl(38_92%_50%_/_0.42)] ring-1 ring-inset ring-amber-500/35';
     const [surah, ayah] = locationParts(word.location);
     if (highlightRange && word.charType === 'word' && isVerseWithinRange(surah, ayah, highlightRange)) {

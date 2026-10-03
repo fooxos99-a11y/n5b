@@ -1,3 +1,5 @@
+import SessionCompensationActions from './SessionCompensationActions';
+import { formatHijriDate, formatHijriDateTime } from '../../../../shared/hijri-calendar.js';
 import React, { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle, DialogFooter } from '@/components/ui/dialog';
@@ -9,19 +11,19 @@ import { gradingApi } from '@/services/gradingApi';
 import GradeScore from './GradeScore';
 import RelativeWeekNavigator from './RelativeWeekNavigator';
 import TrackTestDialog from './TrackTestDialog';
-import TriStateChoice from './TriStateChoice';
+import SessionAttendanceSelect from './SessionAttendanceSelect';
+import { canTestSession, sessionAttendanceStatus } from '../../../../shared/session-attendance.js';
 import useGradeCommittees from './useGradeCommittees';
 import useGradingWeek from './useGradingWeek';
+import useOptimisticSession from './useOptimisticSession';
 
-const ATTENDANCE_LABELS = Object.freeze({ yes: 'حاضر', no: 'غائب' });
-
-const wasTested = (detail) => Boolean(detail?.attended && detail.segments?.some((segment) => segment.recorded !== false));
+const wasTested = (detail) => Boolean(detail && canTestSession(detail) && detail.segments?.some((segment) => segment.recorded !== false));
 
 /** «جلسة المسار» (the test): attendance of each student, then a segment-by-segment test for those present. */
 export default function TrackSessionSection() {
   const { toast } = useToast();
   const { committeeId, filter } = useGradeCommittees();
-  const weekState = useGradingWeek(committeeId);
+  const weekState = useGradingWeek(committeeId, 'track');
   const { status, error, week, today, editable, reload, setWeekStart } = weekState;
   const [policyState, setPolicyState] = useState({ status: 'loading', segmentCount: 0, error: '' });
   const [savingId, setSavingId] = useState(null);
@@ -36,36 +38,43 @@ export default function TrackSessionSection() {
   }, []);
   useEffect(() => { loadPolicy(); }, [loadPolicy]);
 
-  const students = week?.students || [];
+  const optimistic = useOptimisticSession(week, committeeId, 'track');
+  const { students } = optimistic;
   const testing = students.find((student) => student.id === testingId) || null;
   const segmentCount = week?.policy?.trackSession?.segmentCount ?? policyState.segmentCount;
 
   const save = async (student, payload, successTitle) => {
+    optimistic.begin(student, payload);
     setSavingId(student.id);
+    let saved = false;
     try {
       await gradingApi.setWeeklyComponent({ studentId: student.id, weekStart: week.weekStart, component: 'track', ...payload });
+      saved = true;
       await reload({ silent: true });
+      optimistic.clear();
       if (successTitle) toast({ title: successTitle });
       return true;
     } catch (requestError) {
-      toast({ title: 'تعذر حفظ جلسة المسار', description: requestError.message, variant: 'destructive' });
-      return false;
+      if (!saved) optimistic.clear();
+      toast({ title: saved ? 'حُفظت الجلسة وتعذر تحديث القائمة' : 'تعذر حفظ جلسة المسار', description: requestError.message, variant: 'destructive' });
+      return saved;
     } finally {
       setSavingId(null);
     }
   };
 
-  const setAttendance = (student, attended) => {
+  const setAttendance = (student, attendanceStatus) => {
     const detail = student.grade?.trackDetail;
+    const attended = canTestSession({ attendanceStatus });
     // Present without a test yet: attendance counts, the segments wait for «اختبر».
     const segments = attended && wasTested(detail)
-      ? detail.segments.map(({ mistakes, warnings }) => ({ mistakes, warnings, recorded: true }))
+      ? detail.segments.map(({ mistakes, warnings, hesitations = 0, range }) => ({ mistakes, warnings, hesitations, range, recorded: true }))
       : Array.from({ length: attended ? segmentCount : 0 }, () => ({ recorded: false }));
-    return save(student, { attended, segments });
+    return save(student, { attendanceStatus, segments });
   };
 
-  const saveTest = async (segments) => {
-    if (await save(testing, { attended: true, segments }, 'تم حفظ الاختبار')) setTestingId(null);
+  const saveTest = async (segments, attemptToken) => {
+    if (await save(testing, { attendanceStatus: sessionAttendanceStatus(testing.grade?.trackDetail), segments, attemptToken }, 'تم حفظ الاختبار')) setTestingId(null);
   };
 
   const renderRows = () => {
@@ -80,15 +89,16 @@ export default function TrackSessionSection() {
         {students.map((student) => {
           const detail = student.grade?.trackDetail;
           const session = student.grade?.trackSession;
-          const present = detail?.attended === true;
+          const present = Boolean(detail && canTestSession(detail));
           const busy = savingId !== null;
           const tested = wasTested(detail);
           const finalGrade = detail ? session?.grade : null;
           return (
-            <li key={student.id} className="flex items-center justify-between gap-3 px-4 py-3 transition-colors hover:bg-muted/40 sm:px-6">
+            <li key={student.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 transition-colors hover:bg-muted/40 sm:px-6">
               <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-2">
                 <div className="min-w-0">
                   <div className="break-words text-base font-black leading-tight text-foreground">{student.name}</div>
+                  {(student.compensations || []).filter(row => row.scope === 'track' && !row.cancelledAt).map(row => <p key={row.id} className="mt-1 text-xs text-primary">تعويض {formatHijriDate(row.date)} · {row.actorName} · {formatHijriDateTime(row.recordedAt)}</p>)}
                   <div className="mt-0.5 text-[10px] font-bold leading-tight text-muted-foreground sm:text-xs">{student.committeeName || 'بدون حلقة'}</div>
                 </div>
                 {finalGrade !== null && finalGrade !== undefined && (
@@ -96,22 +106,19 @@ export default function TrackSessionSection() {
                 )}
               </div>
               <div className="ms-auto flex shrink-0 flex-row-reverse items-center gap-2">
-              <TriStateChoice
+              <SessionAttendanceSelect
                 ariaLabel={`حضور ${student.name} جلسة المسار`}
-                labels={ATTENDANCE_LABELS}
-                allowNone={false}
-                value={detail ? present : null}
-                onChange={(attended) => {
-                  if (tested && attended !== true) setPendingAttendance({ student, attended });
-                  else setAttendance(student, attended);
+                value={detail && detail.attendanceRecorded !== false ? sessionAttendanceStatus(detail) : null}
+                onChange={(attendanceStatus) => {
+                  if (tested && !canTestSession({ attendanceStatus })) setPendingAttendance({ student, attendanceStatus });
+                  else setAttendance(student, attendanceStatus);
                 }}
                 disabled={!editable || busy}
-                className="w-28 shrink-0 sm:w-40"
               />
-              {/* Keep the test action beside absent while preserving alignment across rows. */}
+              <SessionCompensationActions studentId={student.id} studentName={student.name} scope="track" eligibleDays={student.compensationDays?.track || []} compensations={student.compensations} canManage={week.canManageCompensations} date={week.weekEnd < today ? week.weekEnd : today} weekStart={week.weekStart} weekEnd={week.weekEnd} today={today} disabled={!editable || busy} onSaved={() => reload({ silent: true })} />
               <div className="w-14 shrink-0 sm:w-20">
                 {present && segmentCount > 0 && (
-                  <Button type="button" variant={tested ? 'outline' : 'default'} className="h-11 w-full whitespace-normal rounded-lg px-1 text-xs leading-4" disabled={!editable || busy} onClick={() => setTestingId(student.id)}>
+                  <Button type="button" variant={tested ? 'outline' : 'default'} className="h-11 w-full whitespace-normal rounded-lg px-1 text-xs leading-4" disabled={!editable || busy || detail?.operationType === 'compensation'} onClick={() => setTestingId(student.id)}>
                     {tested ? 'إعادة الاختبار' : 'اختبر'}
                   </Button>
                 )}
@@ -133,7 +140,7 @@ export default function TrackSessionSection() {
           <DialogFooter>
             <Button variant="outline" disabled={savingId !== null} onClick={() => setPendingAttendance(null)}>إلغاء</Button>
             <Button disabled={savingId !== null} onClick={async () => {
-              if (await setAttendance(pendingAttendance.student, pendingAttendance.attended)) setPendingAttendance(null);
+              if (await setAttendance(pendingAttendance.student, pendingAttendance.attendanceStatus)) setPendingAttendance(null);
             }}>تأكيد التغيير</Button>
           </DialogFooter>
         </DialogContent>
@@ -151,7 +158,7 @@ export default function TrackSessionSection() {
         <TrackTestDialog
           key={`${testing.id}:${week.weekStart}`}
           student={testing}
-          segmentCount={segmentCount}
+          weekStart={week.weekStart}
           saving={savingId === testing.id}
           onSave={saveTest}
           onClose={() => setTestingId(null)}

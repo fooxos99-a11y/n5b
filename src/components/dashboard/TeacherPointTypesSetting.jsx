@@ -44,7 +44,7 @@ const TeacherPointTypesSetting = ({ value, onChange }) => {
 
       {types.length === 0 ? (
         <p className="rounded-lg border border-dashed border-border p-4 text-center text-sm font-bold text-muted-foreground">
-          أضف نوعًا واحدًا على الأقل ليستخدم المعلم الإضافة أو الخصم.
+          أضف نوعًا واحدًا على الأقل ليستخدم مشرف المسار الإضافة أو الخصم.
         </p>
       ) : types.map((item, index) => (
         <div key={item.id} className="grid gap-3 rounded-lg border border-border/70 bg-background/60 p-3 sm:grid-cols-[minmax(0,1fr)_10rem_9rem_auto] sm:items-end">

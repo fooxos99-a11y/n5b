@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useToast } from '@/components/ui/use-toast';
 import { studentsApi } from '@/services/studentsApi';
+import { formatHijriDateTime as formatDateTime } from '../../../shared/hijri-calendar.js';
 
 const statusLabels = {
   pending: 'قيد المراجعة',
@@ -13,12 +14,6 @@ const statusLabels = {
   completed: 'تمت المعالجة',
   rejected: 'مرفوض',
 };
-
-const formatDateTime = (value) => (
-  value
-    ? new Intl.DateTimeFormat('ar-SA-u-ca-gregory', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
-    : ''
-);
 
 const AccountPrivacySection = ({ compact = false, allowDeletion = true, embeddedConfirmation = false, onClose }) => {
   const { toast } = useToast();
