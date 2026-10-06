@@ -23,7 +23,7 @@ import { getSaudiCalendarDate } from '../../../shared/business-date.js';
 import useSaudiClock from '@/hooks/useSaudiClock';
 
 const ARCHIVE_PREFIX = 'archive:';
-const controlClassName = 'h-11 min-w-0 flex-1 basis-36 text-sm sm:w-56 sm:flex-none [&_span]:truncate';
+const controlClassName = 'h-11 min-w-0 flex-1 basis-0 pr-2 pl-7 text-xs sm:w-56 sm:flex-none sm:pr-4 sm:pl-10 sm:text-sm [&_span]:truncate [&>svg]:left-2 sm:[&>svg]:left-3';
 
 /**
  * Statistics: one overview of indicators for a period, each opening its details,
@@ -203,7 +203,7 @@ const ReportsSection = ({
         )}
 
         {/* The period sits on the right, next to the circle filter. */}
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <Select value={period} onValueChange={changePeriod}>
             <SelectTrigger aria-label="الفترة" className={controlClassName}>
               <SelectValue>{archive && archiveId ? archive.title : REPORT_PERIOD_LABELS[period] || periodLabel}</SelectValue>
@@ -226,7 +226,7 @@ const ReportsSection = ({
             </SelectContent>
           </Select>
           {period === 'custom' && (
-            <Button type="button" variant="outline" className="h-11 justify-between gap-2 sm:w-56" onClick={openCustom}>
+            <Button type="button" variant="outline" className="order-last h-11 w-full justify-between gap-2 sm:order-none sm:w-56" onClick={openCustom}>
               <span className="truncate text-sm">{periodLabel}</span>
             </Button>
           )}

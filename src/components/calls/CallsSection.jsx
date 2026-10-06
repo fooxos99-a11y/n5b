@@ -100,10 +100,10 @@ const CallsSection = ({ onJoinRoom, embedded = false }) => {
   const Container = embedded ? 'section' : ManagementPanel;
   return (
     <Container className={embedded ? '[font-family:var(--font-ui)]' : undefined} dir="rtl">
-      {(!embedded || canCreate) && <ManagementToolbar>
-        {!embedded && <Input type="search" aria-label="ابحث في المكالمات" placeholder="ابحث في المكالمات" value={search} onChange={event => setSearch(event.target.value)} className="h-11 flex-1 basis-56" />}
+      {(!embedded || canCreate) && <ManagementToolbar className="flex-nowrap">
+        {!embedded && <Input type="search" aria-label="ابحث في المكالمات" placeholder="ابحث في المكالمات" value={search} onChange={event => setSearch(event.target.value)} className="h-11 min-w-0 flex-1 basis-0" />}
         {canCreate && <>
-        <Button onClick={() => setCreateOpen(true)} disabled={!livekitConfigured || (committeeSelectionLocked && committees.length === 0)} className="h-11 gap-2 px-5">
+        <Button onClick={() => setCreateOpen(true)} disabled={!livekitConfigured || (committeeSelectionLocked && committees.length === 0)} className="h-11 shrink-0 gap-2 px-3 sm:px-5">
           <Plus className="h-4 w-4" /> إنشاء غرفة
         </Button>
         </>}

@@ -1,5 +1,6 @@
 import SessionCompensationActions from './SessionCompensationActions';
 import React, { useState } from 'react';
+import { Button } from '@/components/ui/button';
 import ErrorState from '@/components/ui/error-state';
 import { useToast } from '@/components/ui/use-toast';
 import DashboardLoader from '@/components/dashboard/DashboardLoader';
@@ -12,6 +13,7 @@ import { sessionAttendanceStatus } from '../../../../shared/session-attendance.j
 import useGradeCommittees from './useGradeCommittees';
 import useGradingWeek from './useGradingWeek';
 import useOptimisticSession from './useOptimisticSession';
+import usePrepareAllAttendance from './usePrepareAllAttendance';
 
 /** The weekly session records attendance only. */
 export default function WeeklySessionSection() {
@@ -21,6 +23,8 @@ export default function WeeklySessionSection() {
   const [savingId, setSavingId] = useState(null);
   const optimistic = useOptimisticSession(week, committeeId, 'weekly');
   const { students } = optimistic;
+  const { preparing, canPrepare, prepareAll } = usePrepareAllAttendance({ students, component: 'weekly', week, reload, enabled: editable && status === 'ready' && savingId === null });
+  const busy = savingId !== null || preparing;
 
   const save = async (student, attendanceStatus) => {
     optimistic.begin(student, { attendanceStatus });
@@ -62,12 +66,12 @@ export default function WeeklySessionSection() {
                   <GradeScore grade={session?.grade ?? 0} max={session?.max ?? week.maxima?.weeklySession} className="text-sm" />
                 )}
               </div>
-              <SessionCompensationActions studentId={student.id} studentName={student.name} scope="program" eligibleDays={student.compensationDays?.program || []} compensations={student.compensations} canManage={week.canManageCompensations} date={week.weekEnd < today ? week.weekEnd : today} weekStart={week.weekStart} weekEnd={week.weekEnd} today={today} disabled={!editable || savingId !== null} onSaved={() => reload({ silent: true })} />
+              <SessionCompensationActions studentId={student.id} studentName={student.name} scope="program" eligibleDays={student.compensationDays?.program || []} compensations={student.compensations} canManage={week.canManageCompensations} date={week.weekEnd < today ? week.weekEnd : today} weekStart={week.weekStart} weekEnd={week.weekEnd} today={today} disabled={!editable || busy} onSaved={() => reload({ silent: true })} />
               <SessionAttendanceSelect
                 ariaLabel={`حضور ${student.name} الجلسة الأسبوعية`}
                 value={recorded ? sessionAttendanceStatus(detail) : null}
                 onChange={(attendanceStatus) => save(student, attendanceStatus)}
-                disabled={!editable || savingId !== null}
+                disabled={!editable || busy}
               />
             </li>
           );
@@ -79,10 +83,13 @@ export default function WeeklySessionSection() {
   return (
     <ManagementPanel>
       <ManagementToolbar>
-        <div className="min-w-0 sm:me-auto">
-          <RelativeWeekNavigator week={week} today={today} loading={status === 'loading'} onChange={setWeekStart} />
+        <div className="flex w-full min-w-0 items-center gap-2 sm:me-auto sm:w-auto">
+          <div className="min-w-0 flex-[2] sm:flex-none">
+            <RelativeWeekNavigator week={week} today={today} loading={status === 'loading' || busy} onChange={setWeekStart} />
+          </div>
+          {filter && <fieldset disabled={busy} className="min-w-0 flex-1 sm:flex-none">{filter}</fieldset>}
         </div>
-        {filter && <div className="w-full sm:w-auto">{filter}</div>}
+        <Button type="button" loading={preparing} disabled={!canPrepare || busy} onClick={() => { void prepareAll(); }}>تحضير الكل</Button>
       </ManagementToolbar>
       {renderRows()}
     </ManagementPanel>

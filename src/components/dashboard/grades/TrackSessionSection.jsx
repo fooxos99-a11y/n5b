@@ -16,6 +16,8 @@ import { canTestSession, sessionAttendanceStatus } from '../../../../shared/sess
 import useGradeCommittees from './useGradeCommittees';
 import useGradingWeek from './useGradingWeek';
 import useOptimisticSession from './useOptimisticSession';
+import usePrepareAllAttendance from './usePrepareAllAttendance';
+import { trackAttendancePayload } from '@/services/sessionAttendanceBatch';
 
 const wasTested = (detail) => Boolean(detail && canTestSession(detail) && detail.segments?.some((segment) => segment.recorded !== false));
 
@@ -42,6 +44,7 @@ export default function TrackSessionSection() {
   const { students } = optimistic;
   const testing = students.find((student) => student.id === testingId) || null;
   const segmentCount = week?.policy?.trackSession?.segmentCount ?? policyState.segmentCount;
+  const { preparing, canPrepare, prepareAll } = usePrepareAllAttendance({ students, component: 'track', week, segmentCount, reload, enabled: editable && status === 'ready' && policyState.status === 'ready' && savingId === null && !testingId && !pendingAttendance });
 
   const save = async (student, payload, successTitle) => {
     optimistic.begin(student, payload);
@@ -64,13 +67,7 @@ export default function TrackSessionSection() {
   };
 
   const setAttendance = (student, attendanceStatus) => {
-    const detail = student.grade?.trackDetail;
-    const attended = canTestSession({ attendanceStatus });
-    // Present without a test yet: attendance counts, the segments wait for «اختبر».
-    const segments = attended && wasTested(detail)
-      ? detail.segments.map(({ mistakes, warnings, hesitations = 0, range }) => ({ mistakes, warnings, hesitations, range, recorded: true }))
-      : Array.from({ length: attended ? segmentCount : 0 }, () => ({ recorded: false }));
-    return save(student, { attendanceStatus, segments });
+    return save(student, trackAttendancePayload(student.grade?.trackDetail, attendanceStatus, segmentCount));
   };
 
   const saveTest = async (segments, attemptToken) => {
@@ -90,7 +87,7 @@ export default function TrackSessionSection() {
           const detail = student.grade?.trackDetail;
           const session = student.grade?.trackSession;
           const present = Boolean(detail && canTestSession(detail));
-          const busy = savingId !== null;
+          const busy = savingId !== null || preparing;
           const tested = wasTested(detail);
           const finalGrade = detail ? session?.grade : null;
           return (
@@ -147,10 +144,13 @@ export default function TrackSessionSection() {
       </Dialog>
       <ManagementPanel>
         <ManagementToolbar>
-          <div className="min-w-0 sm:me-auto">
-            <RelativeWeekNavigator week={week} today={today} loading={status === 'loading'} onChange={setWeekStart} />
+          <div className="flex w-full min-w-0 items-center gap-2 sm:me-auto sm:w-auto">
+            <div className="min-w-0 flex-[2] sm:flex-none">
+              <RelativeWeekNavigator week={week} today={today} loading={status === 'loading' || savingId !== null || preparing} onChange={setWeekStart} />
+            </div>
+            {filter && <fieldset disabled={savingId !== null || preparing} className="min-w-0 flex-1 sm:flex-none">{filter}</fieldset>}
           </div>
-          {filter && <div className="w-full sm:w-auto">{filter}</div>}
+          <Button type="button" loading={preparing} disabled={!canPrepare || savingId !== null || preparing} onClick={() => { void prepareAll(); }}>تحضير الكل</Button>
         </ManagementToolbar>
         {renderRows()}
       </ManagementPanel>

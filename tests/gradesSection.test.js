@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readdir, readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { trackAttendancePayload } from '../src/services/sessionAttendanceBatch.js';
 
 const gradesDirectory = new URL('../src/components/dashboard/grades/', import.meta.url);
 
@@ -89,7 +90,8 @@ test('track session page: attendance states, segment test with next then save, r
   assert.match(track, /tested && !canTestSession\(\{ attendanceStatus \}\)/);
   assert.match(dialog, /المقطع السابق/);
   assert.match(track, /present && segmentCount > 0 &&[\s\S]*اختبر/);
-  assert.match(track, /recorded: false/);
+  assert.match(track, /trackAttendancePayload\(student\.grade\?\.trackDetail, attendanceStatus, segmentCount\)/);
+  assert.deepEqual(trackAttendancePayload(undefined, 'present', 2).segments, [{ recorded: false }, { recorded: false }]);
   assert.match(track, /flex shrink-0 flex-row-reverse items-center gap-2/, 'the test button sits beside absent in RTL');
   assert.match(track, /tested \? 'إعادة الاختبار' : 'اختبر'/);
   assert.doesNotMatch(track, /detail=\{/);

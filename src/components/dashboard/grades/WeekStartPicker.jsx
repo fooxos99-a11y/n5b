@@ -29,6 +29,6 @@ export default function WeekStartPicker({ value, currentWeekStart, sessionDay = 
         {WEEKDAY_LABELS[new Date(`${dateForWeek(date)}T00:00:00Z`).getUTCDay()]}، {formatDayMonth(dateForWeek(date))}
       </Button>)}
     </div>
-    <Button type="button" variant="outline" className="h-11 w-full justify-center" onClick={() => onChange(currentWeekStart)}>هذا الأسبوع</Button>
+    <Button type="button" variant="outline" aria-label="العودة إلى الأسبوع الحالي" className="h-11 w-full justify-center" onClick={() => onChange(currentWeekStart)}>{formatDayMonth(dateForWeek(currentWeekStart))}</Button>
   </div>;
 }

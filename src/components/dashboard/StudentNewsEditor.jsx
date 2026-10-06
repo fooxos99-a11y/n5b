@@ -75,10 +75,10 @@ export default function StudentNewsEditor() {
   const normalizedSearch = search.trim().toLocaleLowerCase('ar');
   const visibleEntries = news.entries.filter(entry => [entry.title, entry.body].some(value => String(value || '').toLocaleLowerCase('ar').includes(normalizedSearch)));
   return <ManagementPanel>
-    <ManagementToolbar>
+    <ManagementToolbar className="flex-nowrap">
       <Input type="search" aria-label="ابحث في الأخبار" placeholder="ابحث في الأخبار" value={search}
-        onChange={event => setSearch(event.target.value)} className="h-11 flex-1 basis-56" />
-      <Button className="h-11 gap-2 px-5" disabled={!loaded || pending || news.entries.length >= 8} onClick={createEntry}><Plus className="h-4 w-4" />إضافة خبر</Button>
+        onChange={event => setSearch(event.target.value)} className="h-11 min-w-0 flex-1 basis-0" />
+      <Button className="h-11 shrink-0 gap-2 px-3 sm:px-5" disabled={!loaded || pending || news.entries.length >= 8} onClick={createEntry}><Plus className="h-4 w-4" />إضافة خبر</Button>
     </ManagementToolbar>
     {error && <div role="alert" className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3 text-sm text-destructive sm:px-6"><p>{error}</p><Button variant="ghost" className="h-11" disabled={pending} onClick={() => setRetry(value => value + 1)}>إعادة التحميل</Button></div>}
     {loading ? <DashboardLoader /> : visibleEntries.length ? <ManagementList label="الأخبار">
