@@ -33,12 +33,12 @@ export default function PlanPerformanceChart({ series = [], compact = false, tit
       <YAxis hide={compact} orientation="left" width={44} domain={[0, upper]} ticks={ticks} tickLine={false} axisLine={false} tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }} tickFormatter={value => `${format(value)}%`} />
       <ReferenceLine y={100} stroke="hsl(var(--muted-foreground))" strokeDasharray="5 5" />
       <ChartTooltip content={<PerformanceTooltip />} />
-      {keys.map(key => <Line key={key} dataKey={key} name={PERFORMANCE_LINES[key].label} type="monotone" stroke={PERFORMANCE_LINES[key].color} strokeDasharray={PERFORMANCE_LINES[key].dash} strokeWidth={2.5} dot={points.filter(point => point[key] !== null).length === 1} activeDot={{ r: 5, stroke: 'hsl(var(--card))', strokeWidth: 2 }} isAnimationActive={false} />)}
+      {keys.map(key => <Line key={key} dataKey={key} name={PERFORMANCE_LINES[key].label} type="linear" stroke={PERFORMANCE_LINES[key].color} strokeWidth={2.5} dot={points.filter(point => point[key] !== null).length === 1} activeDot={{ r: 5, stroke: 'hsl(var(--card))', strokeWidth: 2 }} isAnimationActive={false} />)}
     </LineChart>
   </ChartContainer>;
   if (compact) return <div className="min-w-0">{points.length ? chart : <p className="text-xs text-muted-foreground">لا توجد متطلبات مستحقة.</p>}</div>;
   return <Card className="min-w-0 [font-family:var(--font-ui)]" aria-label={title}>
     <CardHeader className="border-b border-border"><h2 className="text-sm font-semibold">{title}</h2></CardHeader>
-    <CardContent className="px-2 sm:px-5">{points.length ? <>{chart}<ul aria-label="ألوان متطلبات البرنامج" className="mt-3 flex flex-wrap justify-center gap-x-4 gap-y-2 text-xs">{keys.map(key => <li key={key} className="flex items-center gap-1.5"><svg width="20" height="4" aria-hidden="true"><line x1="0" y1="2" x2="20" y2="2" stroke={PERFORMANCE_LINES[key].color} strokeWidth="2.5" strokeDasharray={PERFORMANCE_LINES[key].dash} /></svg>{PERFORMANCE_LINES[key].label}</li>)}</ul></> : <p className="py-6 text-sm text-muted-foreground">لا توجد متطلبات مستحقة خلال الفترة.</p>}</CardContent>
+    <CardContent className="px-2 sm:px-5">{points.length ? <>{chart}<ul aria-label="ألوان متطلبات البرنامج" className="mt-3 flex flex-wrap justify-center gap-x-4 gap-y-2 text-xs">{keys.map(key => <li key={key} className="flex items-center gap-1.5"><svg width="20" height="4" aria-hidden="true"><line x1="0" y1="2" x2="20" y2="2" stroke={PERFORMANCE_LINES[key].color} strokeWidth="2.5" /></svg>{PERFORMANCE_LINES[key].label}</li>)}</ul></> : <p className="py-6 text-sm text-muted-foreground">لا توجد متطلبات مستحقة خلال الفترة.</p>}</CardContent>
   </Card>;
 }

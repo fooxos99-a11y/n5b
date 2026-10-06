@@ -1,9 +1,9 @@
 export const PERFORMANCE_LINES = Object.freeze({
   memorization: { label: 'الحفظ', color: 'hsl(var(--primary))' },
-  review: { label: 'المراجعة', color: '#2563eb', dash: '8 3' },
-  link: { label: 'الربط', color: '#8b5cf6', dash: '3 3' },
-  repeat: { label: 'التكرار', color: '#b7791f', dash: '10 3 2 3' },
-  reading: { label: 'المقدار الذاتي', color: '#db2777', dash: '6 3 2 3' },
+  review: { label: 'المراجعة', color: '#2563eb' },
+  link: { label: 'الربط', color: '#8b5cf6' },
+  repeat: { label: 'التكرار', color: '#b7791f' },
+  reading: { label: 'المقدار الذاتي', color: '#db2777' },
   percentage: { label: 'الأداء', color: 'hsl(var(--primary))' },
 });
 
