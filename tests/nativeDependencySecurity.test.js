@@ -28,4 +28,7 @@ test('iOS installs npm packages without lifecycle scripts and enforces Swift pin
   }
   const manifest = await readFile(new URL('../ios/App/CapApp-SPM/Package.swift', import.meta.url), 'utf8');
   assert.ok(manifest.includes(`exact: "${packageLock.pins[0].state.version}"`));
+  const npmLock = JSON.parse(await readFile(new URL('../package-lock.json', import.meta.url), 'utf8'));
+  assert.equal(packageLock.pins[0].state.version, npmLock.packages['node_modules/@capacitor/ios'].version,
+    'Swift must use the same patched Capacitor version as the npm lock');
 });

@@ -27,7 +27,10 @@ test('management actions share subtle borders and family preview shows contact d
   assert.doesNotMatch(reports, /DashboardHeaderFilters/);
   assert.match(reports, /aria-label="الفترة"[\s\S]*aria-label="الحلقة"/);
   assert.match(reports, /aria-label="الحلقة"[\s\S]*<section aria-label="مؤشرات الأداء" className=\{`grid grid-cols-2 gap-4 md:grid-cols-3/);
-  assert.match(reports, /const controlClassName = 'h-11 min-w-0 flex-1 basis-36 text-sm sm:w-56 sm:flex-none \[&_span\]:truncate'/);
+  const controls = reports.match(/const controlClassName = '([^']+)'/)?.[1].split(' ') || [];
+  for (const style of ['h-11', 'min-w-0', 'flex-1', 'basis-0', 'text-xs', 'sm:text-sm', 'sm:w-56', 'sm:flex-none', '[&_span]:truncate']) {
+    assert.ok(controls.includes(style), `Report filters must retain ${style} for the shared mobile row and desktop sizing`);
+  }
   for (const source of [students, plans, families, staff]) {
     assert.match(source, /ManagementIconButton/);
   }
