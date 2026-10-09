@@ -694,6 +694,7 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
       </Button>{row.priorMemorization?.length > 0 && <Button variant="outline" className="h-11" onClick={() => openMemorizedDialog(row)}>المحفوظ المجتاز</Button>}</>;
     }
     return <>
+      <StudentPlansPauseControl studentId={row.studentId} studentName={row.studentName} initialState={row.planPause} onChange={loadRows} />
       {row.plan.queuedRanges?.length > 0 && <Button variant="outline" className="h-11" onClick={() => setClosingPlan(row)}>إغلاق الحالية</Button>}
       {Number(row.plan.progressPercent || 0) >= 100 && (
         <ManagementIconButton
@@ -743,6 +744,7 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
             <div className="min-w-0 flex-1 sm:w-64 sm:flex-none">
               <div className="truncate text-base font-bold text-foreground">{row.studentName}</div>
               <div className="mt-0.5 truncate text-sm text-muted-foreground">{row.committeeName || 'بدون حلقة'}</div>
+              {row.rehifz?.map(item => <p key={item.id} className="mt-1 text-xs font-bold text-primary">إعادة حفظ الجزء {item.juzNumber} كاملًا</p>)}
             </div>
             {row.plan ? (
               <div className="order-last min-w-0 basis-full sm:order-none sm:flex-1 sm:basis-auto">
@@ -755,7 +757,7 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
 
               </div>
             ) : <div className="hidden sm:block sm:flex-1" />}
-            <div className="flex shrink-0 items-center gap-1">
+            <div className="flex flex-wrap shrink-0 items-center gap-1">
               {renderRowActions(row)}
             </div>
           </li>

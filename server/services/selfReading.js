@@ -2,6 +2,8 @@ import { DEFAULT_PLAN_READING_FACES, MAX_PLAN_READING_FACES } from '../../shared
 import { assertGradeDate } from './gradeDateBoundary.js';
 import { deleteDailyGrade, loadGradingPolicyForDate, recordReadingGrade } from './grading.js';
 import { loadSeasonalHolidays } from './seasonalHolidays.js';
+import { loadIndividualStudentPlanPauses } from './studentPlanPause.js';
+import { isStudentPlanPausedOn } from '../../shared/student-plan-pause.js';
 import { isSeasonalHoliday } from '../../shared/seasonal-holidays.js';
 import { currentQuranPlanSql } from './currentQuranPlan.js';
 import { loadMemorizedReading } from './selfReadingAmount.js';
@@ -71,7 +73,8 @@ export async function loadTeacherReading(connection, { supervisorId, date }) {
   const policy = await loadGradingPolicyForDate(connection, date, { freeze: false });
   if (isSeasonalHoliday(date, await loadSeasonalHolidays(connection)) || !isReadingDay(policy, date)) return { readingDay: false, students: [] };
   const [rows] = await connection.query(`${studentReadingSql} ORDER BY c.name, s.name`, [supervisorId, date]);
-  return { readingDay: true, students: await Promise.all(rows.map(async row => serializeReading(row, await amountFor(connection, row, date)))) };
+  const pauses = await loadIndividualStudentPlanPauses(connection);
+  return { readingDay: true, students: await Promise.all(rows.filter(row => !isStudentPlanPausedOn(date, pauses[row.studentId])).map(async row => serializeReading(row, await amountFor(connection, row, date)))) };
 }
 
 /**

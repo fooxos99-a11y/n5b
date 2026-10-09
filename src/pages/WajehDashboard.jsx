@@ -58,6 +58,7 @@ const UsersSection = lazy(() => import('@/components/dashboard/UsersSection'));
 const FamiliesSection = lazy(() => import('@/components/dashboard/FamiliesSection'));
 const ManualAttendanceSection = lazy(() => import('@/components/dashboard/ManualAttendanceSection'));
 const NarrationDaySection = lazy(() => import('@/components/dashboard/NarrationDaySection'));
+const PassingSection = lazy(() => import('@/components/dashboard/passing/PassingSection'));
 const TrackSessionSection = lazy(() => import('@/components/dashboard/grades/TrackSessionSection'));
 const WeeklySessionSection = lazy(() => import('@/components/dashboard/grades/WeeklySessionSection'));
 const RegistrationRequestsSection = lazy(() => import('@/components/dashboard/RegistrationRequestsSection'));
@@ -81,6 +82,7 @@ const dashboardSectionPreloaders = {
   families: () => import('@/components/dashboard/FamiliesSection'),
   manualAttendance: () => import('@/components/dashboard/ManualAttendanceSection'),
   narrationDay: () => import('@/components/dashboard/NarrationDaySection'),
+  quranPassing: () => import('@/components/dashboard/passing/PassingSection'),
   trackSession: () => import('@/components/dashboard/grades/TrackSessionSection'),
   weeklySession: () => import('@/components/dashboard/grades/WeeklySessionSection'),
   registrationRequests: () => import('@/components/dashboard/RegistrationRequestsSection'),
@@ -137,6 +139,7 @@ const baseSections = [
   { key: 'supervisors', label: 'مشرفي المسارات', icon: Users },
   { key: 'administrators', label: 'الإداريين', icon: ShieldCheck },
   { key: 'narrationDay', label: 'يوم السرد', icon: BookMarked },
+  { key: 'quranPassing', label: 'الاجتياز', icon: ClipboardCheck },
   { key: 'calls', label: 'المكالمات', icon: PhoneCall },
   { key: 'notifications', label: 'الإشعارات', icon: Bell },
   { key: 'whatsappSend', label: 'الإرسال عبر الواتس', icon: Send },
@@ -336,6 +339,7 @@ const WajehDashboard = () => {
     );
       case 'calls': return activeCallRoom ? null : <LazyCallsSection onJoinRoom={setActiveCallRoom} />;
       case 'narrationDay': return <NarrationDaySection />;
+      case 'quranPassing': return <PassingSection />;
       case 'notifications': return <NotificationsSection />;
       case 'whatsappSend': return <WhatsAppSendSection />;
       case 'trackSession': return <TrackSessionSection />;

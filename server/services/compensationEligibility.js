@@ -1,5 +1,7 @@
 import { loadGradingPolicy, weekStartOf, weekdayOf } from './grading.js';
 import { loadSeasonalHolidays } from './seasonalHolidays.js';
+import { loadIndividualStudentPlanPauses } from './studentPlanPause.js';
+import { studentPlanPauseHolidays } from '../../shared/student-plan-pause.js';
 import { isSeasonalHoliday } from '../../shared/seasonal-holidays.js';
 import { parseGradingPolicy, trackSegmentDefinitions } from '../../shared/grading-policy.js';
 
@@ -42,11 +44,12 @@ export async function loadEligibleCompensationDays(connection, { studentIds, sco
   const [frozen] = weeks.length ? await connection.query("SELECT DATE_FORMAT(week_start, '%Y-%m-%d') AS week, policy_json AS policy FROM grading_week_policies WHERE week_start IN (?)", [weeks]) : [[]];
   const policies = new Map(frozen.map(row => [row.week, parseGradingPolicy(row.policy)]));
   const holidays = await loadSeasonalHolidays(connection);
+  const individualPauses = await loadIndividualStudentPlanPauses(connection);
   for (const student of students) {
     const id = Number(student.id);
     result.set(id, eligibleCompensationDays({ firstPlanDate: student.firstPlanDate,
       lowerBound: [student.joined, ...settings.map(row => row.value)].filter(Boolean).sort((a, b) => a.localeCompare(b)).at(-1),
-      today, sessionDay, scope, holidays, candidates: excuses.filter(row => Number(row.studentId) === id).map(row => row.date),
+      today, sessionDay, scope, holidays: [...holidays, ...studentPlanPauseHolidays(individualPauses[id], today)], candidates: excuses.filter(row => Number(row.studentId) === id).map(row => row.date),
       compensatedPeriods: new Set(credits.filter(row => Number(row.studentId) === id).map(row => row.period)),
       policyForDate: date => policies.get(weekStartOf(date)) || policy }));
   }

@@ -7,9 +7,9 @@ export async function assertGradeDate(connection, studentId, date, { weekly = fa
   const valid = /^\d{4}-\d{2}-\d{2}$/.test(date) && !Number.isNaN(Date.parse(`${date}T00:00:00Z`))
     && new Date(`${date}T00:00:00Z`).toISOString().slice(0, 10) === date;
   if (!valid || date > today) throw Object.assign(new Error('تاريخ الرصد غير صحيح.'), { status: 422 });
-  if (!weekly) await assertStudyDate(connection, date);
+  if (!weekly) await assertStudyDate(connection, date, studentId);
   else {
-    const holidays = await loadSeasonalHolidays(connection);
+    const holidays = await loadSeasonalHolidays(connection, today, studentId);
     if (Array.from({length:7}, (_, index) => new Date(Date.parse(`${periodStart}T00:00:00Z`) + index * 86400000).toISOString().slice(0,10)).every(day => isSeasonalHoliday(day, holidays))) {
       throw Object.assign(new Error('لا توجد جلسة مطلوبة خلال الإجازة الموسمية.'), {status:422});
     }

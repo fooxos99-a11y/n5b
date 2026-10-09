@@ -24,6 +24,7 @@ export const dashboardSectionRoutes = createSectionRoutes([
   ['supervisors', 'supervisors'],
   ['administrators', 'administrators'],
   ['narrationDay', 'narration-day'],
+  ['quranPassing', 'passing'],
   ['calls', 'calls'],
   ['whatsappSend', 'whatsapp'],
   ['registrationRequests', 'registration-requests'],

@@ -46,6 +46,7 @@ function memoryDatabase({ points = 10, store = 4, family = 30, addToFamily = 'tr
       }
       if (q.startsWith('SELECT setting_value AS holidays FROM app_settings')) return [[]];
       if (q.startsWith('SELECT setting_value AS pause FROM app_settings')) return [[]];
+      if (q.startsWith('SELECT state_json AS pause FROM student_plan_pauses')) return [[]];
       if (q.startsWith('SELECT setting_value AS value FROM app_settings')) return [[]];
       if (q.includes('FROM grading_week_policies')) return [[]];
       if (q.startsWith('SELECT status FROM attendance_records')) return [[]];

@@ -1,6 +1,7 @@
 import { quranFacePositions } from './quranFaceMeasurement.js';
 import { planScheduleDates } from './planScheduleDates.js';
 import { addDays } from './grading.js';
+import { pendingRehifzWork } from './passingRehifz.js';
 
 const positions = new Map(quranFacePositions.map(row => [`${row.surah}:${row.ayah}`, row]));
 /** Subtract the union of accepted ranges in line coordinates, including partial faces. */
@@ -30,13 +31,13 @@ export function remainingPlanFaces(plan, acceptedRanges) {
 }
 
 /** Find a study date even when a long or overlapping holiday spans the initial forecast window. */
-async function completionDate(connection, from, requiredDays, workDays) {
+async function completionDate(connection, from, requiredDays, workDays, studentId) {
   if (!requiredDays || !workDays.length) return null;
   let remaining = requiredDays;
   let start = from;
   for (let year = 0; year < 100; year++) {
     const end = addDays(start, 365);
-    const dates = await planScheduleDates(connection, start, end, workDays);
+    const dates = await planScheduleDates(connection, start, end, workDays, 'workDays', studentId, true);
     if (dates.length >= remaining) return dates[remaining - 1];
     remaining -= dates.length;
     start = addDays(end, 1);
@@ -48,21 +49,24 @@ export async function forecastQuranPlan(connection, { plan, acceptedRanges, prio
   const remainingFaces = remainingPlanFaces(plan, acceptedRanges);
   const dailyFaces = Math.max(0.25, Number(plan.dailyPages) || 1);
   const totalFaces = remainingPlanFaces(plan, priorRanges);
-  const requiredDays = Math.ceil(remainingFaces / dailyFaces);
+  const rehifz = await pendingRehifzWork(connection, plan.studentId);
+  const rehifzDays = rehifz.reduce((days, item) => days + Math.ceil(remainingPlanFaces({ ...item.ranges[0],
+    endSurah: item.ranges.at(-1).endSurah, endAyah: item.ranges.at(-1).endAyah }, item.accepted) / dailyFaces), 0);
+  const requiredDays = Math.ceil(remainingFaces / dailyFaces) + rehifzDays;
   const start = plan.startDate || plan.createdDate;
   if (!start) return { remainingFaces, baseEndDate: null, projectedEndDate: null, paceStatus: 'on_track', aheadFaces: 0, delayedFaces: 0 };
   const anchor = plan.scheduleAnchorSurah && plan.scheduleAnchorAyah
     ? { startSurah: plan.startSurah, startAyah: plan.startAyah, endSurah: plan.scheduleAnchorSurah, endAyah: plan.scheduleAnchorAyah } : null;
   const scheduledRemaining = anchor ? remainingPlanFaces(plan, [...priorRanges, anchor]) : totalFaces;
   const scheduleStart = anchor ? (plan.effectiveFrom || start) : start;
-  const baseEndDate = await completionDate(connection, scheduleStart, Math.ceil(scheduledRemaining / dailyFaces), workDays);
-  const elapsed = (await planScheduleDates(connection, scheduleStart, today, workDays)).length;
+  const baseEndDate = await completionDate(connection, scheduleStart, Math.ceil(scheduledRemaining / dailyFaces), workDays, plan.studentId);
+  const elapsed = (await planScheduleDates(connection, scheduleStart, today, workDays, 'workDays', plan.studentId, true)).length;
   const expectedFaces = Math.min(totalFaces, totalFaces - scheduledRemaining + elapsed * dailyFaces);
   const completedFaces = Math.max(0, totalFaces - remainingFaces);
   const difference = Math.round((completedFaces - expectedFaces) * 4) / 4;
   const from = plan.startDate > today ? plan.startDate : addDays(today, 1);
   return { remainingFaces, baseEndDate,
-    projectedEndDate: requiredDays ? await completionDate(connection, from, requiredDays, workDays) : today,
+    projectedEndDate: requiredDays ? await completionDate(connection, from, requiredDays, workDays, plan.studentId) : today,
     paceStatus: difference > 0 ? 'ahead' : difference < 0 ? 'behind' : 'on_track',
     aheadFaces: Math.max(0, difference), delayedFaces: Math.max(0, -difference), expectedFaces, completedFaces };
 }

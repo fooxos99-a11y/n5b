@@ -7,6 +7,7 @@ const allDashboardPermissionOptions = [
   { key: 'students', label: 'الطلاب', group: 'المستخدمون' },
   { key: 'studentPlans', label: 'خطط الطلاب' },
   { key: 'narrationDay', label: 'يوم السرد' },
+  { key: 'quranPassing', label: 'الاجتياز', group: 'الجلسات' },
   { key: 'calls', label: 'المكالمات' },
   { key: 'quranEvaluation', label: 'جلسات التسميع' },
   { key: 'weeklySession', label: 'الجلسة الأسبوعية', group: 'الجلسات' },

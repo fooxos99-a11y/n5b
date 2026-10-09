@@ -5,6 +5,7 @@ import { buildGradingOverview, buildGradingSessionReport } from '../server/servi
 test('session report aggregates the weeks touching the period and scopes teachers', async () => {
   let captured;
   const connection = { query: async (sql, params) => {
+    if (sql.startsWith('SELECT student_id AS studentId, state_json AS pause')) return [[]];
     if (sql.includes('FROM student_day_compensations') || sql.includes('SELECT student_id AS studentId, detail_json AS detail')) return [[]];
     if (sql.startsWith('SELECT setting_value')) return [[]];
     if (sql.includes('FROM grading_week_policies')) return [[]];

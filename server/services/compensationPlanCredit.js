@@ -11,7 +11,7 @@ export const uncompensatedTaskSql = (alias, { retainAccepted = false } = {}) => 
 export async function loadCompensatedPlanRanges(connection, { studentId, planId, throughDate }) {
   const [rows] = await connection.query(`SELECT credited_ranges AS ranges FROM student_day_compensations
     WHERE student_id = ? AND scope = 'program' AND cancelled_at IS NULL AND compensated_date <= ?
-      AND ${studyDateSql('compensated_date')}`, [studentId, throughDate]);
+      AND ${studyDateSql('compensated_date', 'student_day_compensations.student_id')}`, [studentId, throughDate]);
   return rows.flatMap(row => {
     const ranges = typeof row.ranges === 'string' ? JSON.parse(row.ranges) : row.ranges;
     return (ranges || []).filter(range => Number(range.planId) === Number(planId));

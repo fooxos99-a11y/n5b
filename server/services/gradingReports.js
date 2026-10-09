@@ -32,7 +32,7 @@ export async function buildGradingSessionReport(connection, { component, from, t
      FROM students s
      LEFT JOIN committees c ON c.id = s.committee_id
      LEFT JOIN student_weekly_components w
-       ON w.student_id = s.id AND w.component = ? AND ${studyWeekSql('w.week_start')} AND w.week_start BETWEEN ? AND ?
+       ON w.student_id = s.id AND w.component = ? AND ${studyWeekSql('w.week_start', 'w.student_id')} AND w.week_start BETWEEN ? AND ?
      WHERE ${scope.student('s.id')}
      GROUP BY s.id, s.name, c.name
      ORDER BY c.name, s.name`,
@@ -106,14 +106,14 @@ function gradeBreakdown(rows = []) {
 export async function buildGradingOverview(reportDb, { from, to, quranFaces = {} }) {
   const [[program]] = await reportDb.query(
     `SELECT COALESCE(SUM(grade), 0) AS grade, COALESCE(SUM(max_grade), 0) AS max, COUNT(DISTINCT student_id) AS students
-     FROM student_daily_grades WHERE ${studyDateSql('grade_date')} AND grade_date BETWEEN ? AND ? AND ${reportDb.student('student_id')}`,
+     FROM student_daily_grades WHERE ${studyDateSql('grade_date', 'student_daily_grades.student_id')} AND grade_date BETWEEN ? AND ? AND ${reportDb.student('student_id')}`,
     [from, to],
   );
   const [sessionRows] = await reportDb.query(
     `SELECT component, COUNT(*) AS recorded, ${sessionAttendanceCountsSql()},
        COALESCE(SUM(grade), 0) AS grade, COALESCE(SUM(max_grade), 0) AS max
      FROM student_weekly_components
-     WHERE ${studyWeekSql('week_start')} AND week_start BETWEEN ? AND ? AND ${reportDb.student('student_id')}
+     WHERE ${studyWeekSql('week_start', 'student_weekly_components.student_id')} AND week_start BETWEEN ? AND ? AND ${reportDb.student('student_id')}
      GROUP BY component`,
     [weekStartOf(from), to],
   );
@@ -126,7 +126,7 @@ export async function buildGradingOverview(reportDb, { from, to, quranFaces = {}
   const [[reading]] = await reportDb.query(
     `SELECT COALESCE(SUM(CAST(JSON_UNQUOTE(JSON_EXTRACT(detail_json, '$.requiredFaces')) AS DECIMAL(10,2))), 0) AS faces
      FROM student_daily_grades
-     WHERE component = 'reading' AND passed = 1 AND ${studyDateSql('grade_date')} AND grade_date BETWEEN ? AND ? AND ${reportDb.student('student_id')}`,
+     WHERE component = 'reading' AND passed = 1 AND ${studyDateSql('grade_date', 'student_daily_grades.student_id')} AND grade_date BETWEEN ? AND ? AND ${reportDb.student('student_id')}`,
     [from, to],
   );
   const policy = await loadGradingPolicy(reportDb);
@@ -150,7 +150,7 @@ export async function buildGradingOverview(reportDb, { from, to, quranFaces = {}
      FROM student_daily_grades g
      JOIN students s ON s.id = g.student_id
      LEFT JOIN committees c ON c.id = s.committee_id
-     WHERE ${studyDateSql('g.grade_date')} AND g.grade_date BETWEEN ? AND ? AND ${reportDb.student('g.student_id')}
+     WHERE ${studyDateSql('g.grade_date', 'g.student_id')} AND g.grade_date BETWEEN ? AND ? AND ${reportDb.student('g.student_id')}
      GROUP BY s.id, s.name, c.id, c.name`,
     [from, to],
   );
@@ -161,7 +161,7 @@ export async function buildGradingOverview(reportDb, { from, to, quranFaces = {}
      FROM student_weekly_components w
      JOIN students s ON s.id = w.student_id
      LEFT JOIN committees c ON c.id = s.committee_id
-     WHERE ${studyWeekSql('w.week_start')} AND w.week_start BETWEEN ? AND ? AND ${reportDb.student('w.student_id')}
+     WHERE ${studyWeekSql('w.week_start', 'w.student_id')} AND w.week_start BETWEEN ? AND ? AND ${reportDb.student('w.student_id')}
      GROUP BY w.component, s.id, s.name, c.id, c.name`,
     [weekStartOf(from), to],
   );
@@ -169,7 +169,7 @@ export async function buildGradingOverview(reportDb, { from, to, quranFaces = {}
   const [trackDetailRows] = await reportDb.query(
     `SELECT student_id AS studentId, detail_json AS detail
      FROM student_weekly_components
-     WHERE component = 'track' AND ${studyWeekSql('week_start')} AND week_start BETWEEN ? AND ? AND ${reportDb.student('student_id')}`,
+     WHERE component = 'track' AND ${studyWeekSql('week_start', 'student_weekly_components.student_id')} AND week_start BETWEEN ? AND ? AND ${reportDb.student('student_id')}`,
     [weekStartOf(from), to],
   );
   const [readingStudentRows] = await reportDb.query(
@@ -177,7 +177,7 @@ export async function buildGradingOverview(reportDb, { from, to, quranFaces = {}
        COALESCE(SUM(CAST(JSON_UNQUOTE(JSON_EXTRACT(detail_json, '$.hizbCount')) AS UNSIGNED)), 0) AS hizbs,
        COALESCE(SUM(CAST(JSON_UNQUOTE(JSON_EXTRACT(detail_json, '$.requiredFaces')) AS DECIMAL(10,2))), 0) AS faces
      FROM student_daily_grades
-     WHERE component = 'reading' AND passed = 1 AND ${studyDateSql('grade_date')} AND grade_date BETWEEN ? AND ? AND ${reportDb.student('student_id')}
+     WHERE component = 'reading' AND passed = 1 AND ${studyDateSql('grade_date', 'student_daily_grades.student_id')} AND grade_date BETWEEN ? AND ? AND ${reportDb.student('student_id')}
      GROUP BY student_id`,
     [from, to],
   );

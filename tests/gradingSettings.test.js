@@ -12,7 +12,7 @@ test('grading settings live in their own settings category with a dedicated save
   ]);
 
   const labels = [...navigation.matchAll(/label: '([^']+)'/g)].map((match) => match[1]);
-  assert.deepEqual(labels, ['البرنامج الأسبوعي', 'جلسة المسار', 'الجلسة الأسبوعية', 'يوم السرد', 'النقاط والترتيب', 'إعدادات الإشعارات', 'إنهاء الفصل وطلبات الحذف']);
+  assert.deepEqual(labels, ['البرنامج الأسبوعي', 'جلسة المسار', 'الجلسة الأسبوعية', 'يوم السرد', 'الاجتياز', 'النقاط والترتيب', 'إعدادات الإشعارات', 'إنهاء الفصل وطلبات الحذف']);
   assert.match(navigation, /key: 'settingsGrading', slug: 'settings-grading', label: 'البرنامج الأسبوعي'/);
   // The weekly program page is a stack of cards: program, thresholds, margin and repetitions, attendance, compensation.
   assert.match(settings, /const programPage = \(\s*<GradingSettingsPanel\s*section="program"\s*onStatusChange=\{setPolicyStatus\}\s*extraCards=\{\[[\s\S]*title: 'التحضير'[\s\S]*مسؤول تحضير الطلاب[\s\S]*title: 'التعويض والتجاوز'[\s\S]*تعويض الحفظ المتأخر/);

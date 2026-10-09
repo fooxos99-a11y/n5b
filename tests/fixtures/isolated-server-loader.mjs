@@ -11,6 +11,6 @@ export async function load(url, context, nextLoad) {
   if (start < 0 || end < 0) throw new Error('Server bootstrap changed; review the isolated test loader.');
   source = source.slice(0, start) + source.slice(end);
   source = source.replace('startRuntimeDiagnostics();', '');
-  source += '\nexport { ensureStudentPlanTasks, getActivePlanForStudent, loadSettings, removePriorMemorizationPageRange, getPriorMemorizationRangesForStudent, rateSupervisorQuranTaskHandler, runRecitationTaskHandler, buildRecitationSessionsReport, buildOverviewReport, authorizeApiRequest, getDashboardPermissionKeysForRequest, app };\n';
+  source += '\nexport { ensureStudentPlanTasks, previewStudentPlanDay, getActivePlanForStudent, loadSettings, removePriorMemorizationPageRange, getPriorMemorizationRangesForStudent, getStudentMemorizedRanges, buildQuranRangeMushafData, normalizeQuranRangeWordMarks, rateSupervisorQuranTaskHandler, runRecitationTaskHandler, buildRecitationSessionsReport, buildOverviewReport, authorizeApiRequest, getDashboardPermissionKeysForRequest, app };\n';
   return { ...result, source };
 }

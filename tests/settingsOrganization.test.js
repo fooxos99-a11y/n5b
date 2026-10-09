@@ -16,13 +16,14 @@ test('manager settings keep store and programs activation in their own pages', a
     'جلسة المسار',
     'الجلسة الأسبوعية',
     'يوم السرد',
+    'الاجتياز',
     'النقاط والترتيب',
     'إعدادات الإشعارات',
     'إنهاء الفصل وطلبات الحذف',
   ]);
   assert.match(dashboard, /children: settingsNavigationItems/);
   assert.match(sidebar, /section\.children\.map/);
-  assert.equal((navigation.match(/icon: /g) || []).length, 7);
+  assert.equal((navigation.match(/icon: /g) || []).length, 8);
   assert.match(sidebar, /const ChildIcon = child\.icon/);
   assert.doesNotMatch(sidebar, /h-1\.5 w-1\.5 shrink-0 rounded-full/);
   assert.doesNotMatch(settings, /SettingsDisclosure/);

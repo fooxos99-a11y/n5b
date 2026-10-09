@@ -7,7 +7,7 @@ import { recordAttendanceGrade } from './grading.js';
 export async function saveStudentAttendance(connection, {
   studentId, date, status, checkInTime = null, actorRole = 'system', actorName = 'النظام', actorId = null,
 }, settings) {
-  await assertStudyDate(connection, date);
+  await assertStudyDate(connection, date, studentId);
   await connection.query('SELECT id FROM students WHERE id = ? FOR UPDATE', [studentId]);
   const [[previous]] = await connection.query(
     'SELECT status FROM attendance_records WHERE student_id = ? AND record_date = ? FOR UPDATE', [studentId, date],

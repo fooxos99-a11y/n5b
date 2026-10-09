@@ -1,7 +1,7 @@
 // Keep the legacy combined grant readable while new accounts use separate session grants.
 export const DASHBOARD_PERMISSION_KEYS = Object.freeze([
   'manualAttendance', 'staffAttendance', 'registrationRequests', 'students', 'studentPlans',
-  'narrationDay', 'calls', 'quranEvaluation', 'grades', 'weeklySession', 'trackSession',
+  'narrationDay', 'quranPassing', 'calls', 'quranEvaluation', 'grades', 'weeklySession', 'trackSession',
   'families', 'supervisors', 'administrators', 'notifications', 'reports', 'whatsappSend', 'settings', 'store',
 ]);
 

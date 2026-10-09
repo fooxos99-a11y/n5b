@@ -25,6 +25,7 @@ import ResetPointsDialog from '@/components/dashboard/ResetPointsDialog';
 import { enforcePointsFeatureDependencies } from '../../../shared/points-feature-settings.js';
 import { writePublicSettingsCache } from '@/services/publicSettingsCache';
 import GradingSettingsPanel from '@/components/dashboard/GradingSettingsPanel';
+import PassingSettingsPanel from '@/components/dashboard/passing/PassingSettingsPanel';
 import { formatHijriDate } from '../../../shared/hijri-calendar.js';
 
 const defaultSettings = {
@@ -256,6 +257,9 @@ const SettingsSection = ({
       </div>}
       {activeCategory !== 'settingsGrading' && activeCategory !== 'settingsTrackSession' && <Card className="mx-auto w-full max-w-5xl overflow-visible rounded-2xl border-border bg-card shadow-[var(--app-shadow)]">
         <CardContent className="p-0 sm:p-0 lg:p-0">
+          <SettingsCategoryPanel category="settingsPassing" activeCategory={activeCategory} title="إعدادات الاجتياز">
+            <PassingSettingsPanel onStatusChange={setPolicyStatus} />
+          </SettingsCategoryPanel>
           <SettingsCategoryPanel category="settingsNotifications" activeCategory={activeCategory} title="إعدادات الإشعارات">
             <NotificationSettings settings={settings} setSettings={setSettings} />
           </SettingsCategoryPanel>

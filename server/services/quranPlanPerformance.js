@@ -2,6 +2,8 @@ import { remainingPlanFaces } from './quranPlanForecast.js';
 import { planScheduleDates } from './planScheduleDates.js';
 import { addDays } from './grading.js';
 import { studyDateSql } from './seasonalHolidays.js';
+import { loadIndividualStudentPlanPauses } from './studentPlanPause.js';
+import { isStudentPlanPausedOn } from '../../shared/student-plan-pause.js';
 import { acceptedQuranExecutionSql, quranRangeFacesSql } from './quranFaceMeasurement.js';
 
 const number = value => Number(value || 0);
@@ -65,10 +67,10 @@ export async function loadQuranPlanPerformance(scope, { from, to, workDays, read
     COALESCE(t.actual_to_surah, t.to_surah) AS endSurah, COALESCE(t.actual_to_ayah, t.to_ayah) AS endAyah,
     COALESCE(t.actual_to_page, t.to_page) AS endPage
     FROM student_quran_tasks t WHERE t.task_type = 'memorization' AND ${acceptedQuranExecutionSql('t')}
-      AND ${studyDateSql('t.task_date')} AND t.task_date <= ? AND ${scope.student('t.student_id')}`, [to]);
+      AND ${studyDateSql('t.task_date', 't.student_id')} AND t.task_date <= ? AND ${scope.student('t.student_id')}`, [to]);
   const [credits] = await scope.query(`SELECT student_id AS studentId,
     DATE_FORMAT(compensated_date, '%Y-%m-%d') AS date, credited_ranges AS ranges FROM student_day_compensations
-    WHERE scope = 'program' AND cancelled_at IS NULL AND ${studyDateSql('compensated_date')} AND compensated_date <= ? AND ${scope.student('student_id')}`, [to]);
+    WHERE scope = 'program' AND cancelled_at IS NULL AND ${studyDateSql('compensated_date', 'student_day_compensations.student_id')} AND compensated_date <= ? AND ${scope.student('student_id')}`, [to]);
   for (const credit of credits) {
     const ranges = typeof credit.ranges === 'string' ? JSON.parse(credit.ranges) : credit.ranges;
     rows.push(...(ranges || []).map(range => ({ ...range, studentId: credit.studentId, date: credit.date })));
@@ -82,12 +84,12 @@ export async function loadQuranPlanPerformance(scope, { from, to, workDays, read
     CASE WHEN t.compensation_index = 0 THEN ${quranRangeFacesSql('t', 'expected')} ELSE 0 END AS expected,
     CASE WHEN ${acceptedQuranExecutionSql('t')} THEN ${quranRangeFacesSql('t', 'actual')} ELSE 0 END AS done
     FROM student_quran_tasks t WHERE t.task_type IN ('review', 'link', 'repeat')
-      AND ${studyDateSql('t.task_date')} AND t.task_date <= ? AND ${scope.student('t.student_id')}
+      AND ${studyDateSql('t.task_date', 't.student_id')} AND t.task_date <= ? AND ${scope.student('t.student_id')}
     UNION ALL SELECT g.student_id AS studentId, NULL AS planId, 'reading' AS taskType,
       DATE_FORMAT(g.grade_date, '%Y-%m-%d') AS date,
       COALESCE(JSON_EXTRACT(g.detail_json, '$.expectedFaces'), JSON_EXTRACT(g.detail_json, '$.requiredFaces'), 0) AS expected,
       CASE WHEN g.passed = 1 THEN COALESCE(JSON_EXTRACT(g.detail_json, '$.requiredFaces'), 0) ELSE 0 END AS done
-    FROM student_daily_grades g WHERE g.component = 'reading' AND ${studyDateSql('g.grade_date')}
+    FROM student_daily_grades g WHERE g.component = 'reading' AND ${studyDateSql('g.grade_date', 'g.student_id')}
       AND g.grade_date <= ? AND ${scope.student('g.student_id')}`, [to, to]);
   const earliest = plans.reduce((date, plan) => (plan.effectiveFrom || plan.startDate) < date ? plan.effectiveFrom || plan.startDate : date, to);
   const start = earliest > from ? earliest : from;
@@ -106,6 +108,7 @@ export async function loadQuranPlanPerformance(scope, { from, to, workDays, read
     priorByStudent.set(key, [...(priorByStudent.get(key) || []), row]);
   }
   const calendars = new Map();
+  const individualPauses = await loadIndividualStudentPlanPauses(scope);
   const readingSchedule = readingDays.length ? await planScheduleDates(scope, earliest, to, readingDays, 'readingDays') : [];
   for (const plan of plans) {
     const stored = typeof plan.scheduleDays === 'string' ? JSON.parse(plan.scheduleDays) : plan.scheduleDays;
@@ -115,6 +118,7 @@ export async function loadQuranPlanPerformance(scope, { from, to, workDays, read
   }
   for (const plan of plans) {
     for (const date of readingSchedule) {
+      if (isStudentPlanPausedOn(date, individualPauses[plan.studentId])) continue;
       if (date < (plan.effectiveFrom || plan.startDate)) continue;
       if (!requirements.some(row => String(row.studentId) === String(plan.studentId) && row.taskType === 'reading' && row.date === date)) {
         requirements.push({ studentId: plan.studentId, planId: plan.id, date, taskType: 'reading', expected: number(plan.readingFaces), done: 0 });
@@ -124,7 +128,7 @@ export async function loadQuranPlanPerformance(scope, { from, to, workDays, read
   const students = plans.map(plan => ({
     studentId: number(plan.studentId),
     series: planPerformanceSeries({ plan, dates: plotted,
-      schedule: calendars.get(plan.calendarKey).filter(date => date >= (plan.effectiveFrom || plan.startDate)),
+      schedule: calendars.get(plan.calendarKey).filter(date => date >= (plan.effectiveFrom || plan.startDate) && !isStudentPlanPausedOn(date, individualPauses[plan.studentId])),
       executions: executionByStudent.get(String(plan.studentId)) || [], prior: priorByStudent.get(String(plan.studentId)) || [],
       requirements: requirements.filter(row => String(row.studentId) === String(plan.studentId)) }),
   }));

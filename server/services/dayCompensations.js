@@ -34,7 +34,7 @@ export async function approveCompensationExcuse(connection, { studentId, date, t
 export async function recordDayCompensation(connection, { studentId, date, today, actor, excuseReference, scope = 'program' }) {
   const reference = referenceOf(excuseReference);
   if (!['program', 'track'].includes(scope)) throw invalid('نوع التعويض غير صحيح.');
-  await assertStudyDate(connection, today);
+  await assertStudyDate(connection, today, studentId);
   await assertGradeDate(connection, studentId, date, { today });
   await connection.query('SELECT id FROM students WHERE id = ? FOR UPDATE', [studentId]);
   const period = scope === 'track' ? weekStartOf(date) : date;

@@ -13,6 +13,7 @@ export const settingsNavigationItems = Object.freeze([
   { key: 'settingsTrackSession', slug: 'settings-track-session', label: 'جلسة المسار', icon: Route },
   { key: 'settingsWeeklySession', slug: 'settings-weekly-session', label: 'الجلسة الأسبوعية', icon: CalendarCheck2 },
   { key: 'settingsNarration', slug: 'settings-narration', label: 'يوم السرد', icon: BookOpenCheck },
+  { key: 'settingsPassing', slug: 'settings-passing', label: 'الاجتياز', icon: BookOpenCheck },
   { key: 'settingsPoints', slug: 'settings-points', label: 'النقاط والترتيب', icon: Trophy },
   { key: 'settingsNotifications', slug: 'settings-notifications', label: 'إعدادات الإشعارات', icon: Bell },
   { key: 'settingsTerm', slug: 'settings-term', label: 'إنهاء الفصل وطلبات الحذف', icon: ArchiveX },

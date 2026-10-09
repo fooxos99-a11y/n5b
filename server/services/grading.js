@@ -7,6 +7,8 @@ import {
   parseGradingPolicy,
 } from '../../shared/grading-policy.js';
 import { loadSeasonalHolidays } from './seasonalHolidays.js';
+import { loadIndividualStudentPlanPauses } from './studentPlanPause.js';
+import { isStudentPlanPausedOn } from '../../shared/student-plan-pause.js';
 import { isSeasonalHoliday } from '../../shared/seasonal-holidays.js';
 import { getBusinessDate } from '../../shared/business-date.js';
 import {
@@ -360,6 +362,7 @@ const parseJson = value => {
 async function loadWeeklyGradeRows(queryExecutor, ids, weekStarts) {
   const weekStart = weekStarts[0];
   const holidays = await loadSeasonalHolidays(queryExecutor);
+  const individualPauses = await loadIndividualStudentPlanPauses(queryExecutor);
   const weekEnd = addDays(weekStarts.at(-1), 6);
   const placeholders = ids.map(() => '?').join(', ');
   const currentPolicy = await loadGradingPolicy(queryExecutor);
@@ -389,7 +392,7 @@ async function loadWeeklyGradeRows(queryExecutor, ids, weekStarts) {
      FROM student_weekly_components WHERE student_id IN (${placeholders}) AND ${weekStarts.length === 1 ? 'week_start = ?' : 'week_start BETWEEN ? AND ?'}`,
     [...ids, weekStart, ...(weekStarts.length === 1 ? [] : [weekStarts.at(-1)])],
   );
-  return { holidays, policies, currentPolicy, dailyRows, taskRows, planRows, weeklyRows };
+  return { holidays, individualPauses, policies, currentPolicy, dailyRows, taskRows, planRows, weeklyRows };
 }
 
 export async function computeStudentsWeeklyGrades(queryExecutor, { studentIds, weekStart, today = getBusinessDate() }) {
@@ -411,14 +414,15 @@ export async function computeStudentSessionGrades(queryExecutor, { studentId, da
   return weekStarts.map(weekStart => weeklyGradesFromRows([studentId], weekStart, today, data).get(studentId)).reverse();
 }
 
-function weeklyGradesFromRows(ids, weekStart, today, { holidays, policies, currentPolicy, dailyRows, taskRows, planRows, weeklyRows }) {
+function weeklyGradesFromRows(ids, weekStart, today, { holidays, individualPauses, policies, currentPolicy, dailyRows, taskRows, planRows, weeklyRows }) {
   const dates = weekDates(weekStart);
   const weekEnd = dates.at(-1);
   const policy = policies.get(weekStart);
+  const excluded = (date, studentId) => isSeasonalHoliday(date, holidays) || isStudentPlanPausedOn(date, individualPauses[studentId]);
   const daily = new Map();
-  for (const row of dailyRows) if (!isSeasonalHoliday(row.date, holidays)) daily.set(`${row.studentId}:${row.date}:${row.component}`, row);
-  const scheduled = new Set(taskRows.filter(row => !isSeasonalHoliday(row.date, holidays)).map(row => `${row.studentId}:${row.date}:${row.taskType}`));
-  const weekly = new Map((dates.every(date => isSeasonalHoliday(date, holidays)) ? [] : weeklyRows.filter(row => !row.weekStart || row.weekStart === weekStart)).map(row => [`${row.studentId}:${row.component}`, row]));
+  for (const row of dailyRows) if (!excluded(row.date, row.studentId)) daily.set(`${row.studentId}:${row.date}:${row.component}`, row);
+  const scheduled = new Set(taskRows.filter(row => !excluded(row.date, row.studentId)).map(row => `${row.studentId}:${row.date}:${row.taskType}`));
+  const weekly = new Map(weeklyRows.filter(row => (!row.weekStart || row.weekStart === weekStart) && !dates.every(date => excluded(date, row.studentId))).map(row => [`${row.studentId}:${row.component}`, row]));
   const planStart = new Map();
   for (const row of planRows) {
     if (!['active', 'completed'].includes(row.status)) continue;
@@ -440,7 +444,7 @@ function weeklyGradesFromRows(ids, weekStart, today, { holidays, policies, curre
       return {
         date,
         weekday: weekdayOf(date),
-        seasonalHoliday: isSeasonalHoliday(date, holidays),
+        seasonalHoliday: excluded(date, studentId),
         planActive: Boolean(start && start <= date),
         attendance: entry('attendance') ? { grade: Number(entry('attendance').grade) } : null,
         memorization: recitation('memorization'),

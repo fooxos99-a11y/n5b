@@ -7,7 +7,10 @@ import { validatePlanReadingHizbs } from '../shared/quran-plan-options.js';
 import { assertPlanDailyThreshold } from './services/planDailyThreshold.js';
 import { loadQuranPlanPerformance } from './services/quranPlanPerformance.js';
 import { normalizeSeasonalHolidays, isSeasonalHoliday } from '../shared/seasonal-holidays.js';
-import { parseStudentPlanPause, studentPlanPauseStatus, isStudentStudyHoliday } from '../shared/student-plan-pause.js';
+import { parseStudentPlanPause, studentPlanPauseStatus, isStudentStudyHoliday, withStudentPlanPause, effectiveStudentPlanPaused } from '../shared/student-plan-pause.js';
+import { loadIndividualStudentPlanPauses, assertStudentPlanRunning } from './services/studentPlanPause.js';
+import { ensurePassingRehifzTasks, refreshPassingRehifz, readStudentRehifz, previewPassingRehifz } from './services/passingRehifz.js';
+import { createPassingRouter } from './routes/passingRoutes.js';
 import { createStudentPlanPauseRouter } from './routes/studentPlanPauseRoutes.js';
 import { requireRegistrationPlacement, loadRegistrationPlacementOptions } from './services/registrationPlacement.js';
 import { assertStudyDate, studyDateSql } from './services/seasonalHolidays.js';
@@ -538,6 +541,9 @@ function getDashboardPermissionKeysForRequest(req) {
   const method = req.method;
   const rules = [
     [path === '/settings', ['settings']],
+    [path === '/passing/policy' && method !== 'GET', ['settings']],
+    [path === '/passing/policy', ['quranPassing', 'settings']],
+    [path.startsWith('/passing'), ['quranPassing']],
     [path === '/grading/policy' && method !== 'GET', ['settings']],
     [path === '/grading/policy', ['settings', 'weeklySession', 'trackSession']],
     [path.startsWith('/account-deletion/requests'), ['settings']],
@@ -2723,6 +2729,7 @@ function getStoredPlanScheduleDays(_plan, settings) {
 
 async function getPlanProgressContext(connection, plan, date, settings, actualStartOverride = null) {
   if (!plan) return null;
+  settings = withStudentPlanPause(settings, plan.studentId);
   const planStart = { page: Number(plan.startPage), surah: Number(plan.startSurah), ayah: Number(plan.startAyah) };
   const planEnd = { page: Number(plan.endPage), surah: Number(plan.endSurah), ayah: Number(plan.endAyah) };
   const direction = getQuranRangeDirection(planStart, planEnd);
@@ -2771,7 +2778,7 @@ async function getPlanProgressContext(connection, plan, date, settings, actualSt
 /** Calculate the scheduled boundary only for valid active schedule dates. */
 async function resolveScheduledPlanEnd({ officialStartDate, schedulePeriodStart, date, scheduleStart, plan, settings, connection, planEnd, scheduledEnd, scheduleBase }) {
   if (officialStartDate && schedulePeriodStart && date >= schedulePeriodStart && isValidQuranPosition(scheduleStart)) {
-    const scheduledDays = (await planScheduleDates(connection, schedulePeriodStart, date, getStoredPlanScheduleDays(plan, settings))).length;
+    const scheduledDays = (await planScheduleDates(connection, schedulePeriodStart, date, getStoredPlanScheduleDays(plan, settings), 'workDays', plan.studentId, true)).length;
     if (scheduledDays > 0) {
       const scheduledRange = await buildQuranRangeByFaceTarget(
         connection,
@@ -2905,7 +2912,7 @@ async function repairUnevaluatedRevisionTasks(
   const [rows] = await connection.query(
     `SELECT
        t.id,
-       t.task_type AS taskType,
+       t.task_type AS taskType, t.passing_rehifz_id AS passingRehifzId,
        t.from_page AS fromPage,
        t.to_page AS toPage,
        t.from_surah AS fromSurah,
@@ -2921,7 +2928,7 @@ async function repairUnevaluatedRevisionTasks(
          SELECT 1 FROM student_quran_recitation_attempts attempt WHERE attempt.task_id = t.id AND attempt.is_official = 1
        ) AS hasAttempt
      FROM student_quran_tasks t
-     WHERE t.plan_id = ? AND ${studyDateSql('t.task_date')} AND ${uncompensatedTaskSql('t')} AND t.task_date = ? AND t.task_type IN ('review', 'link')
+     WHERE t.plan_id = ? AND ${studyDateSql('t.task_date', 't.student_id')} AND ${uncompensatedTaskSql('t')} AND t.task_date = ? AND t.task_type IN ('review', 'link')
        AND t.compensation_index = 0
      FOR UPDATE`,
     [planId, date],
@@ -3069,13 +3076,13 @@ function buildTaskRangePreview(row, referenceMode = 'ayah', endPrefix = 'to') {
   }, referenceMode);
 }
 
-async function insertPlanTask(connection, { plan, date, type, fromPage, toPage, targetPages = null, bounds = null, progress = null, hizbNumber = null, compensationIndex = 0 }) {
+async function insertPlanTask(connection, { plan, date, type, fromPage, toPage, targetPages = null, bounds = null, progress = null, hizbNumber = null, compensationIndex = 0, passingRehifzId = null }) {
   if (!fromPage || !toPage) return;
   const direction = Number(fromPage) <= Number(toPage) ? 1 : -1;
   if (['memorization', 'repeat'].includes(type) && Number(fromPage) !== Number(toPage)) {
     const requestedFaces = roundQuranFaces(Number(targetPages || Math.abs(Number(toPage) - Number(fromPage)) + 1));
     const remainingFaces = requestedFaces;
-    await insertSplitPlanPages({ fromPage, direction, toPage, connection, bounds, remainingFaces, plan, date, type, progress, compensationIndex });
+    await insertSplitPlanPages({ fromPage, direction, toPage, connection, bounds, remainingFaces, plan, date, type, progress, compensationIndex, passingRehifzId });
     return;
   }
   const hasBounds = bounds?.fromSurah && bounds?.fromAyah && bounds?.toSurah && bounds?.toAyah;
@@ -3101,8 +3108,8 @@ async function insertPlanTask(connection, { plan, date, type, fromPage, toPage, 
   await connection.query(
     `
     INSERT IGNORE INTO student_quran_tasks
-      (plan_id, student_id, task_date, task_type, track, compensation_index, from_page, to_page, from_surah, from_ayah, to_surah, to_ayah, target_pages, normal_to_page, normal_to_surah, normal_to_ayah, scheduled_to_page, scheduled_to_surah, scheduled_to_ayah, hizb_number)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (plan_id, student_id, task_date, task_type, track, compensation_index, from_page, to_page, from_surah, from_ayah, to_surah, to_ayah, target_pages, normal_to_page, normal_to_surah, normal_to_ayah, scheduled_to_page, scheduled_to_surah, scheduled_to_ayah, hizb_number, passing_rehifz_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       plan.id,
@@ -3125,12 +3132,13 @@ async function insertPlanTask(connection, { plan, date, type, fromPage, toPage, 
       progress?.scheduledEnd?.surah || null,
       progress?.scheduledEnd?.ayah || null,
       type === 'review' && hizbNumber ? Number(hizbNumber) : null,
+      passingRehifzId,
     ]
   );
 }
 
 /** Split a multi-page task into bounded page tasks while preserving its total face allowance. */
-async function insertSplitPlanPages({ fromPage, direction, toPage, connection, bounds, remainingFaces, plan, date, type, progress, compensationIndex = 0 }) {
+async function insertSplitPlanPages({ fromPage, direction, toPage, connection, bounds, remainingFaces, plan, date, type, progress, compensationIndex = 0, passingRehifzId = null }) {
   for (let page = Number(fromPage);direction > 0 ? page <= Number(toPage) : page >= Number(toPage);page += direction) {
     const pageBoundary = await getQuranPageBoundaryInDirection(connection, page, direction);
     if (!pageBoundary) continue;
@@ -3150,7 +3158,7 @@ async function insertSplitPlanPages({ fromPage, direction, toPage, connection, b
     await insertPlanTask(connection, {
       plan, date, type, fromPage: page, toPage: page, targetPages: pageTargetFaces, bounds: {
         ...pageBounds,
-      }, progress, compensationIndex
+      }, progress, compensationIndex, passingRehifzId
     });
     remainingFaces = Math.max(0, roundQuranFaces(remainingFaces - pageTargetFaces));
   }
@@ -3194,7 +3202,7 @@ async function splitUnevaluatedPlanTasksByFace(connection, plan, date) {
       execution_state AS executionState,
       student_status AS studentStatus
     FROM student_quran_tasks
-    WHERE plan_id = ? AND ${studyDateSql('task_date')} AND task_date = ?
+    WHERE plan_id = ? AND ${studyDateSql('task_date', 'student_quran_tasks.student_id')} AND task_date = ?
       AND task_type IN ('memorization', 'repeat')
       AND from_page <> to_page
       AND teacher_completed IS NULL
@@ -3269,7 +3277,7 @@ async function copySplitExecutionState(row, direction, connection, plan, date) {
             actual_to_surah = ?,
             actual_to_ayah = ?,
             execution_state = ?
-        WHERE plan_id = ? AND ${studyDateSql('task_date')} AND task_date = ? AND task_type = ? AND from_page = ? AND to_page = ?
+        WHERE plan_id = ? AND ${studyDateSql('task_date', 'student_quran_tasks.student_id')} AND task_date = ? AND task_type = ? AND from_page = ? AND to_page = ?
         `,
       [
         _resolveConditional(),
@@ -3336,7 +3344,7 @@ async function repairUnevaluatedMemorizationTaskRange(connection, plan, date, se
     `
     SELECT
       t.id,
-      t.task_type AS taskType,
+      t.task_type AS taskType, t.passing_rehifz_id AS passingRehifzId,
       t.from_page AS fromPage,
       t.from_surah AS fromSurah,
       t.from_ayah AS fromAyah,
@@ -3351,7 +3359,7 @@ async function repairUnevaluatedMemorizationTaskRange(connection, plan, date, se
       ) AS hasAttempt
     FROM student_quran_tasks t
     WHERE t.plan_id = ?
-      AND ${studyDateSql('t.task_date')} AND ${uncompensatedTaskSql('t')} AND t.task_date = ?
+      AND ${studyDateSql('t.task_date', 't.student_id')} AND ${uncompensatedTaskSql('t')} AND t.task_date = ?
       AND t.task_type IN ('memorization', 'repeat')
       AND t.compensation_index = 0
     FOR UPDATE
@@ -3388,7 +3396,7 @@ async function repairUnevaluatedMemorizationTaskRange(connection, plan, date, se
   await connection.query(
     `DELETE t FROM student_quran_tasks t
      WHERE t.plan_id = ?
-       AND ${studyDateSql('t.task_date')} AND ${uncompensatedTaskSql('t')} AND t.task_date = ?
+       AND ${studyDateSql('t.task_date', 't.student_id')} AND ${uncompensatedTaskSql('t')} AND t.task_date = ?
        AND t.task_type IN ('memorization', 'repeat')
        AND t.teacher_completed IS NULL
        AND COALESCE(t.student_status, 'not_done') <> 'done'
@@ -3402,6 +3410,7 @@ async function repairUnevaluatedMemorizationTaskRange(connection, plan, date, se
 }
 
 async function ensureStudentPlanTasks(connection, plan, date, settings) {
+  settings = withStudentPlanPause(settings, plan.studentId);
   if (isStudentStudyHoliday(date, settings)) return [];
   const [[dayCredit]] = await connection.query("SELECT id FROM student_day_compensations WHERE student_id = ? AND compensated_date = ? AND scope = 'program' AND cancelled_at IS NULL", [plan.studentId, date]);
   if (dayCredit) return [];
@@ -3409,12 +3418,17 @@ async function ensureStudentPlanTasks(connection, plan, date, settings) {
   const effectiveStartDate = plan.startDate || plan.createdDate;
   if (effectiveStartDate && date < effectiveStartDate) return [];
 
+  const rehifzHandled = await ensurePassingRehifzTasks(connection, { plan, date,
+    canCreate: canCreateQuranTaskOnDate(settings, date, 'memorization'),
+    buildRange: buildQuranRangeByFaceTarget, insertTask: insertPlanTask });
   const nextUnmemorized = await getNextUnmemorizedPlanPosition(connection, plan, { beforeDate: date });
-  await repairUnevaluatedMemorizationTaskRange(connection, plan, date, settings, nextUnmemorized);
-  await splitUnevaluatedPlanTasksByFace(connection, plan, date);
+  if (!rehifzHandled) {
+    await repairUnevaluatedMemorizationTaskRange(connection, plan, date, settings, nextUnmemorized);
+    await splitUnevaluatedPlanTasksByFace(connection, plan, date);
+  }
 
   const [existing] = await connection.query(
-    `SELECT task_type AS taskType, target_pages AS targetPages FROM student_quran_tasks WHERE plan_id = ? AND ${studyDateSql('task_date')} AND task_date = ? AND compensation_index = 0`,
+    `SELECT task_type AS taskType, target_pages AS targetPages FROM student_quran_tasks WHERE plan_id = ? AND ${studyDateSql('task_date', 'student_quran_tasks.student_id')} AND task_date = ? AND compensation_index = 0`,
     [plan.id, date]
   );
   const existingTypes = new Set(existing.map((task) => task.taskType));
@@ -3439,7 +3453,8 @@ async function ensureStudentPlanTasks(connection, plan, date, settings) {
       teacher_completed AS teacherCompleted
     FROM student_quran_tasks
     WHERE plan_id = ?
-      AND ${studyDateSql('task_date')} AND ${uncompensatedTaskSql('student_quran_tasks')} AND task_date < ?
+      AND passing_rehifz_id IS NULL
+      AND ${studyDateSql('task_date', 'student_quran_tasks.student_id')} AND ${uncompensatedTaskSql('student_quran_tasks')} AND task_date < ?
       AND task_type IN ('memorization', 'review', 'link')
       AND compensation_index = 0
       AND (
@@ -3467,7 +3482,7 @@ async function ensureStudentPlanTasks(connection, plan, date, settings) {
   );
 
   const carriedTypes = new Set();
-  ({ lastCarriedMemorizationEnd, scheduledMemorizationFaces } = await carryUnfinishedPlanTasks({ unfinishedRows, lastCarriedMemorizationEnd, connection, plan, nextUnmemorized, existingTypes, carriedTypes, scheduledMemorizationFaces, settings, date, dailyMemorizationFaces }));
+  ({ lastCarriedMemorizationEnd, scheduledMemorizationFaces } = await carryUnfinishedPlanTasks({ unfinishedRows: rehifzHandled ? unfinishedRows.filter(task => task.taskType !== 'memorization') : unfinishedRows, lastCarriedMemorizationEnd, connection, plan, nextUnmemorized, existingTypes, carriedTypes, scheduledMemorizationFaces, settings, date, dailyMemorizationFaces }));
   if (scheduledMemorizationFaces > 0) carriedTypes.add('memorization');
   carriedTypes.forEach((type) => existingTypes.add(type));
 
@@ -3484,10 +3499,10 @@ async function ensureStudentPlanTasks(connection, plan, date, settings) {
     : null;
   memorizationStart = await resumeAfterCarriedMemorization({ lastCarriedMemorizationEnd, connection, direction, memorizationStart, planEnd, fullyPriorPages });
 
-  await refreshPendingMemorizationProgress({ existingTypes, connection, plan, date, memorizationStart, settings });
+  if (!rehifzHandled) await refreshPendingMemorizationProgress({ existingTypes, connection, plan, date, memorizationStart, settings });
 
   const remainingMemorizationFaces = roundQuranFaces(Math.max(0, dailyMemorizationFaces - scheduledMemorizationFaces));
-  await createRemainingMemorizationTasks({ remainingMemorizationFaces, settings, date, memorizationStart, connection, plan, planEnd, existingTypes });
+  if (!rehifzHandled) await createRemainingMemorizationTasks({ remainingMemorizationFaces, settings, date, memorizationStart, connection, plan, planEnd, existingTypes });
 
   await ensureRepeatTasksForMemorizationDate(connection, plan, date);
 
@@ -3551,7 +3566,7 @@ async function ensureStudentPlanTasks(connection, plan, date, settings) {
       : Math.floor((pickedReview.hizbs || []).length / Math.max(1, Number(plan.reviewHizbs || 1))) - 1;
     await connection.query(
       `UPDATE student_quran_tasks SET compensation_days = ?
-       WHERE plan_id = ? AND ${studyDateSql('task_date')} AND task_date = ? AND task_type = 'review' AND compensation_index = 0
+       WHERE plan_id = ? AND ${studyDateSql('task_date', 'student_quran_tasks.student_id')} AND task_date = ? AND task_type = 'review' AND compensation_index = 0
        ORDER BY id ASC LIMIT 1`,
       [Math.min(reviewCompensationDays, Math.max(0, coveredDays)), plan.id, date],
     );
@@ -3568,13 +3583,13 @@ async function getOwedRevisionCompensationDays(connection, plan, date, settings,
   // memorized yet does not owe link or review for its opening days.
   const [[first]] = await connection.query(
     `SELECT DATE_FORMAT(MIN(task_date), '%Y-%m-%d') AS firstDate FROM student_quran_tasks
-     WHERE plan_id = ? AND task_type = ? AND compensation_index = 0 AND ${studyDateSql('task_date')} AND task_date < ?`,
+     WHERE plan_id = ? AND task_type = ? AND compensation_index = 0 AND ${studyDateSql('task_date', 'student_quran_tasks.student_id')} AND task_date < ?`,
     [plan.id, taskType, date],
   );
   const fromDate = first?.firstDate && first.firstDate > plan.startDate ? first.firstDate : plan.startDate;
   const endDate = addUtcDays(date, -1);
   if (!first?.firstDate || fromDate > endDate) return 0;
-  const scheduleDates = new Set(await planScheduleDates(connection, fromDate, endDate, getStoredPlanScheduleDays(plan, settings)));
+  const scheduleDates = new Set(await planScheduleDates(connection, fromDate, endDate, getStoredPlanScheduleDays(plan, settings), 'workDays', plan.studentId));
   const reviewDays = taskType === 'review' && Number(plan.reviewSplitWeekly || 0)
     ? new Set(getPlanReviewDays(plan, settings))
     : null;
@@ -3591,7 +3606,7 @@ async function getOwedRevisionCompensationDays(connection, plan, date, settings,
     `SELECT DATE_FORMAT(task_date, '%Y-%m-%d') AS taskDate, compensation_index AS compensationIndex,
        MAX(compensation_days) AS compensationDays
      FROM student_quran_tasks
-     WHERE plan_id = ? AND task_type = ? AND ${studyDateSql('task_date')} AND task_date >= ? AND task_date <= ? AND ${ACCEPTED_QURAN_TASK_SQL}
+     WHERE plan_id = ? AND task_type = ? AND ${studyDateSql('task_date', 'student_quran_tasks.student_id')} AND task_date >= ? AND task_date <= ? AND ${ACCEPTED_QURAN_TASK_SQL}
      GROUP BY task_date, compensation_index`,
     [plan.id, taskType, fromDate, date],
   );
@@ -3623,7 +3638,7 @@ async function loadCompensationDayRows(connection, plan, date, taskType) {
        target_pages AS targetPages, student_status AS studentStatus, teacher_completed AS teacherCompleted,
        evaluated_at AS evaluatedAt, compensation_days AS compensationDays
      FROM student_quran_tasks
-     WHERE plan_id = ? AND ${studyDateSql('task_date')} AND task_date = ? AND task_type = ?
+     WHERE plan_id = ? AND ${studyDateSql('task_date', 'student_quran_tasks.student_id')} AND task_date = ? AND task_type = ?
      ORDER BY compensation_index ASC, id ASC`,
     [plan.id, date, taskType],
   );
@@ -3774,7 +3789,7 @@ async function refreshPendingMemorizationProgress({ existingTypes, connection, p
     const [[currentMemorization]] = await connection.query(
       `SELECT from_page AS fromPage, from_surah AS fromSurah, from_ayah AS fromAyah
        FROM student_quran_tasks
-       WHERE plan_id = ? AND ${studyDateSql('task_date')} AND task_date = ? AND task_type = 'memorization' AND compensation_index = 0
+       WHERE plan_id = ? AND ${studyDateSql('task_date', 'student_quran_tasks.student_id')} AND task_date = ? AND task_type = 'memorization' AND compensation_index = 0
        ORDER BY id ASC LIMIT 1`,
       [plan.id, date]
     );
@@ -3789,7 +3804,7 @@ async function refreshPendingMemorizationProgress({ existingTypes, connection, p
         `UPDATE student_quran_tasks
          SET normal_to_page = ?, normal_to_surah = ?, normal_to_ayah = ?,
              scheduled_to_page = ?, scheduled_to_surah = ?, scheduled_to_ayah = ?
-         WHERE plan_id = ? AND ${studyDateSql('task_date')} AND task_date = ? AND task_type = 'memorization' AND compensation_index = 0
+         WHERE plan_id = ? AND ${studyDateSql('task_date', 'student_quran_tasks.student_id')} AND task_date = ? AND task_type = 'memorization' AND compensation_index = 0
            AND student_status <> 'done' AND teacher_completed IS NULL
            AND executed_at IS NULL AND evaluated_at IS NULL`,
         [
@@ -3899,7 +3914,7 @@ async function markCarriedTaskForRetry(task, connection, plan, date) {
         SET teacher_rating_key = 'repeat_required',
             teacher_rating_label = 'يحتاج إعادة'
         WHERE plan_id = ?
-          AND ${studyDateSql('task_date')} AND task_date = ?
+          AND ${studyDateSql('task_date', 'student_quran_tasks.student_id')} AND task_date = ?
           AND task_type = ?
           AND from_page = ?
           AND to_page = ?
@@ -3915,20 +3930,24 @@ async function markCarriedTaskForRetry(task, connection, plan, date) {
 }
 
 async function previewStudentPlanDay(connection, plan, date, settings) {
+  settings = withStudentPlanPause(settings, plan.studentId);
+  if (isStudentStudyHoliday(date, settings)) return [];
   // Preview only: use saved assignments or the same range builders without inserting tasks or advancing cursors.
   const normalizeAmounts = async (amounts) => (await nameStudentPreviewTasks(connection, amounts))
     .map((row) => normalizeTaskRow({ ...row, teacherCompleted: null }, 'ayah'));
-  const [saved] = await connection.query(`SELECT id, task_type AS taskType, track,
+  const [saved] = await connection.query(`SELECT id, task_type AS taskType, track, passing_rehifz_id AS passingRehifzId,
     from_page AS fromPage, to_page AS toPage, from_surah AS fromSurah, from_ayah AS fromAyah,
     to_surah AS toSurah, to_ayah AS toAyah, target_pages AS targetPages,
     student_status AS studentStatus, teacher_completed AS teacherCompleted,
     executed_at AS executedAt, evaluated_at AS evaluatedAt, actual_to_page AS actualToPage,
     EXISTS (SELECT 1 FROM student_quran_recitation_attempts attempt
       WHERE attempt.task_id = student_quran_tasks.id AND attempt.is_official = 1) AS hasAttempt
-    FROM student_quran_tasks WHERE student_id = ? AND plan_id = ? AND ${studyDateSql('task_date')} AND task_date = ?
+    FROM student_quran_tasks WHERE student_id = ? AND plan_id = ? AND ${studyDateSql('task_date', 'student_quran_tasks.student_id')} AND task_date = ?
       AND task_type IN ('memorization', 'link', 'review') ORDER BY id`, [plan.studentId, plan.id, date]);
   if (saved.length && (date <= getSaudiDateTimeParts().date || !canContinueQuranRevision(plan))) return normalizeAmounts(saved);
   if (!canContinueQuranRevision(plan) || (plan.startDate && date < plan.startDate)) return [];
+  const rehifz = await previewPassingRehifz(connection, { plan, date, buildRange: buildQuranRangeByFaceTarget });
+  if (rehifz && saved.some(task => task.taskType === 'memorization')) return normalizeAmounts(saved);
   const amounts = [];
   const addRange = (type, start, end, faces) => {
     if (!start || !end) return;
@@ -3940,8 +3959,8 @@ async function previewStudentPlanDay(connection, plan, date, settings) {
   const end = { page: plan.endPage, surah: plan.endSurah, ayah: plan.endAyah };
   const direction = getQuranRangeDirection(start, end);
   const next = await getNextUnmemorizedPlanPosition(connection, plan, { beforeDate: date });
-  if (next && canCreateQuranTaskOnDate(settings, date, 'memorization')) {
-    const range = await buildQuranRangeByFaceTarget(connection, next, end, Math.max(.25, Number(plan.dailyPages || 1)));
+  if ((rehifz || next) && canCreateQuranTaskOnDate(settings, date, 'memorization')) {
+    const range = rehifz?.range || await buildQuranRangeByFaceTarget(connection, next, end, Math.max(.25, Number(plan.dailyPages || 1)));
     const _resolveConditional5 = () => {
       if (range?.segments?.length) {
         return range.segments;
@@ -3951,7 +3970,10 @@ async function previewStudentPlanDay(connection, plan, date, settings) {
       }
       return [];
     };
-    for (const part of _resolveConditional5()) addRange('memorization', part.start, part.end, part.faces);
+    for (const part of _resolveConditional5()) {
+      addRange('memorization', part.start, part.end, part.faces);
+      if (rehifz) Object.assign(amounts.at(-1), { passingRehifzId: rehifz.id, track: 'memorization' });
+    }
   }
   const memorized = await getStudentMemorizedRanges(connection, plan.studentId, { beforeDate: date });
   const links = await buildExactLinkRanges(connection, memorized, next, direction, plan.linkPages || 10);
@@ -4037,6 +4059,7 @@ async function rewindPlanAfterFailedMemorization(connection, task, {
     `SELECT displaced.id, DATE_FORMAT(displaced.task_date, '%Y-%m-%d') AS taskDate
      FROM student_quran_tasks displaced
      WHERE displaced.plan_id = ?
+       AND displaced.passing_rehifz_id IS NULL
        AND displaced.task_type IN ('memorization', 'repeat')
        AND displaced.task_date >= ?
        AND displaced.teacher_completed IS NULL
@@ -4257,7 +4280,7 @@ async function getActivePlanForStudent(connection, studentId) {
         JOIN student_quran_plans schedule_p ON schedule_p.id = schedule_t.plan_id
         WHERE schedule_p.student_id = ? AND ${currentQuranPlanSql('schedule_p')}
           AND schedule_t.task_type = 'memorization'
-          AND ${studyDateSql('schedule_t.task_date')} AND schedule_t.task_date <= CURDATE()
+          AND ${studyDateSql('schedule_t.task_date', 'schedule_t.student_id')} AND schedule_t.task_date <= CURDATE()
           AND schedule_t.task_date >= COALESCE(schedule_p.start_date, DATE(schedule_p.created_at))
         GROUP BY schedule_t.plan_id
       ) schedule ON schedule.planId = p.id
@@ -4270,6 +4293,7 @@ async function getActivePlanForStudent(connection, studentId) {
 }
 
 async function buildStudentPlanForecast(connection, plan, settings) {
+  settings = withStudentPlanPause(settings, plan.studentId);
   const today = getSaudiDateTimeParts().date;
   const ranges = plan.track === 'mastery'
     ? await getCompletedMemorizationRanges(connection, { studentId: plan.studentId, planId: plan.id, approvedOnly: true })
@@ -4277,7 +4301,7 @@ async function buildStudentPlanForecast(connection, plan, settings) {
   const credit = await loadCompensatedPlanRanges(connection, { studentId: plan.studentId, planId: plan.id, throughDate: today });
   const forecast = await forecastQuranPlan(connection, { plan, acceptedRanges: [...ranges, ...credit], priorRanges: plan.track === 'mastery' ? [] : await getPriorMemorizationRanges(connection, plan.id), today, workDays: getStoredPlanScheduleDays(plan, settings) });
   const context = await getPlanProgressContext(connection, plan, addUtcDays(today, -1), settings);
-  return { ...forecast, planPaused: studentPlanPauseStatus(settings.planPause).paused, progress: { ...await getPlanProgressSummary(connection, context), shortageFaces: forecast.delayedFaces, aheadFaces: forecast.aheadFaces } };
+  return { ...forecast, planPaused: effectiveStudentPlanPaused(settings), progress: { ...await getPlanProgressSummary(connection, context), shortageFaces: forecast.delayedFaces, aheadFaces: forecast.aheadFaces } };
 }
 
 function normalizeTaskRow(row, referenceMode = 'ayah') {
@@ -4319,8 +4343,9 @@ function normalizeTaskRow(row, referenceMode = 'ayah') {
     committeeName: row.committeeName,
     taskDate: row.taskDate,
     taskType: row.taskType,
+    passingRehifzId: row.passingRehifzId || null,
     track: normalizeQuranPlanTrack(row.track),
-    trackLabel: QURAN_PLAN_TRACK_LABELS[normalizeQuranPlanTrack(row.track)],
+    trackLabel: row.passingRehifzId ? 'إعادة حفظ' : QURAN_PLAN_TRACK_LABELS[normalizeQuranPlanTrack(row.track)],
     compensationIndex: Number(row.compensationIndex || 0),
     compensationDays: Number(row.compensationDays || 0),
     fromPage: row.fromPage,
@@ -4856,7 +4881,7 @@ async function markPendingQuranTasksForDate(connection, date) {
     SET student_status = 'not_done'
     WHERE student_status = 'pending'
       AND teacher_completed IS NULL
-      AND ${studyDateSql('task_date')} AND task_date = ?
+      AND ${studyDateSql('task_date', 'student_quran_tasks.student_id')} AND task_date = ?
     `,
     [date]
   );
@@ -4888,7 +4913,7 @@ async function processAutomaticExecutionMessages() {
         t.id,
         t.plan_id AS planId,
         t.task_date AS taskDate,
-        t.task_type AS taskType,
+        t.task_type AS taskType, t.passing_rehifz_id AS passingRehifzId,
         t.track AS track,
         t.from_page AS fromPage,
         t.to_page AS toPage,
@@ -4919,7 +4944,7 @@ async function processAutomaticExecutionMessages() {
       JOIN student_quran_tasks t ON t.student_id = s.id
       LEFT JOIN quran_surahs qsf ON qsf.surah_number = t.from_surah
       LEFT JOIN quran_surahs qst ON qst.surah_number = t.to_surah
-      WHERE ${studyDateSql('t.task_date')} AND ${uncompensatedTaskSql('t')} AND t.task_date = ?
+      WHERE ${studyDateSql('t.task_date', 't.student_id')} AND ${uncompensatedTaskSql('t')} AND t.task_date = ?
         AND t.task_type IN ('memorization', 'review', 'link')
         AND COALESCE(t.target_pages, 0) > 0
         AND t.from_page BETWEEN 1 AND 604
@@ -6045,6 +6070,7 @@ async function loadSettings(queryExecutor = db()) {
   return {
     ...settings,
     platformPolicies: policies,
+    studentPlanPauses: await loadIndividualStudentPlanPauses(queryExecutor),
   };
 }
 
@@ -6823,6 +6849,9 @@ app.use('/api/staff-attendance', createStaffAttendanceRouter({
 app.use('/api/recitation-preferences', createStaffRecitationPreferencesRouter({ loadSettings }));
 app.use('/api/grading', createGradingRouter({ db, loadSettings, today: () => getSaudiDateTimeParts().date }));
 app.use('/api/student-plans/pause', createStudentPlanPauseRouter({ db, requireRead: requireStudentPlanAccess }));
+app.use('/api/passing', createPassingRouter({ db, loadMemorizedRanges: getStudentMemorizedRanges,
+  loadAyahs: connection => getQuranAyahsInPageRange(connection, 1, 604),
+  buildMushafData: buildQuranRangeMushafData, normalizeMarks: normalizeQuranRangeWordMarks }));
 app.use('/api/offline-recitation', createOfflineRecitationRouter({
   getToday: () => getSaudiDateTimeParts().date,
   prepareOfflineWindow: async ({ connection, accountId, fromDate, cacheDays }) => {
@@ -7903,7 +7932,7 @@ app.get('/api/student-plans', requireStudentPlanAccess, async (req, res, next) =
         FROM student_quran_tasks schedule_t
         JOIN student_quran_plans schedule_p ON schedule_p.id = schedule_t.plan_id
         WHERE schedule_t.task_type = 'memorization'
-          AND ${studyDateSql('schedule_t.task_date')} AND schedule_t.task_date <= CURDATE()
+          AND ${studyDateSql('schedule_t.task_date', 'schedule_t.student_id')} AND schedule_t.task_date <= CURDATE()
           AND schedule_t.task_date >= COALESCE(schedule_p.start_date, DATE(schedule_p.created_at))
         GROUP BY schedule_t.plan_id
       ) schedule ON schedule.planId = p.id
@@ -7992,6 +8021,8 @@ app.get('/api/student-plans', requireStudentPlanAccess, async (req, res, next) =
         studentName: row.studentName,
         committeeName: row.committeeName,
         priorMemorization: await getPriorMemorizationRangesForStudent(db(), row.studentId),
+        planPause: { ...studentPlanPauseStatus(planSettings.studentPlanPauses[row.studentId]), canManage: true },
+        rehifz: await readStudentRehifz(db(), row.studentId),
         plan,
       };
     }));
@@ -8175,7 +8206,7 @@ app.put('/api/student-plans/:studentId', requireStudentPlanAccess, async (req, r
       await connection.query(
         `DELETE t FROM student_quran_tasks t
          WHERE t.plan_id = ?
-           AND ${studyDateSql('t.task_date')} AND ${uncompensatedTaskSql('t')} AND t.task_date >= ?
+           AND ${studyDateSql('t.task_date', 't.student_id')} AND ${uncompensatedTaskSql('t')} AND t.task_date >= ?
            AND t.teacher_completed IS NULL
            AND COALESCE(t.student_status, 'not_done') <> 'done'
            AND NOT EXISTS (
@@ -8750,16 +8781,16 @@ app.get('/api/students/:id/quran-today', async (req, res, next) => {
       return res.status(403).json({ message: 'ليست لديك صلاحية لعرض تنفيذ هذا الطالب.' });
     }
     const date = getSaudiDateTimeParts().date;
-    const settings = await loadSettings();
+    const settings = withStudentPlanPause(await loadSettings(), studentId);
     const plan = await getActivePlanForStudent(connection, studentId);
-    if (!plan) return res.json(studentVisibleToday({ plan: null, tasks: [], isPlanPaused: studentPlanPauseStatus(settings.planPause).paused, isSeasonalHoliday: isSeasonalHoliday(date, settings.seasonalHolidays), isHoliday: isStudentStudyHoliday(date, settings) || isWeeklyHoliday(date, settings), date }, settings, req.auth?.role));
+    if (!plan) return res.json(studentVisibleToday({ plan: null, tasks: [], isPlanPaused: effectiveStudentPlanPaused(settings), isSeasonalHoliday: isSeasonalHoliday(date, settings.seasonalHolidays), isHoliday: isStudentStudyHoliday(date, settings) || isWeeklyHoliday(date, settings), date }, settings, req.auth?.role));
     const completedRanges = await getCompletedMemorizationRanges(connection, { studentId, planId: plan.id });
     const { totalAyahs, memorizedAyahs } = await countMemorizedAyahsInRange(connection, completedRanges,
       { page: plan.startPage, surah: plan.startSurah, ayah: plan.startAyah },
       { page: plan.endPage, surah: plan.endSurah, ayah: plan.endAyah });
     plan.progressPercent = totalAyahs > 0 ? Math.round(memorizedAyahs / totalAyahs * 100) : plan.progressPercent;
     Object.assign(plan, await buildStudentPlanForecast(connection, plan, settings));
-    if (isStudentStudyHoliday(date, settings)) return res.json(studentVisibleToday({plan, tasks:[], todayAmounts:[], isHoliday:true, isPlanPaused:studentPlanPauseStatus(settings.planPause).paused, isSeasonalHoliday:isSeasonalHoliday(date, settings.seasonalHolidays), date}, settings, req.auth?.role));
+    if (isStudentStudyHoliday(date, settings)) return res.json(studentVisibleToday({plan, tasks:[], todayAmounts:[], isHoliday:true, isPlanPaused:effectiveStudentPlanPaused(settings), isSeasonalHoliday:isSeasonalHoliday(date, settings.seasonalHolidays), date}, settings, req.auth?.role));
     await markExpiredPendingQuranTasks(connection, date);
     await ensureStudentPlanTasks(connection, plan, date, settings);
     await ensureRepeatTasksForMemorizationDate(connection, plan, date);
@@ -8773,7 +8804,7 @@ app.get('/api/students/:id/quran-today', async (req, res, next) => {
         c.name AS committeeName,
         DATE_FORMAT(COALESCE(t.evaluated_at, t.task_date), '%Y-%m-%d') AS sessionDate,
         DATE_FORMAT(t.task_date, '%Y-%m-%d') AS taskDate,
-        t.task_type AS taskType,
+        t.task_type AS taskType, t.passing_rehifz_id AS passingRehifzId,
         t.track AS track,
         t.from_page AS fromPage,
         t.to_page AS toPage,
@@ -8811,14 +8842,14 @@ app.get('/api/students/:id/quran-today', async (req, res, next) => {
       LEFT JOIN committees c ON c.id = s.committee_id
       LEFT JOIN quran_surahs qsf ON qsf.surah_number = t.from_surah
       LEFT JOIN quran_surahs qst ON qst.surah_number = t.to_surah
-      WHERE t.student_id = ? AND ${studyDateSql('t.task_date')} AND ${uncompensatedTaskSql('t')} AND t.task_date = ? AND t.plan_id = ?
+      WHERE t.student_id = ? AND ${studyDateSql('t.task_date', 't.student_id')} AND ${uncompensatedTaskSql('t')} AND t.task_date = ? AND t.plan_id = ?
         AND t.task_type IN ('memorization', 'repeat', 'review', 'link')
       ORDER BY FIELD(t.task_type, 'memorization', 'repeat', 'review', 'link'), t.from_page ASC
       `,
       [studentId, date, plan.id]
     );
     const memorizationRow = rows.find((row) => row.taskType === 'memorization');
-    const memorizationContext = memorizationRow
+    const memorizationContext = memorizationRow && !memorizationRow.passingRehifzId
       ? await getPlanProgressContext(connection, plan, date, settings, {
         page: Number(memorizationRow.fromPage),
         surah: Number(memorizationRow.fromSurah),
@@ -8908,7 +8939,7 @@ app.get('/api/students/:id/quran-sessions', async (req, res, next) => {
         c.name AS committeeName,
         DATE_FORMAT(COALESCE(t.evaluated_at, t.task_date), '%Y-%m-%d') AS sessionDate,
         DATE_FORMAT(t.task_date, '%Y-%m-%d') AS taskDate,
-        t.task_type AS taskType,
+        t.task_type AS taskType, t.passing_rehifz_id AS passingRehifzId,
         t.track AS track,
         t.compensation_index AS compensationIndex,
         t.from_page AS fromPage,
@@ -8956,7 +8987,7 @@ app.get('/api/students/:id/quran-sessions', async (req, res, next) => {
       LEFT JOIN supervisors sp ON sp.id = t.evaluated_by
       WHERE t.student_id = ?
         AND t.task_type IN ('memorization', 'review', 'link')
-        ${planView ? `AND ${studyDateSql('t.task_date')} AND ${uncompensatedTaskSql('t')} AND t.task_date <= ?` : 'AND t.teacher_completed IS NOT NULL'}
+        ${planView ? `AND ${studyDateSql('t.task_date', 't.student_id')} AND ${uncompensatedTaskSql('t')} AND t.task_date <= ?` : 'AND t.teacher_completed IS NOT NULL'}
       ORDER BY sessionDate DESC, FIELD(t.task_type, 'memorization', 'review', 'link'), t.from_page ASC
       ${planView ? '' : 'LIMIT 200'}
       `,
@@ -9052,7 +9083,7 @@ async function resolveContinuedReviewCursor(connection, plan, fromDate) {
      FROM student_quran_tasks t
      WHERE t.plan_id = ?
        AND t.task_type = 'review'
-       AND ${studyDateSql('t.task_date')} AND ${uncompensatedTaskSql('t')} AND t.task_date >= ?
+       AND ${studyDateSql('t.task_date', 't.student_id')} AND ${uncompensatedTaskSql('t')} AND t.task_date >= ?
        AND t.teacher_completed IS NULL
        AND COALESCE(t.student_status, 'not_done') <> 'done'
        AND NOT EXISTS (
@@ -9114,7 +9145,7 @@ async function resolveRequestedPlanPageBounds(requestedStartPage, requestedEndPa
 async function getStudentReviewCycle(connection, plan, date, rows) {
   if (!rows.length) return null;
   const saved = await getStudentMemorizedRanges(connection, plan.studentId, { beforeDate: date });
-  const [links] = await connection.query(`SELECT from_page AS startPage, from_surah AS startSurah, from_ayah AS startAyah, to_page AS endPage, to_surah AS endSurah, to_ayah AS endAyah FROM student_quran_tasks WHERE student_id = ? AND ${studyDateSql('task_date')} AND task_date = ? AND task_type = 'link'`, [plan.studentId, date]);
+  const [links] = await connection.query(`SELECT from_page AS startPage, from_surah AS startSurah, from_ayah AS startAyah, to_page AS endPage, to_surah AS endSurah, to_ayah AS endAyah FROM student_quran_tasks WHERE student_id = ? AND ${studyDateSql('task_date', 'student_quran_tasks.student_id')} AND task_date = ? AND task_type = 'link'`, [plan.studentId, date]);
   return loadReviewCycle({ connection, plan, date, rows, ayahs: await readQuranRange(connection, 1, 604),
     isAvailable: ayah => quranPositionInRanges(ayah, saved) && !quranPositionInRanges(ayah, links),
     fallbackPage: await getReviewStartForDate(connection, plan, date) });
@@ -9124,7 +9155,7 @@ async function getStudentReviewEnd(connection, plan, date, start, expectedEnd) {
   const direction = getQuranRangeDirection(start, expectedEnd);
   const saved = await getStudentMemorizedRanges(connection, plan.studentId, { beforeDate: addUtcDays(date, 1) });
   const [links] = await connection.query(
-    `SELECT from_page AS startPage, from_surah AS startSurah, from_ayah AS startAyah, to_page AS endPage, to_surah AS endSurah, to_ayah AS endAyah FROM student_quran_tasks WHERE student_id = ? AND ${studyDateSql('task_date')} AND task_date = ? AND task_type = 'link'`,
+    `SELECT from_page AS startPage, from_surah AS startSurah, from_ayah AS startAyah, to_page AS endPage, to_surah AS endSurah, to_ayah AS endAyah FROM student_quran_tasks WHERE student_id = ? AND ${studyDateSql('task_date', 'student_quran_tasks.student_id')} AND task_date = ? AND task_type = 'link'`,
     [plan.studentId, date],
   );
   const ayahs = await getQuranAyahsInPageRange(connection, direction < 0 ? 1 : expectedEnd.page, 604);
@@ -9139,7 +9170,7 @@ async function buildTodayExecutionAyahs({ rows, memorizationContext, plan, conne
     const allowedEnd = row.taskType === 'review'
       ? await getStudentReviewEnd(connection, plan, date, start, expectedEnd)
       : row.taskType === 'memorization' && memorizationContext?.allowedEnd ? memorizationContext.allowedEnd : expectedEnd;
-    const taskDirection = ['memorization', 'repeat'].includes(row.taskType)
+    const taskDirection = ['memorization', 'repeat'].includes(row.taskType) && !row.passingRehifzId
       ? getQuranRangeDirection(
         { page: Number(plan.startPage), surah: Number(plan.startSurah), ayah: Number(plan.startAyah) },
         { page: Number(plan.endPage), surah: Number(plan.endSurah), ayah: Number(plan.endAyah) }
@@ -9432,7 +9463,7 @@ async function getStudentQuranReviewHistory(connection, studentId, referenceMode
         t.plan_id AS planId,
         t.student_id AS studentId,
         DATE_FORMAT(t.task_date, '%Y-%m-%d') AS taskDate,
-        t.task_type AS taskType,
+        t.task_type AS taskType, t.passing_rehifz_id AS passingRehifzId,
         t.track,
         t.from_page AS fromPage,
         t.to_page AS toPage,
@@ -9732,7 +9763,7 @@ async function saveQuranExecutionSegments(connection, {
   await connection.query(
     `UPDATE student_quran_execution_segments
      SET is_current = 0
-     WHERE plan_id = ? AND ${studyDateSql('task_date')} AND task_date = ? AND task_type = ? AND source_type = ? AND is_current = 1`,
+     WHERE plan_id = ? AND ${studyDateSql('task_date', 'student_quran_execution_segments.student_id')} AND task_date = ? AND task_type = ? AND source_type = ? AND is_current = 1`,
     [plan.id, date, plan.track === 'mastery' ? 'mastery' : 'memorization', sourceType],
   );
   for (const segment of segments) {
@@ -9770,7 +9801,7 @@ const executeStudentQuranTasks = async (req, res, next) => {
     if (rejectForeignStudentExecutionResult) { return rejectForeignStudentExecutionResult; }
 
     const settings = await loadSettings();
-    await assertStudyDate(connection, getSaudiDateTimeParts().date);
+    await assertStudyDate(connection, getSaudiDateTimeParts().date, studentId);
 
     const taskIds = [...new Set((Array.isArray(req.body.taskIds) ? req.body.taskIds : [req.body.taskId]).map(Number).filter(Boolean))];
     if (!taskIds.length) return res.status(422).json({ message: 'اختر مهمة للتنفيذ.' });
@@ -9785,7 +9816,7 @@ const executeStudentQuranTasks = async (req, res, next) => {
         t.plan_id AS planId,
         t.student_id AS studentId,
         DATE_FORMAT(t.task_date, '%Y-%m-%d') AS taskDate,
-        t.task_type AS taskType,
+        t.task_type AS taskType, t.passing_rehifz_id AS passingRehifzId,
         t.track,
         t.from_page AS fromPage,
         t.to_page AS toPage,
@@ -9821,7 +9852,7 @@ const executeStudentQuranTasks = async (req, res, next) => {
       JOIN student_quran_plans p ON p.id = t.plan_id
       WHERE t.id IN (${placeholders})
         AND t.student_id = ?
-        AND ${studyDateSql('t.task_date')}
+        AND ${studyDateSql('t.task_date', 't.student_id')}
         AND t.teacher_completed IS NULL
         AND t.compensation_index = 0
       FOR UPDATE
@@ -9857,7 +9888,7 @@ const executeStudentQuranTasks = async (req, res, next) => {
       return await executeRepeatTaskGroup({ first, settings, status, req, connection, placeholders, studentId, taskIds, res });
     }
     if (first.taskType === 'review' && (req.body.reviewFaces !== undefined || taskRows.some(row => row.reviewExecution))) {
-      const [[group]] = await connection.query(`SELECT COUNT(*) AS count FROM student_quran_tasks WHERE plan_id = ? AND ${studyDateSql('task_date')} AND task_date = ? AND task_type = 'review'`, [first.planId, first.taskDate]);
+      const [[group]] = await connection.query(`SELECT COUNT(*) AS count FROM student_quran_tasks WHERE plan_id = ? AND ${studyDateSql('task_date', 'student_quran_tasks.student_id')} AND task_date = ? AND task_type = 'review'`, [first.planId, first.taskDate]);
       if (Number(group.count) !== taskRows.length) {
         await connection.rollback();
         return res.status(409).json({ message: 'أعد فتح المراجعة لتنفيذ مقدار اليوم كاملًا.' });
@@ -9956,7 +9987,7 @@ app.post('/api/students/:id/quran-tasks/:taskId/execution', (req, res, next) => 
 const shareTeacherPreparation = createSharedPreparation();
 /** Load plan progress only for memorization before checking the permitted endpoint. */
 async function loadExecutionMemorizationContext({ first, connection, plan, settings, expectedStart }) {
-  return first.taskType === 'memorization'
+  return first.taskType === 'memorization' && !first.passingRehifzId
     ? await getPlanProgressContext(connection, plan, first.taskDate, settings, expectedStart)
     : null;
 }
@@ -9967,7 +9998,7 @@ async function prepareStudentExecutionRange({ plan, first, taskRows, status, con
     { page: Number(plan.startPage), surah: Number(plan.startSurah), ayah: Number(plan.startAyah) },
     { page: Number(plan.endPage), surah: Number(plan.endSurah), ayah: Number(plan.endAyah) }
   );
-  const executionDirection = ['memorization', 'repeat'].includes(first.taskType)
+  const executionDirection = ['memorization', 'repeat'].includes(first.taskType) && !first.passingRehifzId
     ? planDirection
     : getQuranRangeDirection(taskStartPosition(first), taskEndPosition(first));
   let tasks = [...taskRows].sort((a, b) => (
@@ -9983,6 +10014,7 @@ async function prepareStudentExecutionRange({ plan, first, taskRows, status, con
 
 /** Save the completed student segments in the current execution transaction. */
 async function saveStudentExecutionSegments({ status, first, executionSegments, connection, plan, tasks }) {
+  if (first.passingRehifzId) return;
   if (status === 'done' && first.taskType === 'memorization' && executionSegments.length) {
     await saveQuranExecutionSegments(connection, {
       plan,
@@ -9997,7 +10029,9 @@ async function saveStudentExecutionSegments({ status, first, executionSegments, 
 /** Resolve the permitted endpoint from the task kind and plan progress. */
 async function resolveStudentExecutionLimit({ first, expectedEnd, connection, plan, memorizationContext, actualEnd }) {
   let allowedEnd;
-  if (first.taskType === 'review') {
+  if (first.passingRehifzId) {
+    allowedEnd = expectedEnd;
+  } else if (first.taskType === 'review') {
     allowedEnd = await getStudentReviewEnd(connection, plan, first.taskDate, taskStartPosition(first), expectedEnd);
   } else if (first.taskType === 'link') {
     allowedEnd = expectedEnd;
@@ -10011,6 +10045,7 @@ async function resolveStudentExecutionLimit({ first, expectedEnd, connection, pl
 
 /** Advance the plan cursor and refresh upcoming tasks after a completed student execution. */
 async function refreshPlanAfterStudentExecution({ first, connection, plan, studentId, settings, status, actualEnd }) {
+  if (first.passingRehifzId) return;
   if (status === 'done') {
     await updatePlanCursorAfterExecution(connection, plan, first.taskType, actualEnd);
     if (first.taskType === 'memorization') {
@@ -10069,7 +10104,7 @@ async function loadExecutionRepeatTasks({ first, connection, plan, studentId, ta
         FROM student_quran_tasks
         WHERE plan_id = ?
           AND student_id = ?
-          AND ${studyDateSql('task_date')} AND task_date = ?
+          AND ${studyDateSql('task_date', 'student_quran_tasks.student_id')} AND task_date = ?
           AND task_type = 'repeat' AND track = ?
           AND teacher_completed IS NULL
         ORDER BY from_page ASC, from_surah ASC, from_ayah ASC
@@ -10121,7 +10156,7 @@ async function createExtraExecutionTasks({ actualEnd, expectedEnd, executionDire
             to_ayah AS toAyah,
             target_pages AS targetPages
           FROM student_quran_tasks
-          WHERE plan_id = ? AND student_id = ? AND ${studyDateSql('task_date')} AND task_date = ? AND task_type = ? AND track = ?
+          WHERE plan_id = ? AND student_id = ? AND ${studyDateSql('task_date', 'student_quran_tasks.student_id')} AND task_date = ? AND task_type = ? AND track = ?
           ORDER BY from_page ASC, from_surah ASC, from_ayah ASC
           FOR UPDATE
           `,
@@ -10239,6 +10274,7 @@ async function buildSupervisorTeacherModeTasks(
   for (const student of students) {
     const plan = await getActivePlanForStudent(connection, student.id);
     if (!plan) continue;
+    if (effectiveStudentPlanPaused(withStudentPlanPause(settings, student.id))) continue;
     for (const date of dates) {
       await ensureStudentPlanTasks(connection, plan, date, settings);
       await ensureRepeatTasksForMemorizationDate(connection, plan, date);
@@ -10361,7 +10397,7 @@ app.get('/api/supervisors/:id/quran-evaluation', async (req, res, next) => {
         s.name AS studentName,
         c.name AS committeeName,
         DATE_FORMAT(t.task_date, '%Y-%m-%d') AS taskDate,
-        t.task_type AS taskType,
+        t.task_type AS taskType, t.passing_rehifz_id AS passingRehifzId,
         t.track AS track,
         t.compensation_index AS compensationIndex,
         t.from_page AS fromPage,
@@ -10459,7 +10495,7 @@ app.get('/api/supervisors/:id/quran-evaluation', async (req, res, next) => {
       LEFT JOIN quran_surahs qpe ON qpe.surah_number = p.end_surah
       JOIN supervisor_committees sc ON sc.committee_id = s.committee_id AND sc.supervisor_id = ?
       WHERE (${currentQuranPlanSql('p')} OR ${retryableAttemptFilter} OR ${studentExecutedMemorizationCondition})
-        AND ${studyDateSql('t.task_date')} AND ${uncompensatedTaskSql('t')} AND t.task_date <= ?
+        AND ${studyDateSql('t.task_date', 't.student_id')} AND ${uncompensatedTaskSql('t')} AND t.task_date <= ?
         AND t.task_type IN ('memorization', 'review', 'link')
         AND (
           t.teacher_completed IS NULL
@@ -10701,7 +10737,7 @@ app.post('/api/supervisors/:id/quran-evaluation/:taskId/range', async (req, res,
     const [[anchor]] = await connection.query(
       `SELECT
         t.id, t.plan_id AS planId, t.student_id AS studentId,
-        DATE_FORMAT(t.task_date, '%Y-%m-%d') AS taskDate, t.task_type AS taskType, t.track,
+        DATE_FORMAT(t.task_date, '%Y-%m-%d') AS taskDate, t.task_type AS taskType, t.passing_rehifz_id AS passingRehifzId, t.track,
         t.from_page AS fromPage, t.from_surah AS fromSurah, t.from_ayah AS fromAyah,
         t.to_page AS toPage, t.to_surah AS toSurah, t.to_ayah AS toAyah,
         p.track AS planTrack, p.start_page AS startPage, p.start_surah AS startSurah, p.start_ayah AS startAyah,
@@ -10716,7 +10752,7 @@ app.post('/api/supervisors/:id/quran-evaluation/:taskId/range', async (req, res,
        JOIN student_quran_plans p ON p.id = t.plan_id
        JOIN students s ON s.id = t.student_id
        JOIN supervisor_committees sc ON sc.committee_id = s.committee_id AND sc.supervisor_id = ?
-       WHERE t.id = ? AND t.task_type IN ('memorization','review') AND ${studyDateSql('t.task_date')} AND ${uncompensatedTaskSql('t')} AND t.task_date <= ?
+       WHERE t.id = ? AND t.task_type IN ('memorization','review') AND ${studyDateSql('t.task_date', 't.student_id')} AND ${uncompensatedTaskSql('t')} AND t.task_date <= ?
          AND t.compensation_index = 0
          AND EXISTS (
            SELECT 1 FROM attendance_records attendance
@@ -10732,6 +10768,11 @@ app.post('/api/supervisors/:id/quran-evaluation/:taskId/range', async (req, res,
       return res.status(404).json({ message: 'مهمة التسميع غير موجودة.' });
     }
     const plan = { ...anchor, id: anchor.planId };
+    await assertStudentPlanRunning(connection, anchor.studentId);
+    if (anchor.passingRehifzId) {
+      await connection.rollback();
+      return res.status(422).json({ message: 'مقدار إعادة الحفظ محدد داخل الجزء كاملًا. غيّر المقدار اليومي من صفحة خطط الطلاب.' });
+    }
     const direction = getRecitationRangeDirection(anchor, plan);
     const { taskScopeSql, taskScopeParams } = buildRequestedRecitationTaskScope(req, taskId, anchor);
     let [tasks] = await connection.query(
@@ -10810,7 +10851,7 @@ app.get('/api/supervisors/:id/quran-evaluation/:taskId/ayahs', async (req, res, 
       `
       SELECT
         t.id,
-        t.task_type AS taskType,
+        t.task_type AS taskType, t.passing_rehifz_id AS passingRehifzId,
         t.from_page AS fromPage,
         t.to_page AS toPage,
         t.from_surah AS fromSurah,
@@ -10906,7 +10947,7 @@ const rateSupervisorQuranTaskHandler = async (req, res, next) => {
         t.plan_id AS planId,
         t.student_id AS studentId,
         DATE_FORMAT(t.task_date, '%Y-%m-%d') AS taskDate,
-        t.task_type AS taskType,
+        t.task_type AS taskType, t.passing_rehifz_id AS passingRehifzId,
         t.track AS track,
         t.compensation_index AS compensationIndex,
         t.from_page AS fromPage,
@@ -10957,7 +10998,7 @@ const rateSupervisorQuranTaskHandler = async (req, res, next) => {
             AND ar.status IN ('present', 'late')
         )
         AND t.task_type IN ('memorization', 'review', 'link')
-        AND ${studyDateSql('t.task_date')} AND ${uncompensatedTaskSql('t')} AND t.task_date <= ?
+        AND ${studyDateSql('t.task_date', 't.student_id')} AND ${uncompensatedTaskSql('t')} AND t.task_date <= ?
         AND (
           t.teacher_completed IS NULL
           OR t.teacher_completed = 0
@@ -10989,6 +11030,7 @@ const rateSupervisorQuranTaskHandler = async (req, res, next) => {
     );
     const rejectInvalidRecitationTaskResult = await rejectInvalidRecitationTask({ task, settings, connection, res, notMemorized });
     if (rejectInvalidRecitationTaskResult) { return rejectInvalidRecitationTaskResult; }
+    await assertStudentPlanRunning(connection, task.studentId);
     if (notMemorized) {
       warningCount = 0;
       hesitationCount = 0;
@@ -11141,7 +11183,7 @@ const rateSupervisorQuranTaskHandler = async (req, res, next) => {
           to_page AS toPage, to_surah AS toSurah, to_ayah AS toAyah,
           actual_to_page AS actualToPage, actual_to_surah AS actualToSurah, actual_to_ayah AS actualToAyah
          FROM student_quran_tasks
-         WHERE plan_id = ? AND ${studyDateSql('task_date')} AND task_date = ? AND task_type = ? AND track = ? AND compensation_index = ?
+         WHERE plan_id = ? AND ${studyDateSql('task_date', 'student_quran_tasks.student_id')} AND task_date = ? AND task_type = ? AND track = ? AND compensation_index = ?
          FOR UPDATE`,
         [task.planId, task.taskDate, task.taskType, task.track, Number(task.compensationIndex || 0)],
       );
@@ -11341,7 +11383,7 @@ app.post('/api/supervisors/:id/quran-compensations', async (req, res, next) => {
     }
     const [created] = await connection.query(
       `SELECT id FROM student_quran_tasks
-       WHERE plan_id = ? AND ${studyDateSql('task_date')} AND task_date = ? AND task_type = ? AND compensation_index = ? ORDER BY id`,
+       WHERE plan_id = ? AND ${studyDateSql('task_date', 'student_quran_tasks.student_id')} AND task_date = ? AND task_type = ? AND compensation_index = ? ORDER BY id`,
       [plan.id, date, taskType, index],
     );
     if (!created.length) {
@@ -12234,7 +12276,7 @@ app.get('/api/reports/recitation-session-dates', requireReportsOrOwnCommittee, a
       FROM (
         SELECT task_date AS session_date
         FROM student_quran_tasks
-        WHERE ${studyDateSql('task_date')} AND task_date BETWEEN ? AND ?
+        WHERE ${studyDateSql('task_date', 'student_quran_tasks.student_id')} AND task_date BETWEEN ? AND ?
         UNION
         SELECT DATE(evaluated_at) AS session_date
         FROM student_quran_tasks
@@ -12315,7 +12357,7 @@ app.get('/api/reports/students', requireReportsOrOwnCommittee, async (req, res, 
 
 /** Use the task direction for review or an alternate track and the plan direction for memorization. */
 function getRecitationRangeDirection(anchor, plan) {
-  return anchor.taskType === 'review' || anchor.track !== anchor.planTrack
+  return anchor.passingRehifzId || anchor.taskType === 'review' || anchor.track !== anchor.planTrack
     ? getQuranRangeDirection(taskStartPosition(anchor), taskEndPosition(anchor))
     : getQuranRangeDirection(
       { page: Number(plan.startPage), surah: Number(plan.startSurah), ayah: Number(plan.startAyah) },
@@ -12403,7 +12445,7 @@ async function buildTeacherExecutionChoices(allRows, executionOptionsByGroup, co
       scheduleAnchorAyah: row.planScheduleAnchorAyah,
     };
     const groupRows = allRows.filter((item) => `${item.planId}:${item.taskDate}:${item.taskType}:${item.track}:${Number(item.compensationIndex || 0)}` === groupKey);
-    const direction = row.taskType === 'review' || row.track !== row.planTrack
+    const direction = row.passingRehifzId || row.taskType === 'review' || row.track !== row.planTrack
       ? getQuranRangeDirection(taskStartPosition(row), taskEndPosition(row))
       : getQuranRangeDirection(
         { page: Number(plan.startPage), surah: Number(plan.startSurah), ayah: Number(plan.startAyah) },
@@ -12411,7 +12453,7 @@ async function buildTeacherExecutionChoices(allRows, executionOptionsByGroup, co
       );
     const ordered = [...groupRows].sort((first, second) => compareQuranPositionInDirection(taskStartPosition(first), taskStartPosition(second), direction));
     const start = taskStartPosition(ordered[0]);
-    if (Number(row.compensationIndex || 0) > 0) {
+    if (row.passingRehifzId || Number(row.compensationIndex || 0) > 0) {
       // A compensation recitation is exactly one missed day's amount.
       const end = taskEndPosition(ordered.at(-1) || row);
       executionOptionsByGroup.set(groupKey, {
@@ -12515,7 +12557,7 @@ async function getFirstGroupMemorizationTask(connection, task) {
        p.end_page AS endPage, p.end_surah AS endSurah, p.end_ayah AS endAyah
      FROM student_quran_tasks t
      JOIN student_quran_plans p ON p.id = t.plan_id
-     WHERE t.plan_id = ? AND ${studyDateSql('t.task_date')} AND ${uncompensatedTaskSql('t')} AND t.task_date = ? AND t.task_type = 'memorization'`,
+     WHERE t.plan_id = ? AND ${studyDateSql('t.task_date', 't.student_id')} AND ${uncompensatedTaskSql('t')} AND t.task_date = ? AND t.task_type = 'memorization'`,
     [task.planId, task.taskDate],
   );
   if (!rows.length) return task;
@@ -12642,7 +12684,7 @@ async function extendRecitationTaskRange({ actualEnd, currentEnd, direction, tas
           normal_to_ayah AS normalToAyah, scheduled_to_page AS scheduledToPage,
           scheduled_to_surah AS scheduledToSurah, scheduled_to_ayah AS scheduledToAyah
          FROM student_quran_tasks
-         WHERE plan_id = ? AND student_id = ? AND ${studyDateSql('task_date')} AND task_date = ? AND task_type = 'memorization'
+         WHERE plan_id = ? AND student_id = ? AND ${studyDateSql('task_date', 'student_quran_tasks.student_id')} AND task_date = ? AND task_type = 'memorization'
            AND NOT EXISTS (
              SELECT 1
              FROM student_quran_tasks newer
@@ -12707,6 +12749,7 @@ async function sendPreparedWhatsAppRecipients({ recipients, failed, messageTempl
 
 /** Record execution segments and advance the plan only when the entire group passes. */
 async function applyEvaluatedGroupSegments({ groupEvaluated, task, groupTasks, settings, connection, date, attemptResult }) {
+  if (task.passingRehifzId) return;
   if (Number(task.compensationIndex || 0) > 0) {
     await applyEvaluatedCompensationGroup({ groupEvaluated, task, groupTasks, connection, attemptResult });
     return;
@@ -12782,7 +12825,7 @@ async function applyEvaluatedCompensationGroup({ groupEvaluated, task, groupTask
   const passed = groupTasks.every((row) => Number(row.teacherCompleted) === 1);
   await connection.query(
     `UPDATE student_quran_execution_segments SET is_current = 0
-     WHERE plan_id = ? AND ${studyDateSql('task_date')} AND task_date = ? AND source_type = 'teacher' AND segment_type = 'compensation'
+     WHERE plan_id = ? AND ${studyDateSql('task_date', 'student_quran_execution_segments.student_id')} AND task_date = ? AND source_type = 'teacher' AND segment_type = 'compensation'
        AND from_page = ? AND from_surah = ? AND from_ayah = ? AND is_current = 1`,
     [task.planId, task.taskDate, start.page, start.surah, start.ayah],
   );
@@ -12802,6 +12845,10 @@ async function applyEvaluatedCompensationGroup({ groupEvaluated, task, groupTask
 
 /** Apply memorization outcome, cursor and rewards inside the existing recitation transaction. */
 async function applyMemorizationEvaluationOutcome({ task, completed, connection, date, req, settings }) {
+  if (task.passingRehifzId) {
+    await refreshPassingRehifz(connection, task.passingRehifzId, date);
+    return;
+  }
   if (task.taskType === 'memorization') {
     if (completed && task.previousTeacherCompleted !== 1) {
       await advancePlanAfterCompletedMemorization(connection, task);
@@ -12860,7 +12907,7 @@ async function saveTeacherExecutedRepetitions({ notMemorized, teacherExecutionMo
              execution_actor_role = 'teacher', execution_actor_id = ?, executed_at = NOW(3)
          WHERE plan_id = ?
            AND student_id = ?
-           AND ${studyDateSql('task_date')} AND task_date = ?
+           AND ${studyDateSql('task_date', 'student_quran_tasks.student_id')} AND task_date = ?
            AND task_type = 'repeat' AND track = ?
            AND from_page = ?
            AND to_page = ?
@@ -13036,7 +13083,7 @@ async function buildOverviewReport({ from, startDate: requestedStartDate, date, 
           ELSE 0
         END), 0) AS linkFaces
       FROM student_quran_tasks t
-      WHERE ${studyDateSql('t.task_date')} AND ${uncompensatedTaskSql('t', { retainAccepted: true })} AND t.task_date BETWEEN ? AND ? AND ${reportDb.student('t.student_id')}
+      WHERE ${studyDateSql('t.task_date', 't.student_id')} AND ${uncompensatedTaskSql('t', { retainAccepted: true })} AND t.task_date BETWEEN ? AND ? AND ${reportDb.student('t.student_id')}
       `,
       [startDate, endDate]
     );
@@ -13121,7 +13168,7 @@ async function buildOverviewReport({ from, startDate: requestedStartDate, date, 
         FROM students s
         LEFT JOIN committees c ON c.id = s.committee_id
         JOIN student_quran_tasks t ON t.student_id = s.id
-        WHERE ${studyDateSql('t.task_date')} AND ${uncompensatedTaskSql('t', { retainAccepted: true })} AND t.task_date BETWEEN ? AND ? AND ${reportDb.student('t.student_id')}
+        WHERE ${studyDateSql('t.task_date', 't.student_id')} AND ${uncompensatedTaskSql('t', { retainAccepted: true })} AND t.task_date BETWEEN ? AND ? AND ${reportDb.student('t.student_id')}
           AND t.task_type = ?
           ${trackClause}
         GROUP BY s.id, s.name, c.name
@@ -13160,7 +13207,7 @@ async function buildOverviewReport({ from, startDate: requestedStartDate, date, 
       FROM committees c
       JOIN students s ON s.committee_id = c.id
       JOIN student_quran_tasks t ON t.student_id = s.id
-      WHERE ${studyDateSql('t.task_date')} AND ${uncompensatedTaskSql('t', { retainAccepted: true })} AND t.task_date BETWEEN ? AND ? AND ${reportDb.student('t.student_id')}
+      WHERE ${studyDateSql('t.task_date', 't.student_id')} AND ${uncompensatedTaskSql('t', { retainAccepted: true })} AND t.task_date BETWEEN ? AND ? AND ${reportDb.student('t.student_id')}
         AND t.task_type IN ('memorization', 'review', 'link')
       GROUP BY c.id, c.name
       HAVING expectedFaces > 0
@@ -13270,7 +13317,7 @@ async function buildOverviewReport({ from, startDate: requestedStartDate, date, 
         COALESCE(SUM(CASE WHEN t.task_type = 'memorization' AND t.track = 'mastery' THEN ${expectedQuranTaskFacesSql} ELSE 0 END), 0) AS masteryTotal,
         COALESCE(SUM(CASE WHEN t.task_type = 'memorization' AND t.track = 'mastery' AND ${acceptedMemorizationSql('t')} THEN ${quranTaskFacesSql} ELSE 0 END), 0) AS masteryDone
       FROM student_quran_tasks t
-      WHERE ${studyDateSql('t.task_date')} AND ${uncompensatedTaskSql('t', { retainAccepted: true })} AND t.task_date BETWEEN ? AND ? AND ${reportDb.student('t.student_id')}
+      WHERE ${studyDateSql('t.task_date', 't.student_id')} AND ${uncompensatedTaskSql('t', { retainAccepted: true })} AND t.task_date BETWEEN ? AND ? AND ${reportDb.student('t.student_id')}
         AND t.task_type IN ('memorization', 'review', 'link')
       GROUP BY t.student_id
       `,
@@ -13760,7 +13807,7 @@ async function buildProgressReport({
         t.id,
         t.student_id AS studentId,
         DATE_FORMAT(t.task_date, '%Y-%m-%d') AS taskDate,
-        t.task_type AS taskType,
+        t.task_type AS taskType, t.passing_rehifz_id AS passingRehifzId,
         t.track AS track,
         t.from_page AS fromPage,
         t.to_page AS toPage,
@@ -13796,7 +13843,7 @@ async function buildProgressReport({
       LEFT JOIN quran_surahs ts ON ts.surah_number = t.to_surah
       LEFT JOIN quran_surahs ats ON ats.surah_number = t.actual_to_surah
       WHERE t.student_id IN (${placeholders})
-        AND ${studyDateSql('t.task_date')} AND ${uncompensatedTaskSql('t', { retainAccepted: true })} AND t.task_date BETWEEN ? AND ?
+        AND ${studyDateSql('t.task_date', 't.student_id')} AND ${uncompensatedTaskSql('t', { retainAccepted: true })} AND t.task_date BETWEEN ? AND ?
         AND t.task_type IN ('memorization', 'review', 'link', 'repeat')
       ORDER BY t.task_date ASC, FIELD(t.task_type, 'memorization', 'repeat', 'review', 'link'), t.from_page ASC
       `,
@@ -13807,7 +13854,7 @@ async function buildProgressReport({
         source_type AS sourceType, segment_type AS segmentType,
         SUM(amount_faces) AS amountFaces
        FROM student_quran_execution_segments
-       WHERE student_id IN (${placeholders}) AND ${studyDateSql('task_date')} AND task_date BETWEEN ? AND ? AND is_current = 1
+       WHERE student_id IN (${placeholders}) AND ${studyDateSql('task_date', 'student_quran_execution_segments.student_id')} AND task_date BETWEEN ? AND ? AND is_current = 1
        GROUP BY student_id, plan_id, task_date, source_type, segment_type`,
       [...studentIds, startDate, endDate],
     );
@@ -14474,7 +14521,7 @@ async function buildRecitationSessionsReport({ from, startDate: requestedStartDa
       c.name AS committeeName,
       DATE_FORMAT(a.session_date, '%Y-%m-%d') AS sessionDate,
       DATE_FORMAT(t.task_date, '%Y-%m-%d') AS taskDate,
-      t.task_type AS taskType,
+      t.task_type AS taskType, t.passing_rehifz_id AS passingRehifzId,
         t.track AS track,
       t.from_page AS fromPage,
       t.to_page AS toPage,
@@ -16153,6 +16200,7 @@ const sameGroup = taskRows.every((task) =>
         && task.taskDate === first.taskDate
         && task.taskType === first.taskType
         && task.track === first.track
+        && Number(task.passingRehifzId || 0) === Number(first.passingRehifzId || 0)
     );
     if (!sameGroup) {
       await connection.rollback();

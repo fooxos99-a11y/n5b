@@ -57,5 +57,14 @@ export function isStudentPlanPausedOn(date, value) {
 }
 
 export function isStudentStudyHoliday(date, settings) {
-  return isSeasonalHoliday(date, settings?.seasonalHolidays) || isStudentPlanPausedOn(date, settings?.planPause);
+  return isSeasonalHoliday(date, settings?.seasonalHolidays) || isStudentPlanPausedOn(date, settings?.planPause)
+    || isStudentPlanPausedOn(date, settings?.individualPlanPause);
+}
+
+export function withStudentPlanPause(settings, studentId) {
+  return { ...settings, individualPlanPause: settings?.studentPlanPauses?.[studentId] || { revision: 0, periods: [] } };
+}
+
+export function effectiveStudentPlanPaused(settings) {
+  return studentPlanPauseStatus(settings?.planPause).paused || studentPlanPauseStatus(settings?.individualPlanPause).paused;
 }
