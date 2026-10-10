@@ -46,5 +46,5 @@ test('offline data refreshes invisibly on actual server recovery and sessions ha
   assert.doesNotMatch(sessions, /expires_at > NOW\(\)/);
   assert.match(sessions, /setSessionCookie\(req, res, TENANT_SESSION_COOKIE, cookieToken, AUTH_SESSION_DAYS\)/);
   assert.match(migration, /UPDATE auth_sessions SET expires_at = NULL/);
-  assert.match(requests, /if \(response\.status === 401 && path !== '\/auth\/login' && !authSnapshot\s+&& sessionVersion === getAuthSessionVersion\(\)\) response = await fetchOnce\(\)/);
+  assert.match(requests, /if \(response\.status === 401 && path !== '\/auth\/login' && !authSnapshot\s+&& sessionVersion === getAuthSessionVersion\(\)\) response = await fetchOnce\(true\)/);
 });

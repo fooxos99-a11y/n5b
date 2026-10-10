@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Pause, Play } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import ManagementIconButton from '@/components/ui/management-icon-button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useToast } from '@/components/ui/use-toast';
 import { studentsApi, request } from '@/services/studentsApi';
@@ -42,13 +43,16 @@ export default function StudentPlansPauseControl({ onChange, studentId = null, s
   if (!state && studentId) return null;
   if (!state) return <Button type="button" variant="outline" disabled loading>حالة الخطط</Button>;
   const title = studentId ? (state.paused ? 'استئناف الخطة' : 'إيقاف الخطة') : (state.paused ? 'تشغيل الخطط' : 'إيقاف الخطط');
+  const TriggerButton = studentId ? ManagementIconButton : Button;
   return <>
     {state.paused && !studentId && <span className="text-sm font-bold text-muted-foreground" role="status">الخطط متوقفة منذ {formatHijriDate(state.pausedFrom)}</span>}
     {saveError && !open && <p role="alert" className="basis-full text-sm text-destructive">{saveError}</p>}
-    {state.canManage && <Button type="button" variant="outline" aria-label={studentId ? `${title} — ${studentName}` : undefined} className="h-11 shrink-0 gap-2" onClick={() => { setSaveError(''); setOpen(true); }}>
+    {state.canManage && <TriggerButton type="button" {...(studentId ? { tone: 'primary' } : { variant: 'outline' })}
+      aria-label={studentId ? `${title} — ${studentName}` : undefined} title={studentId ? title : undefined}
+      className={studentId ? 'border-transparent bg-transparent' : 'h-11 shrink-0 gap-2'} onClick={() => { setSaveError(''); setOpen(true); }}>
       {state.paused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
-      {title}
-    </Button>}
+      {!studentId && title}
+    </TriggerButton>}
     <Dialog open={open} onOpenChange={value => !saving && setOpen(value)}>
       <DialogContent dir="rtl" className="max-w-md [font-family:var(--font-ui)]">
         <DialogHeader><DialogTitle>{title}{studentId ? ` — ${studentName}` : ''}</DialogTitle></DialogHeader>

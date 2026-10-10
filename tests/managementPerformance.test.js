@@ -6,16 +6,19 @@ import { readFileSync } from 'node:fs';
 import { singleFlight, limitedTaskQueue } from '../src/lib/asyncRequests.js';
 import { createRefreshGate } from '../src/lib/refreshGate.js';
 
-function offlineHarness() {
+function offlineHarness({ readError, writeError, online = true } = {}) {
   const source = readFileSync(new URL('../src/services/offlineOperationsService.js', import.meta.url), 'utf8')
     .replace(/^import .*;\r?\n/gm, '').replace(/export /g, '');
   let session = 1;
   const calls = [];
   const snapshots = new Map();
   const api = new Proxy({}, { get: (_, name) => async () => { calls.push(name); return []; } });
-  const store = { getSnapshot: async key => snapshots.get(key), cacheSnapshot: async (key, value) => snapshots.set(key, value) };
-  const create = new Function('studentsApi', 'getTenantRegistrationNumber', 'offlineRecitationStore', 'getBusinessDate', 'shiftDateOnly', 'singleFlight', 'limitedTaskQueue', 'createRefreshGate', 'getAuthSessionVersion', `${source}\nreturn {loadOfflineSnapshot, prefetchOfflineManagementWorkspace};`);
-  return { ...create(api, () => 'tenant', store, () => '2026-09-09', () => '', singleFlight, limitedTaskQueue, createRefreshGate, () => session), calls, newSession: () => { session++; } };
+  const store = {
+    getSnapshot: async key => { if (readError) throw readError; return snapshots.get(key); },
+    cacheSnapshot: async (key, value) => { if (writeError) throw writeError; return snapshots.set(key, value); },
+  };
+  const create = new Function('studentsApi', 'getTenantRegistrationNumber', 'offlineRecitationStore', 'getBusinessDate', 'shiftDateOnly', 'singleFlight', 'limitedTaskQueue', 'createRefreshGate', 'getAuthSessionVersion', 'navigator', `${source}\nreturn {loadOfflineSnapshot, prefetchOfflineManagementWorkspace};`);
+  return { ...create(api, () => 'tenant', store, () => '2026-09-09', () => '', singleFlight, limitedTaskQueue, createRefreshGate, () => session, { onLine: online }), calls, newSession: () => { session++; } };
 }
 
 test('automatic management preparation avoids hidden reports and respects actor/session isolation', async () => {
@@ -37,6 +40,26 @@ test('snapshot reads coalesce concurrent same-resource requests but do not reuse
   await h.loadOfflineSnapshot(1,'report',loader); assert.equal(count,2);
   await Promise.all([h.loadOfflineSnapshot(1,'report',loader),h.loadOfflineSnapshot(2,'report',loader)]);
   assert.equal(count,4);
+});
+
+for (const operation of ['readError', 'writeError']) test(`online statistics survive a local snapshot ${operation}`, async () => {
+  const h = offlineHarness({ [operation]: new Error('Local storage unavailable') });
+  let requests = 0;
+  assert.deepEqual(await h.loadOfflineSnapshot(1, 'report', async () => { requests++; return { count: 12 }; }), { count: 12 });
+  assert.equal(requests, 1);
+});
+
+test('offline snapshot failure never pretends the report was loaded', async () => {
+  const h = offlineHarness({ readError: new Error('Local storage unavailable'), online: false });
+  let requests = 0;
+  await assert.rejects(h.loadOfflineSnapshot(1, 'report', async () => { requests++; return {}; }), /Local storage unavailable/);
+  assert.equal(requests, 0);
+});
+
+for (const status of [401, 403]) test(`saved reports cannot hide a server access denial ${status}`, async () => {
+  const h = offlineHarness();
+  await h.loadOfflineSnapshot(1, 'report', async () => ({ count: 12 }));
+  await assert.rejects(h.loadOfflineSnapshot(1, 'report', async () => { throw Object.assign(new Error('Access denied'), { status }); }), { status });
 });
 
 test('active plan totals restrict every aggregate to the requested student with bound parameters', async () => {

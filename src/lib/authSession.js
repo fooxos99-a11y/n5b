@@ -23,16 +23,19 @@ const prepareSecureStorage = () => {
 
 const isNativeSession = () => Capacitor.isNativePlatform();
 
-export const getBearerToken = async () => {
+export const getBearerToken = async ({ refresh = false } = {}) => {
   if (!isNativeSession()) return '';
-  if (cachedToken !== null) return cachedToken;
+  if (cachedToken !== null && (!refresh || !getAuthSessionMarker())) return cachedToken;
   const version = sessionVersion;
   const legacyToken = localStorage.getItem(tokenKey) || '';
   await prepareSecureStorage();
   if (legacyToken) {
     await SecureStorage.set(tokenKey, legacyToken);
     localStorage.removeItem(tokenKey);
-    if (version === sessionVersion) cachedToken = legacyToken;
+    if (version === sessionVersion) {
+      cachedToken = legacyToken;
+      localStorage.setItem(nativeSessionKey, '1');
+    }
     return legacyToken;
   }
   const token = String(await SecureStorage.get(tokenKey) || '');

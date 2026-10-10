@@ -61,20 +61,19 @@ export default function PassingStudentDialog({ student, type, onClose }) {
             const pendingDecision = existing?.latestAttempt?.rehifzDecision === 'pending';
             const waiting = Boolean(openHafiz && (!existing || existing.latestAttempt?.result.passed) && !pendingDecision);
             return <section key={eligible.juzNumber} className="space-y-3 border-b border-border pb-4" aria-label={`الجزء ${eligible.juzNumber}`}>
-              <h3 className="font-bold text-primary">الجزء {eligible.juzNumber}</h3>
-              <ul className="space-y-1 text-xs leading-6 text-muted-foreground">{eligible.ranges.map((range, index) => <li key={index}>
-                {range.startSurahName || `سورة ${range.startSurah}`} {range.startAyah} إلى {range.endSurahName || `سورة ${range.endSurah}`} {range.endAyah}
-              </li>)}</ul>
-              <PassingResultSummary result={existing?.latestAttempt?.result} />
-              <div className="flex flex-wrap gap-2">
-                <Button className="min-h-11" disabled={saving || waiting} loading={saving} onClick={() => start(eligible)}>
-                  {pendingDecision ? 'تحديد إعادة الحفظ' : existing?.latestAttempt?.result.passed ? 'إعادة اختبار الجزء'
-                    : existing?.latestAttempt ? 'إعادة تسميع الجزء' : 'بدء تسميع الجزء'}
-                </Button>
-                <Button variant="outline" className="min-h-11" disabled={saving} onClick={() => setReport({ ...eligible, attempts: history })}>
-                  تقرير الجزء{history.length > 0 && ` (${history.length})`}
-                </Button>
+              <div className="flex flex-row-reverse items-start justify-between gap-3">
+                <h3 className="shrink-0 py-3 font-bold text-primary">الجزء {eligible.juzNumber}</h3>
+                <div className="flex min-w-0 flex-wrap gap-2">
+                  <Button className="min-h-11" disabled={saving || waiting} loading={saving} onClick={() => start(eligible)}>
+                    {pendingDecision ? 'تحديد إعادة الحفظ' : existing?.latestAttempt?.result.passed ? 'إعادة اختبار الجزء'
+                      : existing?.latestAttempt ? 'إعادة تسميع الجزء' : 'بدء تسميع الجزء'}
+                  </Button>
+                  {history.length > 0 && <Button variant="outline" className="min-h-11" disabled={saving} onClick={() => setReport({ ...eligible, attempts: history })}>
+                    تقرير الجزء ({history.length})
+                  </Button>}
+                </div>
               </div>
+              {existing?.latestAttempt && <PassingResultSummary result={existing.latestAttempt.result} />}
               {waiting && !existing && <p className="text-xs text-muted-foreground">أكمل اجتياز الحافظ الحالي أولًا.</p>}
             </section>;
           })}

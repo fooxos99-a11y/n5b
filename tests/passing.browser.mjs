@@ -131,6 +131,7 @@ try {
     assert.equal(exams.branch.length, 0, 'opening parts does not create an exam');
     assert.equal(await page.getByRole('region', { name: 'الجزء 2', exact: true }).count(), 0, 'branch excludes prior memorization outside the plan');
     assert.equal(await page.getByRole('button', { name: 'بدء تسميع الجزء', exact: true }).count(), 2);
+    assert.equal(await page.getByRole('button', { name: /^تقرير الجزء/ }).count(), 0, 'branch reports are hidden before recitation');
     const count = async label => {
       await page.getByRole('button', { name: label, exact: true }).first().click();
       await page.getByRole('button', { name: 'تسجيل عدد الأخطاء والتنبيهات', exact: true }).click();
@@ -174,10 +175,7 @@ try {
     await page.getByRole('button', { name: 'اجتياز حافظ', exact: true }).click(); await create();
     assert.equal(await page.getByRole('button', { name: 'بدء تسميع الجزء', exact: true }).count(), 3);
     assert.equal(exams.hafiz.length, 0, 'hafiz is created on the first selected part');
-    await page.getByRole('button', { name: 'تقرير الجزء', exact: true }).nth(1).click();
-    await page.getByText('لم يبدأ تسميع هذا الجزء.', { exact: true }).waitFor();
-    await page.getByRole('dialog', { name: 'تقرير الجزء 2', exact: true }).getByRole('button', { name: 'إغلاق', exact: true }).click();
-    await page.getByRole('dialog', { name: 'تقرير الجزء 2', exact: true }).waitFor({ state: 'hidden' });
+    assert.equal(await page.getByRole('button', { name: /^تقرير الجزء/ }).count(), 0, 'reports remain hidden until the part has a saved recitation');
     await page.getByRole('button', { name: 'بدء تسميع الجزء', exact: true }).nth(1).click();
     assert.deepEqual(exams.hafiz[0].parts.map(part => part.juzNumber), [1, 2, 3], 'hafiz includes the full memorized scope');
     await page.getByRole('button', { name: 'المصحف', exact: true }).click();
@@ -191,6 +189,8 @@ try {
     await noOverflow();
     await page.getByRole('button',{ name:'إبقاء الخطة',exact:true }).click();
     assert.equal(exams.hafiz[0].parts[1].latestAttempt.mode,'mushaf');
+    await page.getByRole('button', { name: 'تقرير الجزء (1)', exact: true }).waitFor();
+    assert.equal(await page.getByRole('button', { name: /^تقرير الجزء/ }).count(), 1, 'only the recited part has a report');
     await page.goto(`${base}/dashboard/settings-passing`);
     await page.getByRole('spinbutton', { name: 'حد الاجتياز', exact: true }).waitFor();
     const savePolicy = () => page.waitForResponse(response => response.url().includes('/passing/policy') && response.request().method() === 'PUT');

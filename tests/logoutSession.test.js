@@ -36,7 +36,7 @@ async function loadModule(file, bindings, exports) {
     .replace(/\bexport /g, '');
   return vm.runInNewContext(`${source}\n({${exports.join(',')}})`, bindings);
 }
-async function setupApi() {
+async function setupApi({ native = false, getToken = async () => '' } = {}) {
   const localStorage = storage();
   localStorage.setItem('wajeh_role', 'student');
   localStorage.setItem('nukhab_web_session', '1');
@@ -44,8 +44,8 @@ async function setupApi() {
   let version = 0;
   let tenant = 'old-tenant';
   const api = await loadModule('../src/services/studentsApi.js', {
-    Capacitor: { isNativePlatform: () => false }, localStorage,
-    getBearerToken: async () => '', getAuthSessionVersion: () => version,
+    Capacitor: { isNativePlatform: () => native }, localStorage,
+    getBearerToken: getToken, getAuthSessionVersion: () => version,
     clearAuthSession: async () => { version += 1; localStorage.removeItem('nukhab_web_session'); },
     getTenantRegistrationNumber: () => tenant,
     clearTenantRegistrationNumber: () => { tenant = ''; },
@@ -171,4 +171,70 @@ test('native logout preserves a legacy token long enough to revoke it during mig
   await cleanup;
   assert.equal(stored.size, 0);
   assert.equal(await auth.getBearerToken(), '');
+});
+
+test('native request recovers the saved credential before treating a cold-start 401 as logout', async () => {
+  const reads = [];
+  const env = await setupApi({ native: true, getToken: async options => {
+    reads.push(options);
+    return options?.refresh ? 'saved-token' : '';
+  } });
+  const report = env.request('/reports/overview');
+  await env.waitRequest(1);
+  env.respond(0, 401);
+  await env.waitRequest(2);
+  assert.equal(env.requests[1].options.headers.Authorization, 'Bearer saved-token');
+  env.respond(1, 200, { count: 12 });
+  assert.equal((await report).count, 12);
+  assert.equal(reads.length, 2);
+  assert.equal(env.localStorage.getItem('wajeh_role'), 'student');
+});
+
+test('a genuinely invalid session is cleared after one recovery attempt', async () => {
+  const env = await setupApi({ native: true });
+  const report = env.request('/reports/overview');
+  await env.waitRequest(1); env.respond(0, 401);
+  await env.waitRequest(2); env.respond(1, 401, { message: 'Invalid session' });
+  await assert.rejects(report, { status: 401 });
+  assert.equal(env.localStorage.getItem('wajeh_role'), null);
+  assert.equal(env.requests.length, 2);
+});
+
+test('native token recovery re-reads secure storage but cannot resurrect a logged-out session', async () => {
+  const localStorage = storage();
+  localStorage.setItem('nukhab_native_session', '1');
+  let reads = 0;
+  const auth = await loadModule('../src/lib/authSession.js', {
+    Capacitor: { isNativePlatform: () => true }, localStorage,
+    getSiteConfig: () => ({ secureStoragePrefix: 'test' }),
+    KeychainAccess: { afterFirstUnlockThisDeviceOnly: 'test' },
+    SecureStorage: {
+      setKeyPrefix: async () => {}, setDefaultKeychainAccess: async () => {},
+      get: async () => ++reads === 1 ? '' : 'saved-token', remove: async () => {},
+    },
+  }, ['getBearerToken', 'clearAuthSession']);
+  assert.equal(await auth.getBearerToken(), '');
+  assert.equal(await auth.getBearerToken({ refresh: true }), 'saved-token');
+  await auth.clearAuthSession();
+  assert.equal(await auth.getBearerToken({ refresh: true }), '');
+  assert.equal(reads, 2);
+});
+
+test('migrating a legacy native credential retains its session marker for the next launch', async () => {
+  const localStorage = storage();
+  localStorage.setItem('wajeh_role', 'manager');
+  localStorage.setItem('wajeh_token', 'legacy-token');
+  const auth = await loadModule('../src/lib/authSession.js', {
+    Capacitor: { isNativePlatform: () => true }, localStorage,
+    getSiteConfig: () => ({ secureStoragePrefix: 'test' }),
+    KeychainAccess: { afterFirstUnlockThisDeviceOnly: 'test' },
+    SecureStorage: {
+      setKeyPrefix: async () => {}, setDefaultKeychainAccess: async () => {},
+      set: async () => {}, get: async () => 'legacy-token',
+    },
+  }, ['getBearerToken', 'hasAuthSession']);
+  assert.equal(auth.hasAuthSession(), true);
+  await auth.getBearerToken();
+  assert.equal(localStorage.getItem('wajeh_token'), null);
+  assert.equal(auth.hasAuthSession(), true, 'the session remains usable after moving the token into secure storage');
 });

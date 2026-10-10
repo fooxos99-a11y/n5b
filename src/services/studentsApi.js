@@ -40,10 +40,10 @@ const loadTeacherEvaluation = refreshableSingleFlight(
   (supervisorId) => JSON.stringify([getApiBase(), getTenantRegistrationNumber(), getAuthSessionVersion(), String(supervisorId)]),
 );
 
-const roleHeader = async () => {
+const roleHeader = async ({ refreshToken = false } = {}) => {
   const registrationNumber = getTenantRegistrationNumber();
   const native = Capacitor.isNativePlatform();
-  const token = await getBearerToken();
+  const token = await getBearerToken({ refresh: refreshToken });
   return {
     'Content-Type': 'application/json',
     Authorization: token ? `Bearer ${token}` : '',
@@ -52,7 +52,7 @@ const roleHeader = async () => {
   };
 };
 
-async function fetchRequest(path, options, captureUndo, requestBase) {
+async function fetchRequest(path, options, captureUndo, requestBase, refreshToken = false) {
   const { apiBaseOverride, authSnapshot, ...requestOptions } = options;
   requestCooldown.check(requestBase, path);
   const traceId = globalThis.crypto?.randomUUID?.() || '';
@@ -63,7 +63,7 @@ async function fetchRequest(path, options, captureUndo, requestBase) {
       cache: 'no-store',
       credentials: 'include',
       headers: {
-        ...await (authSnapshot || roleHeader()),
+        ...await (authSnapshot || roleHeader({ refreshToken })),
         ...(options.headers),
         ...(captureUndo ? { 'X-Dashboard-Undo': '1' } : {}),
         ...(traceId ? { 'X-Request-Id': traceId } : {}),
@@ -102,11 +102,11 @@ export async function request(path, options = {}) {
   const sessionVersion = getAuthSessionVersion();
   const requestBase = apiBaseOverride || getApiBase();
   const captureUndo = isDashboardUndoActive() && !authSnapshot && isDeferredMutation(path, options);
-  const fetchOnce = () => fetchRequest(path, options, captureUndo, requestBase);
+  const fetchOnce = (refreshToken = false) => fetchRequest(path, options, captureUndo, requestBase, refreshToken);
 
   let response = await fetchOnce();
   if (response.status === 401 && path !== '/auth/login' && !authSnapshot
-    && sessionVersion === getAuthSessionVersion()) response = await fetchOnce();
+    && sessionVersion === getAuthSessionVersion()) response = await fetchOnce(true);
 
   requestCooldown.record(requestBase, response);
   const data = await response.json().catch(() => null);

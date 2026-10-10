@@ -16,6 +16,26 @@ export default function AccountLoginPage({ site, onLogin, loading }) {
   });
   const [entering, setEntering] = useState(timing.duration > 0);
   useEffect(() => {
+    const root = document.documentElement;
+    const viewport = window.visualViewport;
+    const resize = () => {
+      root.style.setProperty('--login-viewport-height', `${viewport?.height || window.innerHeight}px`);
+      if (document.activeElement?.matches('.account-login-input')) {
+        document.activeElement.scrollIntoView({ block: 'nearest' });
+      }
+    };
+    root.classList.add('account-login-active');
+    resize();
+    window.addEventListener('resize', resize);
+    viewport?.addEventListener('resize', resize);
+    return () => {
+      root.classList.remove('account-login-active');
+      root.style.removeProperty('--login-viewport-height');
+      window.removeEventListener('resize', resize);
+      viewport?.removeEventListener('resize', resize);
+    };
+  }, []);
+  useEffect(() => {
     const timer = window.setTimeout(() => { setEntering(false); finishStartup?.(); }, timing.duration);
     return () => window.clearTimeout(timer);
   }, [finishStartup, timing.duration]);

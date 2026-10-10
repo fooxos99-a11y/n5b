@@ -50,7 +50,9 @@ export const offlineActorKey = (accountId, actorRole = 'supervisor') => (
 const refreshManagementWorkspace = createRefreshGate(5 * 60_000);
 const fetchSnapshot = singleFlight(async (key, _session, loader) => {
   const value = await loader();
-  await offlineRecitationStore.cacheSnapshot(key, value);
+  // A local cache failure must not discard a successful server response.
+  try { await offlineRecitationStore.cacheSnapshot(key, value); }
+  catch { return value; }
   return value;
 }, (key, session) => JSON.stringify([key, session]));
 
@@ -60,7 +62,10 @@ export async function loadOfflineSnapshot(accountId, resourceKey, loader, {
   onRefresh,
 } = {}) {
   const key = `${offlineActorKey(accountId, actorRole)}:resource:${resourceKey}`;
-  const cached = await offlineRecitationStore.getSnapshot(key);
+  const cached = await offlineRecitationStore.getSnapshot(key).catch(error => {
+    if (!isOnline()) throw error;
+    return null;
+  });
   if (!isOnline()) {
     if (cached !== null && cached !== undefined) return cached;
     throw new Error('هذه البيانات غير محفوظة للعمل دون إنترنت. اتصل بالإنترنت مرة واحدة أولًا.');
@@ -74,6 +79,7 @@ export async function loadOfflineSnapshot(accountId, resourceKey, loader, {
   try {
     return await fetchSnapshot(key, getAuthSessionVersion(), loader);
   } catch (error) {
+    if ([401, 403].includes(Number(error.status))) throw error;
     if (cached !== null && cached !== undefined) return cached;
     throw error;
   }

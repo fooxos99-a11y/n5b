@@ -1,14 +1,23 @@
+.account-login-active,
+.account-login-active body {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+.account-login-active body { position: fixed; inset: 0; }
 .account-login-page {
-  position: relative;
+  position: fixed;
+  inset: 0;
   isolation: isolate;
   display: flex;
   justify-content: center;
-  min-height: 100svh;
+  align-items: center;
+  height: var(--login-viewport-height, 100dvh);
+  min-height: 0;
   overflow: hidden;
   background: #fff;
   color: hsl(var(--primary));
   font-family: var(--font-ui);
-  padding: max(48px, 14svh) 22px max(48px, 12svh);
+  padding: max(24px, env(safe-area-inset-top)) 22px max(24px, env(safe-area-inset-bottom));
 }
 .account-login-page::before, .account-login-page::after {
   content: '';
@@ -23,7 +32,7 @@
 }
 .account-login-page::before { top: -290px; left: -290px; }
 .account-login-page::after { bottom: -265px; right: -290px; outline: 1px solid hsl(var(--primary) / .15); outline-offset: -62px; }
-.account-login-content { width: 100%; max-width: 520px; }
+.account-login-content { width: 100%; max-width: 520px; max-height: 100%; overflow-y: auto; overscroll-behavior: contain; }
 .account-login-header { text-align: center; margin-bottom: 32px; }
 .account-login-logo { display: block; width: 124px; height: 124px; object-fit: contain; margin: 0 auto 12px; }
 .account-login-header h1 { font-size: 28px; font-weight: 800; line-height: 1.5; }
@@ -56,4 +65,16 @@
   .account-login-logo { width: 124px; height: 124px; }
   .account-login-header { margin-bottom: 24px; }
   .account-login-input, .account-login-submit { height: 64px; }
+}
+@media (max-height: 740px) {
+  .account-login-page { padding-block: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-bottom)); }
+  .account-login-logo { width: 84px; height: 84px; margin-bottom: 8px; }
+  .account-login-header { margin-bottom: 16px; }
+  .account-login-header h1 { font-size: 22px; }
+  .account-login-header p { margin-top: 4px; font-size: 16px; }
+  .account-login-label { margin-bottom: 4px; font-size: 16px; }
+  .account-login-input, .account-login-submit { height: 48px; border-radius: 15px; }
+  .account-login-form > .mt-6 { margin-top: 16px; }
+  .account-login-forgot { margin-block: 4px 8px; }
+  .account-login-contact { margin-top: 8px; }
 }

@@ -1,7 +1,10 @@
 import { URL } from 'node:url';
+import process from 'node:process';
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
 
+const base = process.env.PORTAL_TEST_URL || 'http://127.0.0.1:3000';
+assert.ok(['127.0.0.1', 'localhost'].includes(new URL(base).hostname));
 const browser = await chromium.launch({ headless: true });
 try {
   for (const [role, permissions, destination] of [
@@ -26,7 +29,7 @@ try {
       }
       await route.fulfill({ json: path.endsWith('/public-settings') ? {} : [] });
     });
-    await page.goto('http://127.0.0.1:3000/');
+    await page.goto(`${base}/`);
     await page.getByRole('heading', { name: 'برنامج نخب التعليمي', exact: true }).waitFor();
     assert.equal(await page.locator('html').evaluate((root) => root.classList.contains('light') && !root.classList.contains('dark')), true);
     assert.equal(await page.locator('main').evaluate((main) => {
@@ -40,6 +43,9 @@ try {
     await page.getByRole('button', { name: 'إغلاق', exact: true }).click();
     assert.equal(await page.getByRole('link', { name: 'للتواصل اضغط هنا' }).getAttribute('href'), 'https://wa.me/05');
     assert.equal(await page.evaluate(() => globalThis.document.documentElement.scrollWidth > globalThis.innerWidth), false);
+    await page.mouse.wheel(0, 500);
+    assert.equal(await page.evaluate(() => globalThis.scrollY), 0, 'login never scrolls the document');
+    assert.equal(await page.locator('.account-login-content').evaluate(element => element.scrollHeight <= element.clientHeight), true, 'normal login viewport fits without inner scrolling');
     await page.screenshot({ path: `outputs/account-login-${role}.png` });
     await page.getByLabel('رقم الدخول', { exact: true }).press('Enter');
     assert.equal(logins, 0, 'The keyboard action does not submit an empty account number');
@@ -63,7 +69,7 @@ try {
     await page.waitForFunction(() => Boolean(globalThis.localStorage.getItem('wajeh_role')));
     await page.waitForURL((url) => url.pathname === destination);
     assert.equal(logins, 2);
-    await page.goto('http://127.0.0.1:3000/login');
+    await page.goto(`${base}/login`);
     await page.waitForURL((url) => url.pathname === destination);
     assert.equal(logins, 2, 'An existing session does not submit another login');
     await context.close();

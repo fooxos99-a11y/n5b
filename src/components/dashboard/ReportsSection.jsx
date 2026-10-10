@@ -97,7 +97,7 @@ const ReportsSection = ({
       if (active) toast({ title: 'تعذر تحميل الحلقات', description: error.message, variant: 'destructive' });
     });
     return () => { active = false; };
-  }, [cachedReport, canViewStandardReports, teacherScoped, toast]);
+  }, [cachedReport, canViewStandardReports, isOnline, teacherScoped, toast]);
 
   // The overview (or the selected archive) drives every indicator.
   useEffect(() => {
@@ -123,7 +123,7 @@ const ReportsSection = ({
       if (active) setLoadError(error.message || 'تعذر تحميل الإحصائيات');
     }).finally(() => { if (active) setIsLoading(false); });
     return () => { active = false; };
-  }, [archiveId, cachedReport, canViewStandardReports, from, retry, scopeCommittee, scopeComplex, to]);
+  }, [archiveId, cachedReport, canViewStandardReports, from, isOnline, retry, scopeCommittee, scopeComplex, to]);
 
   // The teacher points list is needed for its card itself.
   const loadList = useCallback((key, loader) => {
@@ -141,7 +141,7 @@ const ReportsSection = ({
     setLists({});
     if (archiveId) return;
     if (canViewTeacherPoints) loadList('teacherPoints', listLoaders.teacherPoints);
-  }, [archiveId, canViewStandardReports, canViewTeacherPoints, listLoaders, loadList, retry]);
+  }, [archiveId, canViewStandardReports, canViewTeacherPoints, isOnline, listLoaders, loadList, retry]);
 
   const metrics = useMemo(() => buildReportMetrics(overview, {
     lists,
