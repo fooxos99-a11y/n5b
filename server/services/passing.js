@@ -1,8 +1,11 @@
 import { PASSING_POLICY_KEY, PASSING_TYPES, parsePassingPolicy, passingPolicyErrors, effectivePassingPolicy, evaluatePassingPart, passingExamStatus } from '../../shared/passing-policy.js';
 import { isMistakeMark } from '../../shared/recitation-mark-types.js';
-import { memorizedSegments } from './memorizedSegments.js';
+import { loadEligiblePassingParts } from './passingEligibility.js';
 import { assertSupervisorStudentScope } from './supervisorStudentScope.js';
 import { assertWholePassingPart } from './passingRehifz.js';
+import { readQuranRange } from './quranReferenceCache.js';
+
+export { buildPassingParts } from './passingEligibility.js';
 
 const fail = (message, status = 422) => Object.assign(new Error(message), { status, statusCode: status });
 const parse = value => typeof value === 'string' ? JSON.parse(value) : value;
@@ -21,27 +24,6 @@ export async function savePassingPolicy(connection, policy) {
   await connection.query('INSERT INTO app_settings(setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)', [PASSING_POLICY_KEY, JSON.stringify(clean)]);
   return clean;
 }
-export function buildPassingParts(ayahs, ranges, type, juz) {
-  const bounds = ranges.map(range => {
-    const start = range.startSurah * 1000 + range.startAyah, end = range.endSurah * 1000 + range.endAyah;
-    return { start: Math.min(start, end), end: Math.max(start, end) };
-  });
-  const selected = ayahs.filter(ayah => type === 'branch' ? Number(ayah.juz) === juz : bounds.some(range => (
-    ayah.surah * 1000 + ayah.ayah >= range.start
-    && ayah.surah * 1000 + ayah.ayah <= range.end
-  )));
-  const groups = new Map();
-  for (const ayah of selected) {
-    const key = Number(ayah.juz);
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(ayah);
-  }
-  return [...groups].filter(([juzNumber, items]) => items.length === ayahs.filter(ayah => Number(ayah.juz) === juzNumber).length)
-    .map(([juzNumber, items]) => ({ juzNumber, ranges: memorizedSegments(items, () => true).map(range => ({
-    startPage: range.fromPage, startSurah: range.fromSurah, startAyah: range.fromAyah, startSurahName: range.fromSurahName,
-    endPage: range.toPage, endSurah: range.toSurah, endAyah: range.toAyah, endSurahName: range.toSurahName,
-  })) }));
-}
 export async function createPassingExam(pool, { studentId, type, juz, actor, loadMemorizedRanges, loadAyahs }) {
   if (!Object.hasOwn(PASSING_TYPES, type) || (type === 'branch' && (!Number.isInteger(juz) || juz < 1 || juz > 30))) throw fail('حدد نوع الاجتياز والجزء بصورة صحيحة.');
   const connection = await pool.getConnection();
@@ -56,7 +38,7 @@ export async function createPassingExam(pool, { studentId, type, juz, actor, loa
       WHERE e.student_id = ? AND e.exam_type = ? ${type === 'branch' ? 'AND p.juz_number = ?' : ''}
       AND (a.id IS NULL OR JSON_EXTRACT(a.result_json, '$.passed') = false) LIMIT 1`, [studentId, type, ...(type === 'branch' ? [juz] : [])]);
     if (open.length) throw fail('يوجد اجتياز غير مكتمل. أكمله أو أعد الأجزاء المطلوبة.', 409);
-    const parts = buildPassingParts(await loadAyahs(connection), type === 'hafiz' ? await loadMemorizedRanges(connection, studentId, { approvedOnly: true }) : [], type, juz);
+    const parts = await loadEligiblePassingParts(connection, { studentId, type, juz, loadMemorizedRanges, loadAyahs });
     if (!parts.length) throw fail('لا يوجد جزء محفوظ كامل ومعتمد لهذا الطالب.');
     const [result] = await connection.query('INSERT INTO student_passing_exams(student_id, exam_type, created_by_role, created_by_id) VALUES (?, ?, ?, ?)', [studentId, type, actor.role, actor.id]);
     for (const part of parts) await connection.query('INSERT INTO student_passing_parts(exam_id, juz_number, ranges_json) VALUES (?, ?, ?)', [result.insertId, part.juzNumber, JSON.stringify(part.ranges)]);
@@ -93,6 +75,10 @@ export async function recordPassingAttempt(pool, { partId, body, actor, normaliz
     await assertSupervisorStudentScope(connection, actor, { studentId: part.studentId });
     const [[duplicate]] = await connection.query('SELECT id, result_json AS result FROM student_passing_attempts WHERE part_id = ? AND request_id = ?', [partId, body.requestId]);
     if (duplicate) { await connection.commit(); return { ...parse(duplicate.result), attemptId: duplicate.id }; }
+    if (part.type === 'branch' && !(await loadEligiblePassingParts(connection, { studentId: part.studentId, type: part.type,
+      juz: Number(part.juzNumber), loadAyahs: conn => readQuranRange(conn, 1, 604) })).length) {
+      throw fail('هذا الجزء غير محفوظ كاملًا ومعتمدًا ضمن خطة الطالب الحالية.');
+    }
     await assertWholePassingPart(connection, part);
     const [[latest]] = await connection.query('SELECT id, result_json AS result, rehifz_decision AS decision FROM student_passing_attempts WHERE part_id = ? ORDER BY id DESC LIMIT 1', [partId]);
     if (Number(latest?.id || 0) !== body.previousAttemptId) throw fail('تغيّرت نتيجة الجزء. حدّث الاجتياز قبل إعادة التسميع.', 409);

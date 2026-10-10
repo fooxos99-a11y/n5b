@@ -3,6 +3,7 @@ import { requirePermission } from '../services/dashboardPermissions.js';
 import { assertSupervisorStudentScope } from '../services/supervisorStudentScope.js';
 import { loadPassingPolicy, savePassingPolicy, createPassingExam, loadPassingExam, recordPassingAttempt } from '../services/passing.js';
 import { decidePassingRehifz } from '../services/passingRehifz.js';
+import { loadEligiblePassingParts } from '../services/passingEligibility.js';
 
 const positiveId = value => Number.isSafeInteger(Number(value)) && Number(value) > 0 ? Number(value) : 0;
 export function createPassingRouter({ db, loadMemorizedRanges, loadAyahs, buildMushafData, normalizeMarks }) {
@@ -21,9 +22,22 @@ export function createPassingRouter({ db, loadMemorizedRanges, loadAyahs, buildM
   router.get('/students', access, async (req, res, next) => {
     try {
       const supervisor = req.auth.role === 'supervisor';
-      const [students] = await db().query(`SELECT s.id, s.name, c.name AS committeeName FROM students s LEFT JOIN committees c ON c.id = s.committee_id
+      const [students] = await db().query(`SELECT s.id, s.name, c.id AS committeeId, c.name AS committeeName, x.id AS complexId, x.name AS complexName
+        FROM students s LEFT JOIN committees c ON c.id = s.committee_id LEFT JOIN complexes x ON x.id=c.complex_id
         ${supervisor ? 'WHERE EXISTS (SELECT 1 FROM supervisor_committees sc WHERE sc.committee_id = s.committee_id AND sc.supervisor_id = ?)' : ''} ORDER BY c.name, s.name`, supervisor ? [req.auth.id] : []);
       res.set('Cache-Control', 'no-store').json(students);
+    } catch (error) { next(error); }
+  });
+  router.get('/students/:studentId/parts', access, async (req, res, next) => {
+    try {
+      const studentId = positiveId(req.params.studentId);
+      await assertStudent(req, studentId);
+      const [[student]] = await db().query('SELECT id FROM students WHERE id=?', [studentId]);
+      if (!student) throw Object.assign(new Error('الطالب غير موجود.'), { status: 404 });
+      const parts = await loadEligiblePassingParts(db(), { studentId, type: req.query.type, loadMemorizedRanges, loadAyahs });
+      const [rows] = await db().query('SELECT id FROM student_passing_exams WHERE student_id=? AND exam_type=? ORDER BY id DESC', [studentId, req.query.type]);
+      const exams = await Promise.all(rows.map(row => loadPassingExam(db(), row.id)));
+      res.set('Cache-Control', 'no-store').json({ parts, exams });
     } catch (error) { next(error); }
   });
   router.get('/', access, async (req, res, next) => {

@@ -47,8 +47,17 @@ test('hafiz includes only fully covered juz and rejects gaps or partial memoriza
   assert.deepEqual(buildPassingParts(ayahs, [{ startSurah: 2, startAyah: 1, endSurah: 2, endAyah: 5 }], 'hafiz').map(part => part.juzNumber), [1]);
   assert.deepEqual(buildPassingParts(ayahs, [{ startSurah: 2, startAyah: 1, endSurah: 2, endAyah: 2 }, { startSurah: 2, startAyah: 3, endSurah: 2, endAyah: 4 }], 'hafiz')[0].ranges.map(range => [range.startAyah, range.endAyah]), [[1, 4]]);
   assert.deepEqual(buildPassingParts(ayahs, [], 'hafiz'), []);
-  assert.deepEqual(buildPassingParts(ayahs, ranges, 'branch', 1)[0].ranges.map(range => [range.startAyah, range.endAyah]), [[1, 4]]);
+  assert.deepEqual(buildPassingParts(ayahs, ranges, 'branch', 1), []);
   assert.deepEqual(buildPassingParts(ayahs, [{ startSurah: 2, startAyah: 8, endSurah: 2, endAyah: 5 }], 'hafiz')[0].ranges.map(range => [range.startAyah, range.endAyah]), [[5, 8]]);
+});
+
+test('branch passing requires complete saved coverage and selects one eligible juz', () => {
+  const ayahs = Array.from({ length: 8 }, (_, index) => ({ surah: 2, surahName: 'البقرة', ayah: index + 1, page: 2, juz: index < 4 ? 1 : 2 }));
+  const ranges = [{ startSurah: 2, startAyah: 1, endSurah: 2, endAyah: 3 }, { startSurah: 2, startAyah: 5, endSurah: 2, endAyah: 8 }];
+  assert.deepEqual(buildPassingParts(ayahs, ranges, 'branch').map(part => part.juzNumber), [2]);
+  assert.deepEqual(buildPassingParts(ayahs, ranges, 'branch', 1), []);
+  assert.deepEqual(buildPassingParts(ayahs, ranges, 'branch', 2).map(part => part.juzNumber), [2]);
+  assert.deepEqual(buildPassingParts(ayahs, [], 'branch', 2), []);
 });
 test('a good average cannot hide a failed or untested part', () => {
   const passed = { latestAttempt: { result: { passed: true, score: 100 } } };

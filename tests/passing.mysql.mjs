@@ -33,7 +33,8 @@ try {
   pool = await initDatabase(database, { seedDefaultData: false });
   const date = getBusinessDate(), start = shiftDateOnly(date, -10), pauseStart = shiftDateOnly(date, -3);
   const actor = { role: 'manager', id: 1, name: 'Test' };
-  await pool.query("INSERT INTO committees(id,name) VALUES(1,'Own'),(2,'Other')");
+  await pool.query("INSERT INTO complexes(id,name) VALUES(1,'Own complex'),(2,'Other complex')");
+  await pool.query("INSERT INTO committees(id,name,complex_id) VALUES(1,'Own',1),(2,'Other',2)");
   for (const [id, role] of [[7, 'supervisor'], [8, 'admin'], [9, 'admin'], [10, 'reciter'], [11, 'admin']]) {
     await pool.query("INSERT INTO supervisors(id,name,login_number,national_id,phone,job_title,role) VALUES(?,'Test',?,'','','',?)", [id, `passing-${id}`, role]);
   }
@@ -67,11 +68,40 @@ try {
     return { status: response.status, body: await response.json() };
   };
   const ok = response => { assert.ok(response.status < 300, JSON.stringify(response)); return response.body; };
+  const approvedJuz = async (studentId, juz) => {
+    const ayahs = (await readQuranRange(pool, 1, 604)).filter(row => row.juz === juz);
+    const first = ayahs[0], last = ayahs.at(-1);
+    const [result] = await pool.query(`INSERT INTO student_quran_tasks(plan_id,student_id,task_date,task_type,from_page,to_page,
+      from_surah,from_ayah,to_surah,to_ayah,teacher_completed,student_status)
+      VALUES(?,?,?,'memorization',?,?,?,?,?,?,1,'done')`, [studentId, studentId, shiftDateOnly(start,-1),first.page,last.page,first.surah,first.ayah,last.surah,last.ayah]);
+    return result.insertId;
+  };
   for (const [role, id] of [[null, 1], ['student', 3], ['admin', 9], ['reciter', 10]]) assert.equal((await call('/passing?type=branch', undefined, role, id)).status, 403);
-  assert.equal(ok(await call('/passing/students', undefined, 'supervisor', 7)).length, 1);
+  const ownStudents = ok(await call('/passing/students', undefined, 'supervisor', 7));
+  assert.equal(ownStudents.length, 1);
+  assert.deepEqual([ownStudents[0].committeeId,ownStudents[0].complexId,ownStudents[0].complexName],[1,1,'Own complex']);
   assert.equal(ok(await call('/passing/students', undefined, 'admin', 8)).length, 2);
   assert.equal((await call('/passing', { studentId: 4, type: 'branch', juz: 1 }, 'supervisor', 7)).status, 403);
   assert.equal((await call('/passing', { studentId: 4, type: 'hafiz' })).status, 422);
+  for (const [role,id] of [[null,1],['student',3],['admin',9],['reciter',10]]) {
+    assert.equal((await call('/passing/students/3/parts?type=branch',undefined,role,id)).status,403);
+  }
+  assert.equal((await call('/passing/students/4/parts?type=branch',undefined,'supervisor',7)).status,403);
+  assert.equal((await call('/passing/students/999/parts?type=branch')).status,404);
+  assert.equal((await call('/passing/students/3/parts?type=invalid')).status,422);
+  assert.equal((await call('/passing/students/no-id/parts?type=branch')).status,422);
+  assert.deepEqual(ok(await call('/passing/students/3/parts?type=branch')).parts,[],'prior memorization is not current-plan memorization');
+  assert.deepEqual(ok(await call('/passing/students/3/parts?type=hafiz')).parts.map(part=>part.juzNumber),[1,2]);
+  assert.equal((await call('/passing',{studentId:3,type:'branch',juz:1})).status,422,'direct creation cannot use prior memorization');
+  const approvedTask = await approvedJuz(3,1);
+  await pool.query('UPDATE student_quran_tasks SET teacher_completed=0 WHERE id=?',[approvedTask]);
+  assert.deepEqual(ok(await call('/passing/students/3/parts?type=branch')).parts,[],'unapproved tasks are excluded');
+  await pool.query('UPDATE student_quran_tasks SET teacher_completed=1,actual_to_page=21,actual_to_surah=2,actual_to_ayah=140 WHERE id=?',[approvedTask]);
+  assert.deepEqual(ok(await call('/passing/students/3/parts?type=branch')).parts,[],'actual incomplete completion cannot count the assigned whole juz');
+  await pool.query('UPDATE student_quran_tasks SET actual_to_page=NULL,actual_to_surah=NULL,actual_to_ayah=NULL WHERE id=?',[approvedTask]);
+  assert.deepEqual(ok(await call('/passing/students/3/parts?type=branch')).parts.map(part=>part.juzNumber),[1]);
+  assert.equal((await call('/passing',{studentId:3,type:'branch',juz:2})).status,422,'other full prior parts stay outside the plan');
+  await approvedJuz(4,2); await approvedJuz(4,3);
   for (const juz of [0, 31, '1', 1.5]) assert.equal((await call('/passing', { studentId: 3, type: 'branch', juz })).status, 422);
   assert.equal((await call('/passing/policy', { policy: {} }, 'manager', 1, 'PUT')).status, 422);
   const policy = parsePassingPolicy({});
@@ -150,7 +180,7 @@ try {
   });
   assert.equal(Number((await pool.query('SELECT COUNT(*) AS count FROM student_quran_tasks WHERE student_id=3 AND task_date>=?', [pauseStart]))[0][0].count), 0);
   await expireQuranTasks(pool, date);
-  assert.deepEqual((await pool.query("SELECT student_id AS studentId,student_status AS status FROM student_quran_tasks WHERE task_type='memorization' ORDER BY student_id"))[0].map(row => [Number(row.studentId), row.status]), [[3, 'pending'], [4, 'not_done']]);
+  assert.deepEqual((await pool.query("SELECT student_id AS studentId,student_status AS status FROM student_quran_tasks WHERE task_type='memorization' AND COALESCE(teacher_completed,0)=0 ORDER BY student_id"))[0].map(row => [Number(row.studentId), row.status]), [[3, 'pending'], [4, 'not_done']]);
   const [study] = await pool.query(`SELECT s.id, ${studyDateSql('d.date', 's.id')} AS study, ${studyWeekSql('d.date', 's.id')} AS weekStudy FROM students s CROSS JOIN (SELECT ? AS date) d ORDER BY s.id`, [date]);
   assert.deepEqual(study.map(row => Number(row.study)), [0, 1]);
   assert.deepEqual(study.map(row => Number(row.weekStudy)), [0, 1]);
@@ -259,11 +289,30 @@ try {
   assert.equal((await call(`/passing/parts/${partialPart.id}/attempts`,attempt())).status,422);
   assert.equal((await loadPassingExam(pool,branch.id)).parts[0].latestAttempt.rehifzStatus,'completed');
   await pool.query("INSERT INTO students(id,name,login_number,national_id,guardian_phone,committee_id) VALUES(5,'No plan','passing-5','','',1)");
-  const noPlan=ok(await call('/passing',{studentId:5,type:'branch',juz:1}));
+  assert.equal((await call('/passing',{studentId:5,type:'branch',juz:1})).status,422,'a plan is required for branch passing');
+  await pool.query('INSERT INTO student_quran_prior_memorization(student_id,start_page,start_surah,start_ayah,end_page,end_surah,end_ayah) VALUES(5,1,1,1,21,2,141)');
+  const noPlan=ok(await call('/passing',{studentId:5,type:'hafiz'}));
   const noPlanPart=noPlan.parts[0].id;
   const noPlanAttempt=ok(await call(`/passing/parts/${noPlanPart}/attempts`,attempt())).result.attemptId;
   assert.equal((await call(`/passing/parts/${noPlanPart}/rehifz`,{attemptId:noPlanAttempt,repeat:true})).status,422);
   ok(await call(`/passing/parts/${noPlanPart}/rehifz`,{attemptId:noPlanAttempt,repeat:false}));
+  await pool.query('UPDATE student_quran_tasks SET teacher_completed=0 WHERE id=?',[approvedTask]);
+  const [[legacy]] = await pool.query('SELECT id FROM student_passing_exams WHERE student_id=3 AND exam_type=\'branch\' LIMIT 1');
+  const [legacyPart] = await pool.query('INSERT INTO student_passing_parts(exam_id,juz_number,ranges_json) VALUES(?,2,?)',[legacy.id,JSON.stringify(hafiz.parts[1].ranges)]);
+  assert.equal((await call(`/passing/parts/${legacyPart.insertId}/attempts`,attempt())).status,422,'old unrestricted branch records cannot bypass plan eligibility');
+  await pool.query("INSERT INTO student_quran_plans(id,student_id,start_page,end_page,start_surah,start_ayah,end_surah,end_ayah,next_memorization_page,next_review_page,status) VALUES(7,4,1,604,1,1,114,6,1,1,'paused')");
+  assert.deepEqual(ok(await call('/passing/students/4/parts?type=branch')).parts,[],'a paused replacement must not revive the older plan');
+  await pool.query("UPDATE student_quran_plans SET status='active' WHERE id=7");
+  assert.deepEqual(ok(await call('/passing/students/4/parts?type=branch')).parts,[],'historic approvals in a replaced plan are excluded');
+  assert.equal((await call(`/passing/parts/${foreign.parts[0].id}/attempts`,attempt())).status,422,'direct attempts enforce the current plan too');
+  await pool.query("INSERT INTO students(id,name,login_number,national_id,guardian_phone,committee_id) VALUES(6,'Descending','passing-6','','',1)");
+  const descendingEnd = (await readQuranRange(pool,1,604)).find(row=>row.surah===78 && row.ayah===40);
+  await pool.query("INSERT INTO student_quran_plans(id,student_id,start_page,end_page,start_surah,start_ayah,end_surah,end_ayah,next_memorization_page,next_review_page,status) VALUES(6,6,604,?,114,1,78,40,604,604,'active')",[descendingEnd.page]);
+  const [descending] = await pool.query(`INSERT INTO student_quran_tasks(plan_id,student_id,task_date,task_type,from_page,to_page,
+    from_surah,from_ayah,to_surah,to_ayah,teacher_completed,student_status) VALUES(6,6,?,'memorization',604,?,114,1,78,40,1,'done')`,[start,descendingEnd.page]);
+  assert.deepEqual(ok(await call('/passing/students/6/parts?type=branch')).parts.map(part=>part.juzNumber),[30],'descending traversal preserves whole surahs');
+  await pool.query('UPDATE student_quran_tasks SET actual_to_surah=78,actual_to_ayah=39 WHERE id=?',[descending.insertId]);
+  assert.deepEqual(ok(await call('/passing/students/6/parts?type=branch')).parts,[],'one missing ayah still makes a juz incomplete');
   globalThis.console.log('Passing MySQL/HTTP: roles/scope, full-juz enforcement, policies/history, real Mushaf marks, idempotent decisions, whole-juz re-hifz/daily amounts, fresh approvals/cursor preservation, forecasts/previews, pauses and resumption passed.');
 } finally {
   await new Promise(resolve => server ? server.close(resolve) : resolve());

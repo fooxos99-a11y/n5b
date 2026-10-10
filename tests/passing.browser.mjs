@@ -18,6 +18,13 @@ try {
     let globalPause = { paused: false, revision: 0, canManage: true }, individualPause = { ...globalPause };
     const range = { startPage: 1, startSurah: 1, startAyah: 1, startSurahName: 'الفاتحة', endPage: 21, endSurah: 2, endAyah: 141, endSurahName: 'البقرة' };
     const exams = { branch: [], hafiz: [] };
+    const students = [
+      { id: 3, name: 'طالب الاجتياز', committeeId: 1, committeeName: 'الحلقة الأولى', complexId: 1, complexName: 'المجمع الأول' },
+      { id: 4, name: 'طالب آخر', committeeId: 2, committeeName: 'الحلقة الثانية', complexId: 2, complexName: 'المجمع الثاني' },
+      { id: 5, name: 'طالب الحلقة الثالثة', committeeId: 3, committeeName: 'الحلقة الثالثة', complexId: 1, complexName: 'المجمع الأول' },
+    ];
+    const eligible = type => (type === 'branch' ? [1, 3] : [1, 2, 3]).map(juzNumber => ({ juzNumber,
+      ranges: [juzNumber === 1 ? range : { ...range, startPage: 22, startSurah: 2, startAyah: 142, startSurahName: 'البقرة', endPage: 41, endAyah: 252 }] }));
     await page.addInitScript(() => {
       globalThis.localStorage.setItem('wajeh_role', 'manager'); globalThis.localStorage.setItem('nukhab_web_session', '1');
       globalThis.localStorage.setItem('wajeh_name', 'المدير');
@@ -32,13 +39,17 @@ try {
       if (path === '/dashboard-bootstrap') body = { settings: { staffAttendanceSource: 'supervisor' }, permissions: [] };
       if (path === '/notifications/unread-count') body = { count: 0 };
       if (path === '/passing/policy') { if (method === 'PUT') policy = payload.policy; body = { policy }; }
-      if (path === '/passing/students') body = [{ id: 3, name: 'طالب الاجتياز', committeeName: 'الحلقة الأولى' }];
+      if (path === '/passing/students') body = students;
+      if (/^\/passing\/students\/\d+\/parts$/.test(path)) {
+        const type = url.searchParams.get('type');
+        body = { parts: path.includes('/3/') ? eligible(type) : [], exams: exams[type] };
+      }
       if (path === '/passing') {
         if (method === 'GET') body = exams[url.searchParams.get('type')];
         else {
           const type = payload.type;
           const exam = { id: type === 'branch' ? 1 : 2, type, studentId: 3, studentName: 'طالب الاجتياز', committeeName: 'الحلقة الأولى', createdAt: '2026-10-09T10:00:00', status: 'pending',
-            parts: (type === 'branch' ? [1] : [1, 2]).map(juzNumber => ({ id: juzNumber + (type === 'branch' ? 10 : 20), juzNumber,
+            parts: (type === 'branch' ? [payload.juz] : [1, 2, 3]).map(juzNumber => ({ id: juzNumber + (type === 'branch' ? 10 : 20), juzNumber,
               ranges: [juzNumber===1 ? range : { ...range,startPage:22,startSurah:2,startAyah:142,startSurahName:'البقرة',endPage:41,endAyah:252 }], attempts: [], latestAttempt: null })) };
           exams[type].unshift(exam); body = exam; status = 201;
         }
@@ -90,22 +101,43 @@ try {
       }
     };
     await page.goto(`${base}/dashboard/passing`);
-    await page.getByRole('button', { name: 'اجتياز جديد', exact: true }).waitFor();
+    await page.getByRole('button', { name: 'اختبار طالب الاجتياز', exact: true }).waitFor();
+    assert.equal(await page.getByRole('button', { name: 'اجتياز جديد', exact: true }).count(), 0);
+    assert.equal(await page.getByRole('searchbox').count(), 0);
+    for (const label of ['المجمع', 'الحلقة', 'الطالب']) assert.equal(await page.getByRole('combobox', { name: label, exact: true }).innerText(), 'الكل');
+    const filter = async (label, option) => {
+      await page.getByRole('combobox', { name: label, exact: true }).click();
+      await page.getByRole('option', { name: option, exact: true }).click();
+    };
+    await filter('المجمع', 'المجمع الأول');
+    assert.equal(await page.getByRole('button', { name: 'اختبار طالب آخر', exact: true }).count(), 0);
+    await filter('الحلقة', 'الحلقة الأولى');
+    assert.equal(await page.getByRole('button', { name: 'اختبار طالب الحلقة الثالثة', exact: true }).count(), 0);
+    await filter('الطالب', 'طالب الاجتياز');
+    await filter('المجمع', 'المجمع الثاني');
+    assert.equal(await page.getByRole('combobox', { name: 'الحلقة', exact: true }).innerText(), 'الكل');
+    assert.equal(await page.getByRole('combobox', { name: 'الطالب', exact: true }).innerText(), 'الكل');
+    await page.getByRole('button', { name: 'اختبار طالب آخر', exact: true }).click();
+    await page.getByText('لم يُكمل الطالب جزءًا كاملًا معتمدًا ضمن خطته.', { exact: true }).waitFor();
+    await noOverflow();
+    await page.getByRole('dialog').getByRole('button', { name: 'إغلاق', exact: true }).click();
+    await filter('المجمع', 'الكل');
     await noOverflow();
     const create = async () => {
-      await page.getByRole('button', { name: 'اجتياز جديد', exact: true }).click();
-      await page.getByRole('combobox', { name: 'الطالب', exact: true }).click();
-      await page.getByRole('option', { name: /طالب الاجتياز/ }).click();
-      await page.getByRole('button', { name: 'إنشاء الاجتياز', exact: true }).click();
+      await page.getByRole('button', { name: 'اختبار طالب الاجتياز', exact: true }).click();
       await page.getByRole('button', { name: 'بدء تسميع الجزء', exact: true }).first().waitFor();
     };
     await create(); await noOverflow();
+    assert.equal(exams.branch.length, 0, 'opening parts does not create an exam');
+    assert.equal(await page.getByRole('region', { name: 'الجزء 2', exact: true }).count(), 0, 'branch excludes prior memorization outside the plan');
+    assert.equal(await page.getByRole('button', { name: 'بدء تسميع الجزء', exact: true }).count(), 2);
     const count = async label => {
       await page.getByRole('button', { name: label, exact: true }).first().click();
       await page.getByRole('button', { name: 'تسجيل عدد الأخطاء والتنبيهات', exact: true }).click();
       await page.getByRole('spinbutton', { name: 'عدد الأخطاء', exact: true }).waitFor();
     };
     await count('بدء تسميع الجزء');
+    assert.deepEqual(exams.branch[0].parts.map(part => part.juzNumber), [1], 'one branch juz per exam');
     const mistakes = page.getByRole('spinbutton', { name: 'عدد الأخطاء', exact: true });
     await mistakes.fill('4'); failSave = true;
     await page.getByRole('button', { name: 'حفظ النتيجة', exact: true }).click();
@@ -122,7 +154,7 @@ try {
     assert.equal(exams.branch[0].parts[0].attempts.length,1,'decision error never resubmits result');
     // Refresh keeps the recorded result and offers the pending choice again.
     await page.reload();
-    await page.getByRole('button',{ name:'فتح الاجتياز',exact:true }).click();
+    await page.getByRole('button',{ name:'اختبار طالب الاجتياز',exact:true }).click();
     await page.getByRole('button',{ name:'تحديد إعادة الحفظ',exact:true }).click();
     failDecision=false;
     await page.getByRole('button',{ name:'إبقاء الخطة',exact:true }).click();
@@ -140,12 +172,14 @@ try {
     assert.equal(await page.getByRole('button', { name: 'إعادة تسميع الجزء', exact: true }).count(), 0);
     await page.getByRole('dialog').getByRole('button', { name: 'إغلاق', exact: true }).click();
     await page.getByRole('button', { name: 'اجتياز حافظ', exact: true }).click(); await create();
-    assert.equal(await page.getByRole('button', { name: 'بدء تسميع الجزء', exact: true }).count(), 2);
-    await page.getByRole('button', { name: 'تقرير الجزء', exact: true }).last().click();
+    assert.equal(await page.getByRole('button', { name: 'بدء تسميع الجزء', exact: true }).count(), 3);
+    assert.equal(exams.hafiz.length, 0, 'hafiz is created on the first selected part');
+    await page.getByRole('button', { name: 'تقرير الجزء', exact: true }).nth(1).click();
     await page.getByText('لم يبدأ تسميع هذا الجزء.', { exact: true }).waitFor();
     await page.getByRole('dialog', { name: 'تقرير الجزء 2', exact: true }).getByRole('button', { name: 'إغلاق', exact: true }).click();
     await page.getByRole('dialog', { name: 'تقرير الجزء 2', exact: true }).waitFor({ state: 'hidden' });
-    await page.getByRole('button', { name: 'بدء تسميع الجزء', exact: true }).last().click();
+    await page.getByRole('button', { name: 'بدء تسميع الجزء', exact: true }).nth(1).click();
+    assert.deepEqual(exams.hafiz[0].parts.map(part => part.juzNumber), [1, 2, 3], 'hafiz includes the full memorized scope');
     await page.getByRole('button', { name: 'المصحف', exact: true }).click();
     await page.getByText('تعذر تحميل المصحف التجريبي', { exact: false }).first().waitFor();
     await noOverflow();
@@ -189,6 +223,6 @@ try {
     await page.getByRole('button', { name: 'استئناف الخطة — طالب الاجتياز', exact: true }).waitFor();
     assert.ok(individualPause.paused); await noOverflow(); assert.deepEqual(errors, []);
     await page.close();
-    globalThis.console.log(`Passing dashboard/settings/plans: tabs, part reports, retry/error retention, policy independence/overrides, invalid draft, global/individual pause, RTL overflow passed at ${width}px.`);
+    globalThis.console.log(`Passing dashboard/settings/plans: dependent complex/circle/student filters, student test icons, plan-only parts, single-part selection, full hafiz scope, reports, retry/error retention, policy independence/overrides, invalid draft, global/individual pause, RTL overflow passed at ${width}px.`);
   }
 } finally { await browser.close(); }
