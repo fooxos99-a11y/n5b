@@ -57,7 +57,6 @@ export default function PassingSettingsPanel({ onStatusChange }) {
     </SettingsGroup>
     <SettingsGroup>
       <PassingPolicyFields {...{ value, errors, path, onChange: update }} />
-      <p className="text-xs leading-6 text-muted-foreground">يجتاز الجزء عند بلوغ حد الاجتياز وعدم تجاوز الحدود المفعّلة. الإعدادات الجديدة تُطبّق على المحاولات التالية.</p>
       {juz !== 'all' && <Button variant="outline" disabled={!policy[type].juzOverrides[juz]} onClick={() => {
         setEdited(true); setPolicy(current => { const overrides = { ...current[type].juzOverrides }; delete overrides[juz];
           return { ...current, [type]: { ...current[type], juzOverrides: overrides } }; });

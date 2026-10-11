@@ -106,9 +106,13 @@ try {
   assert.equal((await call('/passing/policy', { policy: {} }, 'manager', 1, 'PUT')).status, 422);
   const policy = parsePassingPolicy({});
   policy.hafiz.mistakeDeduction = 10;
+  Object.assign(policy.hafiz, { maxMistakes: 0, maxWarnings: 0, maxHesitations: 0 });
   policy.branch.juzOverrides[1] = { ...policy.branch, juzOverrides: undefined, maxWarnings: 1 };
   assert.equal((await call('/passing/policy', { policy }, 'admin', 8, 'PUT')).status, 403);
   ok(await call('/passing/policy', { policy }, 'manager', 1, 'PUT'));
+  assert.doesNotMatch(JSON.stringify(ok(await call('/passing/policy'))), /maxMistakes|maxWarnings|maxHesitations/, 'saving legacy settings removes separate caps');
+  await pool.query('UPDATE app_settings SET setting_value=? WHERE setting_key=?', [JSON.stringify(policy), 'passingPolicy']);
+  assert.doesNotMatch(JSON.stringify(ok(await call('/passing/policy'))), /maxMistakes|maxWarnings|maxHesitations/, 'stored legacy caps are ignored without a migration');
   const branch = ok(await call('/passing', { studentId: 3, type: 'branch', juz: 1 }, 'supervisor', 7));
   assert.equal(branch.parts.length, 1);
   assert.equal(branch.parts[0].ranges[0].startSurah, 1);
@@ -127,10 +131,12 @@ try {
   assert.equal((await call(`/passing/parts/${foreign.parts[0].id}/attempts`, attempt(), 'supervisor', 7)).status, 403);
   assert.equal((await call(`/passing/parts/${foreign.parts[0].id}/segments/0/mushaf`, undefined, 'supervisor', 7)).status, 403);
   for (const mistakeCount of [-1, 1.5, '1', 1001]) assert.equal((await call(`/passing/parts/${partId}/attempts`, attempt({ mistakeCount }))).status, 422);
-  const failAttempt = attempt({ warningCount: 2 });
+  const failAttempt = attempt({ mistakeCount: 2, warningCount: 6, hesitationCount: 10 });
   const both = await Promise.all([call(`/passing/parts/${partId}/attempts`, failAttempt), call(`/passing/parts/${partId}/attempts`, failAttempt)]);
   assert.deepEqual(ok(both[0]), ok(both[1]));
-  assert.equal(both[0].body.result.passed, false, 'count limit can fail despite passing score');
+  assert.equal(both[0].body.result.passed, false, 'combined deductions exceed the allowed grade margin');
+  assert.equal(both[0].body.result.score, 84);
+  assert.deepEqual(both[0].body.result.reasons, ['الدرجة أقل من حد الاجتياز']);
   let latest = await loadPassingExam(pool, branch.id);
   assert.equal(latest.parts[0].attempts.length, 1);
   assert.equal((await call(`/passing/parts/${partId}/attempts`, attempt())).status, 409, 'stale attempt guard');
@@ -144,6 +150,7 @@ try {
   latest = await loadPassingExam(pool, branch.id);
   assert.equal(latest.status, 'passed');
   assert.deepEqual(latest.parts[0].attempts.map(row => row.policy.mistakeDeduction), [2, 5]);
+  assert.equal(latest.parts[0].attempts[1].result.score, 84, 'later settings preserve recorded results');
   assert.equal((await call(`/passing/parts/${partId}/attempts`, attempt({ previousAttemptId: latest.parts[0].latestAttempt.id }))).status, 409);
   // Real Mushaf payload and production word normalization: injected counts/text must not win.
   const mushafPart = hafiz.parts[0];
@@ -189,7 +196,9 @@ try {
   ok(await call('/pause', { paused: true, revision: 0 }, 'manager', 1, 'PUT'));
   ok(await call('/pause', { paused: false, revision: 1 }, 'manager', 1, 'PUT'));
   assert.equal((await loadStudentPlanPause(pool, 3)).periods.at(-1).endDate, null);
-  assert.equal(ok(await call(`/passing/parts/${otherPart.id}/attempts`, attempt())).result.passed, true, 'passing remains allowed during pause');
+  const boundary = ok(await call(`/passing/parts/${otherPart.id}/attempts`, attempt({ warningCount: 15, hesitationCount: 100 }))).result;
+  assert.equal(boundary.passed, true, 'the exact grade boundary passes despite old caps and a paused plan');
+  assert.equal(boundary.score, 85);
   assert.equal((await loadPassingExam(pool, hafiz.id)).status, 'passed');
   const latestOther = (await loadPassingExam(pool, hafiz.id)).parts[1].latestAttempt;
   const decisionPath = `/passing/parts/${otherPart.id}/rehifz`;

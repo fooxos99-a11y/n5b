@@ -6,15 +6,16 @@ export const PASSING_FIELDS = Object.freeze([
   { key: 'mistakeDeduction', label: 'خصم الخطأ/اللحن', min: 0, max: 1000 },
   { key: 'warningDeduction', label: 'خصم التنبيه', min: 0, max: 1000 },
   { key: 'hesitationDeduction', label: 'خصم التردد', min: 0, max: 1000 },
-  { key: 'maxMistakes', label: 'الحد الأقصى للأخطاء/اللحون', min: 0, max: 1000, optional: true },
-  { key: 'maxWarnings', label: 'الحد الأقصى للتنبيهات', min: 0, max: 1000, optional: true },
-  { key: 'maxHesitations', label: 'الحد الأقصى للترددات', min: 0, max: 1000, optional: true },
 ]);
 const defaults = Object.freeze({ maxScore: 100, passScore: 85, mistakeDeduction: 5, warningDeduction: 1,
-  hesitationDeduction: 0, maxMistakes: null, maxWarnings: null, maxHesitations: null });
+  hesitationDeduction: 0 });
+const policyFields = row => Object.fromEntries(PASSING_FIELDS.filter(({ key }) => row && Object.hasOwn(row, key)).map(({ key }) => [key, row[key]]));
 export function parsePassingPolicy(value) {
   const source = typeof value === 'string' ? JSON.parse(value) : value || {};
-  return Object.fromEntries(Object.keys(PASSING_TYPES).map(type => [type, { ...defaults, ...source[type], juzOverrides: source[type]?.juzOverrides || {} }]));
+  return Object.fromEntries(Object.keys(PASSING_TYPES).map(type => [type, {
+    ...defaults, ...policyFields(source[type]),
+    juzOverrides: Object.fromEntries(Object.entries(source[type]?.juzOverrides || {}).map(([juz, override]) => [juz, policyFields(override)])),
+  }]));
 }
 export function passingPolicyErrors(policy) {
   const errors = {};
@@ -24,8 +25,7 @@ export function passingPolicyErrors(policy) {
     const validate = (row, path) => {
       for (const field of PASSING_FIELDS) {
         const value = row[field.key];
-        if (field.optional && value === null) continue;
-        if (typeof value !== 'number' || !Number.isFinite(value) || value < field.min || value > field.max || (field.optional && !Number.isInteger(value))) {
+        if (typeof value !== 'number' || !Number.isFinite(value) || value < field.min || value > field.max) {
           errors[`${path}.${field.key}`] = `أدخل ${field.label} من ${field.min} إلى ${field.max}.`;
         }
       }
@@ -50,9 +50,6 @@ export function evaluatePassingPart(policy, { mistakeCount = 0, warningCount = 0
     - warningCount * policy.warningDeduction - hesitationCount * policy.hesitationDeduction) * 10000) / 10000;
   const reasons = [];
   if (score < policy.passScore) reasons.push('الدرجة أقل من حد الاجتياز');
-  for (const [count, limit, label] of [[mistakeCount, policy.maxMistakes, 'الأخطاء/اللحون'], [warningCount, policy.maxWarnings, 'التنبيهات'], [hesitationCount, policy.maxHesitations, 'الترددات']]) {
-    if (limit !== null && count > limit) reasons.push(`تجاوز الحد الأقصى لـ${label}`);
-  }
   return { score, maxScore: policy.maxScore, passed: reasons.length === 0, reasons, mistakeCount, warningCount, hesitationCount };
 }
 export function passingExamStatus(parts) {

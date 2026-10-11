@@ -193,6 +193,8 @@ try {
     assert.equal(await page.getByRole('button', { name: /^تقرير الجزء/ }).count(), 1, 'only the recited part has a report');
     await page.goto(`${base}/dashboard/settings-passing`);
     await page.getByRole('spinbutton', { name: 'حد الاجتياز', exact: true }).waitFor();
+    assert.equal(await page.getByRole('spinbutton').count(), 5);
+    assert.equal(await page.getByText(/الحد الأقصى للأخطاء|الحد الأقصى للتنبيهات|الحد الأقصى للترددات|يجتاز الجزء عند/).count(), 0);
     const savePolicy = () => page.waitForResponse(response => response.url().includes('/passing/policy') && response.request().method() === 'PUT');
     let saved = savePolicy(); await page.getByRole('spinbutton', { name: 'حد الاجتياز', exact: true }).fill('90'); await saved;
     await page.getByRole('combobox', { name: 'نوع الاجتياز', exact: true }).click();

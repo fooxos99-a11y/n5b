@@ -1,4 +1,3 @@
-import { formatHijriDate, formatHijriDateTime } from '../../../../shared/hijri-calendar.js';
 import {
   BookMarked, Building2, CalendarCheck2, CalendarRange, GraduationCap, PlusCircle, Route,
 } from 'lucide-react';
@@ -358,18 +357,6 @@ export function buildReportMetrics(overview, {
       studentLevelsMetric(overview, inCommittee),
       committeesCountMetric(overview, inCommittee),
     );
-    const compensations = (grades.compensations || []).filter(row => inCommittee(row.committeeName));
-    if (compensations.length) metrics.push({ id: 'compensations', label: 'التعويضات', icon: CalendarCheck2,
-      color: METRIC_COLORS.weeklyProgram, ...countMetric(compensations.filter(row => !row.cancelledAt).length),
-      tiles: [countTile('التعويضات المعتمدة', compensations.filter(row => !row.cancelledAt).length), countTile('التعويضات الملغاة', compensations.filter(row => row.cancelledAt).length)], bars: [],
-      records: [{ title: 'سجل التعويض', rows: compensations.map(row => ({ label: row.studentName,
-        note: `${row.committeeName || 'بدون حلقة'} · ${row.scope === 'track' ? 'جلسة المسار' : 'البرنامج الأسبوعي'}`,
-        value: row.cancelledAt ? 'ملغى' : 'تعويض', stats: [
-          { label: 'اليوم المعوض', value: formatHijriDate(row.date) }, { label: 'نفذه', value: row.actorName },
-          { label: 'وقت التسجيل', value: formatHijriDateTime(row.recordedAt) }, { label: 'مرجع الاستئذان', value: row.excuseReference },
-          ...(row.cancelledAt ? [{ label: 'ألغاه', value: row.cancelledByName }, { label: 'سبب الإلغاء', value: row.cancellationReason }] : []),
-        ] })) }],
-    });
   }
   if (showTeacherPoints) metrics.push(teacherPointsMetric(lists.teacherPoints, inCommittee));
   return metrics;
