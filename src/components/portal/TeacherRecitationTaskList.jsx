@@ -86,11 +86,12 @@ const TeacherRecitationTaskList = ({
     });
     return [...map.values()]
       .filter((student) => !onRecite || (onDayCompensated && ['excused', 'absent'].includes(student.attendanceStatus)) || (recitationAttendanceSource === 'teacher' && student.canSetAttendance) || student.readingOnly || readingByStudent.has(String(student.studentId)) || isRecitationAttendanceVisible(student.attendanceStatus, recitationAttendanceSource === 'teacher' && student.canSetAttendance))
-      // A student stays listed while the day's self reading is still to be recorded.
+      // Keep completed students available for missed-day compensation and self reading.
       .filter((student) => !onRecite || (onDayCompensated && ['excused', 'absent'].includes(student.attendanceStatus)) || shouldShowRecitationStudent(student, student.tasks, taskQueue)
+        || (onOpenCompensation && student.hasCompensation)
         || readingByStudent.get(String(student.studentId))?.status === null)
       .map((student) => ({ ...student, tasks: sortRecitationTasks(student.tasks) }));
-  }, [students, tasks, taskQueue, teacherAttendanceMode, recitationAttendanceSource, onRecite, onDayCompensated, readingByStudent]);
+  }, [students, tasks, taskQueue, teacherAttendanceMode, recitationAttendanceSource, onRecite, onDayCompensated, onOpenCompensation, readingByStudent]);
 
   if (isLoading) return <DashboardLoader />;
   if (grouped.length === 0) {

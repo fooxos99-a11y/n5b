@@ -52,7 +52,7 @@ export async function getReviewStartForDate(connection, plan, date) {
       teacher_completed AS teacherCompleted, student_status AS studentStatus,
       review_execution_json AS reviewExecution, execution_state AS executionState, executed_at AS executedAt
      FROM student_quran_tasks
-     WHERE plan_id = ? AND task_type = 'review' AND task_date < ?
+     WHERE plan_id = ? AND task_type = 'review' AND compensation_index = 0 AND task_date < ?
      ORDER BY task_date, from_page, id`,
     [plan.id, date],
   );

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { studentsApi } from '@/services/studentsApi';
+import { formatHijriDate } from '../../../shared/hijri-calendar.js';
 
 const Section = ({ title, owed, done, status = '', children }) => (
   <section className="space-y-2 rounded-xl border border-primary/15 bg-background/60 p-3">
@@ -27,9 +28,9 @@ export default function CompensationDialog({ open, onOpenChange, supervisorId, s
   const [busyType, setBusyType] = useState('');
   const studentId = student?.studentId;
 
-  const loadSummary = useCallback(async () => {
+  const loadSummary = useCallback(async ({ preserveError = false } = {}) => {
     if (!studentId) return;
-    setError('');
+    if (!preserveError) setError('');
     try {
       setSummary(await studentsApi.getQuranCompensations(supervisorId, { studentId, date }));
     } catch (loadError) {
@@ -53,7 +54,7 @@ export default function CompensationDialog({ open, onOpenChange, supervisorId, s
       await onRecite?.(student, created.taskIds || []);
     } catch (createError) {
       setError(createError.message || 'تعذر تجهيز التعويض.');
-      void loadSummary();
+      void loadSummary({ preserveError: true });
     } finally {
       setBusyType('');
     }
@@ -108,11 +109,15 @@ export default function CompensationDialog({ open, onOpenChange, supervisorId, s
               )}
             </Section>
             <Section title="المراجعة" owed={review.owed} done={review.done}>
+              {review.owed > 0 && review.sourceDate && <p className="text-xs text-muted-foreground">{`تعويض مراجعة ${formatHijriDate(review.sourceDate)}`}</p>}
               {review.owed > 0 && review.label && (
                 <p className="text-sm">{`${review.pendingTaskIds.length ? 'قيد التسميع' : 'التعويض التالي'}: ${review.label}`}</p>
               )}
               <Blocked text={review.owed ? review.blocked : ''} />
-              {review.owed > 0 && <p className="text-sm text-muted-foreground">تُضاف المراجعة الفائتة إلى مقدار المراجعة في جلسة التسميع.</p>}
+              {review.owed > 0 && <Button type="button" className="min-h-11 w-full text-white hover:text-white"
+                disabled={Boolean(busyType) || Boolean(review.blocked)} onClick={() => void recite('review')}>
+                {busyType === 'review' ? 'جارٍ التجهيز…' : reciteLabel(review.pendingTaskIds)}
+              </Button>}
             </Section>
           </div>
         )}

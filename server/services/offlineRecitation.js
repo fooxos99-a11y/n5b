@@ -3,6 +3,7 @@ import { assertRecitationReplacementCoverage } from './recitationSessionTransact
 import crypto from 'node:crypto';
 import { isUuid, recitationCandidateWins, recitationSessionTypeForTask } from '../../shared/offline-recitation.js';
 import { normalizeMasterySessionIdentity } from './masterySessionIdentity.js';
+import { canRetryReviewCompensation } from './quranReviewCompensations.js';
 
 const MAX_TRUSTED_ELAPSED_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -156,7 +157,8 @@ export async function claimRecitationSession(connection, {
   }
   if (slot.sessionId !== sessionId) {
     const correction = Boolean(req.body.correctionOf);
-    const wins = correction || (!slot.correctionOf && recitationCandidateWins(
+    const compensationRetry = await canRetryReviewCompensation(connection, { req, slot, task, sessionDate, currentPlanVersion });
+    const wins = correction || compensationRetry || (!slot.correctionOf && recitationCandidateWins(
       { sessionId, eventAt: event.eventAt, trusted: event.trusted },
       { sessionId: slot.sessionId, eventAt: String(slot.eventAt || '').slice(0, 23), trusted: Boolean(slot.eventTimeTrusted) },
     ));
@@ -180,7 +182,8 @@ export async function claimRecitationSession(connection, {
       `UPDATE student_quran_recitation_submissions SET status = 'rejected_duplicate',
         rejection_code = ?, rejection_message = ?, resolved_at = NOW(3)
        WHERE session_id = ?`,
-      [correction ? 'TEACHER_CORRECTION' : 'EARLIER_TRUSTED_SESSION', correction ? 'استُبدل بتصحيح مشرف المسار.' : 'وصل تسميع أسبق وفق مرجع الوقت الموثوق.', slot.sessionId],
+      [correction ? 'TEACHER_CORRECTION' : compensationRetry ? 'COMPENSATION_RETRY' : 'EARLIER_TRUSTED_SESSION',
+        correction ? 'استُبدل بتصحيح مشرف المسار.' : compensationRetry ? 'أعيد تسميع التعويض غير المجتاز.' : 'وصل تسميع أسبق وفق مرجع الوقت الموثوق.', slot.sessionId],
     );
     await connection.query(
       `UPDATE student_quran_recitation_attempts SET is_official = 0
@@ -196,7 +199,7 @@ export async function claimRecitationSession(connection, {
       sessionId: slot.sessionId,
       req,
       deviceId,
-      eventType: correction ? 'superseded_by_teacher_correction' : 'superseded_by_earlier_session',
+      eventType: correction ? 'superseded_by_teacher_correction' : compensationRetry ? 'superseded_by_compensation_retry' : 'superseded_by_earlier_session',
       details: { winningSessionId: sessionId, sessionDate },
     });
     await connection.query(

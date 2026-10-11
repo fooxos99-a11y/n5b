@@ -75,6 +75,7 @@ import { buildStudentPlanPoints } from './services/studentPlanPoints.js';
 import { saveStudentAttendance } from './services/studentAttendance.js';
 import { GRADE_POINT_REASONS, narrationGradeDedupeKey, syncGradePoints } from './services/gradePoints.js';
 import { getReviewStartForDate, reviewPagesMatch } from './services/quranReviewSchedule.js';
+import { loadReviewCompensationState, isReviewAmountComplete } from './services/quranReviewCompensations.js';
 import { pickReviewPagesByHizbs, splitPageRangesByHizb } from '../shared/quran-hizbs.js';
 import { DEFAULT_PLAN_READING_FACES, MAX_PLAN_READING_FACES, PLAN_SAVE_MODES } from '../shared/quran-plan-options.js';
 import { createGradingRouter } from './routes/gradingRoutes.js';
@@ -2924,6 +2925,7 @@ async function repairUnevaluatedRevisionTasks(
        t.execution_actor_role AS executionActorRole,
        t.executed_at AS executedAt, t.actual_to_page AS actualToPage, t.evaluated_at AS evaluatedAt,
        t.teacher_completed AS teacherCompleted,
+       t.compensation_days AS compensationDays,
        EXISTS (
          SELECT 1 FROM student_quran_recitation_attempts attempt WHERE attempt.task_id = t.id AND attempt.is_official = 1
        ) AS hasAttempt
@@ -2947,6 +2949,9 @@ async function repairUnevaluatedRevisionTasks(
     && (row.taskType !== 'review' || (!row.executedAt && !row.actualToPage && !row.evaluatedAt && row.executionActorRole == null))
     && !Number(row.hasAttempt)
   );
+  const obsoleteReviewCredits = rows.filter(row => row.taskType === 'review' && Number(row.compensationDays) > 0 && safeToReplace(row)).map(row => row.id);
+  if (obsoleteReviewCredits.length) await connection.query(`UPDATE student_quran_tasks SET compensation_days = 0
+    WHERE id IN (${obsoleteReviewCredits.map(() => '?').join(',')})`, obsoleteReviewCredits);
   const linkRows = rows.filter((row) => row.taskType === 'link');
   const rowMatchesRange = (row, range) => (
     Number(row.fromPage) === Number(range.startPage)
@@ -3076,7 +3081,7 @@ function buildTaskRangePreview(row, referenceMode = 'ayah', endPrefix = 'to') {
   }, referenceMode);
 }
 
-async function insertPlanTask(connection, { plan, date, type, fromPage, toPage, targetPages = null, bounds = null, progress = null, hizbNumber = null, compensationIndex = 0, passingRehifzId = null }) {
+async function insertPlanTask(connection, { plan, date, type, fromPage, toPage, targetPages = null, bounds = null, progress = null, hizbNumber = null, compensationIndex = 0, passingRehifzId = null, compensatedReviewDate = null }) {
   if (!fromPage || !toPage) return;
   const direction = Number(fromPage) <= Number(toPage) ? 1 : -1;
   if (['memorization', 'repeat'].includes(type) && Number(fromPage) !== Number(toPage)) {
@@ -3108,8 +3113,8 @@ async function insertPlanTask(connection, { plan, date, type, fromPage, toPage, 
   await connection.query(
     `
     INSERT IGNORE INTO student_quran_tasks
-      (plan_id, student_id, task_date, task_type, track, compensation_index, from_page, to_page, from_surah, from_ayah, to_surah, to_ayah, target_pages, normal_to_page, normal_to_surah, normal_to_ayah, scheduled_to_page, scheduled_to_surah, scheduled_to_ayah, hizb_number, passing_rehifz_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (plan_id, student_id, task_date, task_type, track, compensation_index, from_page, to_page, from_surah, from_ayah, to_surah, to_ayah, target_pages, normal_to_page, normal_to_surah, normal_to_ayah, scheduled_to_page, scheduled_to_surah, scheduled_to_ayah, hizb_number, passing_rehifz_id, compensated_review_date)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       plan.id,
@@ -3133,6 +3138,7 @@ async function insertPlanTask(connection, { plan, date, type, fromPage, toPage, 
       progress?.scheduledEnd?.ayah || null,
       type === 'review' && hizbNumber ? Number(hizbNumber) : null,
       passingRehifzId,
+      compensatedReviewDate,
     ]
   );
 }
@@ -3540,45 +3546,27 @@ async function ensureStudentPlanTasks(connection, plan, date, settings) {
       minimumDailyPages: plan.reviewMinDailyPages,
     })
     : Number(plan.reviewPages || 20);
-  // Missed review days are added to today's review so the cycle simply continues further.
-  const reviewCompensationDays = reviewEnabledToday && date >= getSaudiDateTimeParts().date
-    ? await getOwedRevisionCompensationDays(connection, plan, date, settings, 'review')
-    : 0;
-  const compensatedReviewPages = targetReviewPages * (1 + reviewCompensationDays);
   const reviewStartPage = await getReviewStartForDate(connection, plan, date);
   const pickedReview = splitReview
-    ? pickAvailablePages(new Set(revisionPages.review), reviewStartPage, compensatedReviewPages)
-    : pickReviewPagesByHizbs(new Set(revisionPages.review), reviewStartPage, (plan.reviewHizbs || 1) * (1 + reviewCompensationDays));
+    ? pickAvailablePages(new Set(revisionPages.review), reviewStartPage, targetReviewPages)
+    : pickReviewPagesByHizbs(new Set(revisionPages.review), reviewStartPage, plan.reviewHizbs || 1);
   const repairedRevisionTasks = await repairUnevaluatedRevisionTasks(
     connection,
-    { planId: plan.id, date, desiredLinkPages: revisionPages.linking, allowedReviewPages: revisionPages.review, desiredLinkRanges: exactLinkRanges, desiredReviewPageCount: splitReview && reviewEnabledToday ? compensatedReviewPages : null, desiredReviewPages: date >= getSaudiDateTimeParts().date && reviewEnabledToday ? pickedReview.pages : null },
+    { planId: plan.id, date, desiredLinkPages: revisionPages.linking, allowedReviewPages: revisionPages.review, desiredLinkRanges: exactLinkRanges, desiredReviewPageCount: splitReview && reviewEnabledToday ? targetReviewPages : null, desiredReviewPages: date >= getSaudiDateTimeParts().date && reviewEnabledToday ? pickedReview.pages : null },
   );
   if (repairedRevisionTasks.removedLink) existingTypes.delete('link');
   if (repairedRevisionTasks.removedReview) existingTypes.delete('review');
   await createMissingLinkTasks({ exactLinkRanges, existingTypes, settings, date, connection, plan });
 
-  const createdReview = !existingTypes.has('review');
   await createMissingReviewTasks({ existingTypes, reviewEnabledToday, pickedReview, connection, plan, date });
-  if (createdReview && reviewCompensationDays > 0) {
-    // Credit only the days the added amount actually covers.
-    const coveredDays = splitReview
-      ? Math.floor(pickedReview.pages.length / Math.max(1, targetReviewPages)) - 1
-      : Math.floor((pickedReview.hizbs || []).length / Math.max(1, Number(plan.reviewHizbs || 1))) - 1;
-    await connection.query(
-      `UPDATE student_quran_tasks SET compensation_days = ?
-       WHERE plan_id = ? AND ${studyDateSql('task_date', 'student_quran_tasks.student_id')} AND task_date = ? AND task_type = 'review' AND compensation_index = 0
-       ORDER BY id ASC LIMIT 1`,
-      [Math.min(reviewCompensationDays, Math.max(0, coveredDays)), plan.id, date],
-    );
-  }
 }
 
 const ACCEPTED_QURAN_TASK_SQL = "(teacher_completed = 1 OR (teacher_completed IS NULL AND student_status = 'done'))";
 
 /** Link or review days due since the plan started that neither the day's task nor a compensation covered. */
-async function getOwedRevisionCompensationDays(connection, plan, date, settings, taskType) {
-  if (!settings?.allowQuranCompensation || !plan?.startDate || !canContinueQuranRevision(plan)) return 0;
-  if (taskType === 'link' && Number(plan.linkPages || 0) <= 0) return 0;
+async function getRevisionCompensationDueDates(connection, plan, date, settings, taskType) {
+  if (!settings?.allowQuranCompensation || !plan?.startDate || !canContinueQuranRevision(plan)) return [];
+  if (taskType === 'link' && Number(plan.linkPages || 0) <= 0) return [];
   // Count only from the first day this task type existed, so a plan with nothing
   // memorized yet does not owe link or review for its opening days.
   const [[first]] = await connection.query(
@@ -3588,7 +3576,7 @@ async function getOwedRevisionCompensationDays(connection, plan, date, settings,
   );
   const fromDate = first?.firstDate && first.firstDate > plan.startDate ? first.firstDate : plan.startDate;
   const endDate = addUtcDays(date, -1);
-  if (!first?.firstDate || fromDate > endDate) return 0;
+  if (!first?.firstDate || fromDate > endDate) return [];
   const scheduleDates = new Set(await planScheduleDates(connection, fromDate, endDate, getStoredPlanScheduleDays(plan, settings), 'workDays', plan.studentId));
   const reviewDays = taskType === 'review' && Number(plan.reviewSplitWeekly || 0)
     ? new Set(getPlanReviewDays(plan, settings))
@@ -3601,6 +3589,11 @@ async function getOwedRevisionCompensationDays(connection, plan, date, settings,
   }
   const [credits] = await connection.query("SELECT DATE_FORMAT(compensated_date, '%Y-%m-%d') AS date FROM student_day_compensations WHERE student_id = ? AND scope = 'program' AND cancelled_at IS NULL AND compensated_date BETWEEN ? AND ?", [plan.studentId, fromDate, endDate]);
   for (const credit of credits) dueDates.delete(credit.date);
+  return [...dueDates].sort();
+}
+
+async function getOwedRevisionCompensationDays(connection, plan, date, settings, taskType) {
+  const dueDates = new Set(await getRevisionCompensationDueDates(connection, plan, date, settings, taskType));
   if (!dueDates.size) return 0;
   const [rows] = await connection.query(
     `SELECT DATE_FORMAT(task_date, '%Y-%m-%d') AS taskDate, compensation_index AS compensationIndex,
@@ -3608,7 +3601,7 @@ async function getOwedRevisionCompensationDays(connection, plan, date, settings,
      FROM student_quran_tasks
      WHERE plan_id = ? AND task_type = ? AND ${studyDateSql('task_date', 'student_quran_tasks.student_id')} AND task_date >= ? AND task_date <= ? AND ${ACCEPTED_QURAN_TASK_SQL}
      GROUP BY task_date, compensation_index`,
-    [plan.id, taskType, fromDate, date],
+    [plan.id, taskType, plan.startDate, date],
   );
   let covered = 0;
   for (const row of rows) {
@@ -3644,9 +3637,6 @@ async function loadCompensationDayRows(connection, plan, date, taskType) {
   );
   return rows;
 }
-
-const isAcceptedQuranTaskRow = (row) => Number(row.teacherCompleted) === 1
-  || (row.teacherCompleted == null && row.studentStatus === 'done');
 
 /** Group compensation rows by their index; a group is pending until the teacher accepts all of it. */
 function summarizeCompensationGroups(rows) {
@@ -3717,11 +3707,22 @@ async function getLinkCompensationState(connection, plan, date, settings) {
 }
 
 async function getReviewCompensationState(connection, plan, date, settings) {
-  const rows = await loadCompensationDayRows(connection, plan, date, 'review');
-  const regular = rows.filter((row) => Number(row.compensationIndex) === 0);
-  const addedDays = regular.reduce((max, row) => Math.max(max, Number(row.compensationDays || 0)), 0);
-  const owed = await getOwedRevisionCompensationDays(connection, plan, date, settings, 'review');
-  return { owed, addedDays, accepted: regular.length > 0 && regular.every(isAcceptedQuranTaskRow) };
+  const dueDates = await getRevisionCompensationDueDates(connection, plan, date, settings, 'review');
+  const state = await loadReviewCompensationState(connection, { plan, date, dueDates });
+  if (state.sourceDate && (!state.ranges.length || state.ranges.some(row => Number(row.compensationDays) > 0))) {
+    const preview = (await previewStudentPlanDay(connection, plan, state.sourceDate, settings, { rebuildReview: true })).filter(row => row.taskType === 'review');
+    const pages = [...new Set(preview.flatMap(row => Array.from({ length: row.toPage - row.fromPage + 1 }, (_, index) => row.fromPage + index)))];
+    state.ranges = [];
+    for (const range of splitPageRangesByHizb(pagesToRanges(pages))) {
+      const first = await getQuranPageBoundaryInDirection(connection, range.fromPage);
+      const last = await getQuranPageBoundaryInDirection(connection, range.toPage);
+      if (first?.start && last?.end) state.ranges.push({ track: plan.track, fromPage: range.fromPage, toPage: range.toPage,
+        fromSurah: first.start.surah, fromAyah: first.start.ayah, toSurah: last.end.surah, toAyah: last.end.ayah,
+        targetPages: range.toPage - range.fromPage + 1, hizbNumber: range.hizb });
+    }
+  }
+  if (state.owed && !state.pending && !state.ranges.length) state.blocked ||= 'لا يوجد مقدار مراجعة متاح لتعويض هذا اليوم.';
+  return state;
 }
 
 /** Resume immediately after carried work while skipping only fully memorized pages. */
@@ -3929,7 +3930,7 @@ async function markCarriedTaskForRetry(task, connection, plan, date) {
   }
 }
 
-async function previewStudentPlanDay(connection, plan, date, settings) {
+async function previewStudentPlanDay(connection, plan, date, settings, { rebuildReview = false } = {}) {
   settings = withStudentPlanPause(settings, plan.studentId);
   if (isStudentStudyHoliday(date, settings)) return [];
   // Preview only: use saved assignments or the same range builders without inserting tasks or advancing cursors.
@@ -3944,10 +3945,10 @@ async function previewStudentPlanDay(connection, plan, date, settings) {
       WHERE attempt.task_id = student_quran_tasks.id AND attempt.is_official = 1) AS hasAttempt
     FROM student_quran_tasks WHERE student_id = ? AND plan_id = ? AND ${studyDateSql('task_date', 'student_quran_tasks.student_id')} AND task_date = ?
       AND task_type IN ('memorization', 'link', 'review') ORDER BY id`, [plan.studentId, plan.id, date]);
-  if (saved.length && (date <= getSaudiDateTimeParts().date || !canContinueQuranRevision(plan))) return normalizeAmounts(saved);
+  if (saved.length && !rebuildReview && (date <= getSaudiDateTimeParts().date || !canContinueQuranRevision(plan))) return normalizeAmounts(saved);
   if (!canContinueQuranRevision(plan) || (plan.startDate && date < plan.startDate)) return [];
   const rehifz = await previewPassingRehifz(connection, { plan, date, buildRange: buildQuranRangeByFaceTarget });
-  if (rehifz && saved.some(task => task.taskType === 'memorization')) return normalizeAmounts(saved);
+  if (!rebuildReview && rehifz && saved.some(task => task.taskType === 'memorization')) return normalizeAmounts(saved);
   const amounts = [];
   const addRange = (type, start, end, faces) => {
     if (!start || !end) return;
@@ -3987,8 +3988,8 @@ async function previewStudentPlanDay(connection, plan, date, settings) {
   const split = Boolean(Number(plan.reviewSplitWeekly || 0));
   const reviewDays = getPlanReviewDays(plan, settings);
   await appendPreviewReviewRanges({ settings, date, split, reviewDays, connection, memorized, linkPages, plan, addRange });
-  const preservedTypes = new Set(saved.filter((row) => row.studentStatus === 'done'
-    || row.teacherCompleted != null || row.executedAt || row.evaluatedAt || row.actualToPage || Number(row.hasAttempt))
+  const preservedTypes = new Set(saved.filter((row) => !(rebuildReview && row.taskType === 'review') && (row.studentStatus === 'done'
+    || row.teacherCompleted != null || row.executedAt || row.evaluatedAt || row.actualToPage || Number(row.hasAttempt)))
     .map((row) => row.taskType));
   return normalizeAmounts([
     ...saved.filter((row) => preservedTypes.has(row.taskType)),
@@ -10388,6 +10389,14 @@ app.get('/api/supervisors/:id/quran-evaluation', async (req, res, next) => {
             AND latest_attempt.is_official = 1
         )
     )`;
+    const pendingReviewCompensationFilter = `(t.task_type = 'review' AND t.compensation_index > 0
+      AND t.task_date = '${date}' AND EXISTS (
+        SELECT 1 FROM student_quran_tasks pending_part
+        WHERE pending_part.plan_id = t.plan_id AND pending_part.task_date = t.task_date
+          AND pending_part.task_type = 'review' AND pending_part.compensation_index = t.compensation_index
+          AND (pending_part.teacher_completed IS NULL OR pending_part.teacher_completed = 0
+            OR pending_part.execution_state = 'partial')
+      ))`;
     const [candidateRows] = await connection.query(
       `
       SELECT
@@ -10502,7 +10511,7 @@ app.get('/api/supervisors/:id/quran-evaluation', async (req, res, next) => {
           OR t.teacher_completed = 0
           OR ${retryableAttemptFilter}
         )
-        AND NOT EXISTS (
+        AND (${pendingReviewCompensationFilter} OR NOT EXISTS (
           SELECT 1
           FROM student_quran_recitation_attempts same_day_attempt
           JOIN student_quran_tasks attempted_task ON attempted_task.id = same_day_attempt.task_id
@@ -10519,7 +10528,7 @@ app.get('/api/supervisors/:id/quran-evaluation', async (req, res, next) => {
             AND COALESCE(attempted_task.to_ayah, 0) = COALESCE(t.to_ayah, 0)
             AND same_day_attempt.is_official = 1
             AND same_day_attempt.session_date = ?
-        )
+        ))
         AND NOT EXISTS (
           SELECT 1
           FROM student_quran_tasks newer
@@ -10538,7 +10547,7 @@ app.get('/api/supervisors/:id/quran-evaluation', async (req, res, next) => {
         )
         AND (t.compensation_index = 0 OR t.task_date = '${date}')
         ${settings.allowQuranCompensation ? `AND (
-          -- With compensation on, missed review days are added to the newest review.
+          -- Older missed reviews are recited from the compensation window after today's review.
           t.task_type <> 'review'
           OR NOT EXISTS (
             SELECT 1 FROM student_quran_tasks newer_review
@@ -11008,6 +11017,7 @@ const rateSupervisorQuranTaskHandler = async (req, res, next) => {
               AND previous_attempt.is_official = 1
               AND previous_attempt.teacher_completed = 1
           )
+          OR (t.task_type = 'review' AND t.compensation_index > 0 AND ?)
         )
         AND NOT EXISTS (
           SELECT 1
@@ -11026,7 +11036,8 @@ const rateSupervisorQuranTaskHandler = async (req, res, next) => {
         )
       FOR UPDATE
       `,
-      [supervisorId, taskId, date, taskEndDate, taskEndDate]
+      [supervisorId, taskId, date, taskEndDate,
+        Boolean(req.recitationTransaction?.superseded && req.recitationSessionTaskIds?.map(Number).includes(taskId)), taskEndDate]
     );
     const rejectInvalidRecitationTaskResult = await rejectInvalidRecitationTask({ task, settings, connection, res, notMemorized });
     if (rejectInvalidRecitationTaskResult) { return rejectInvalidRecitationTaskResult; }
@@ -11061,6 +11072,16 @@ const rateSupervisorQuranTaskHandler = async (req, res, next) => {
     if (rejectInvalidRecitationModeResult) { return rejectInvalidRecitationModeResult; }
     const replyToExistingRecitationAttemptResult = await replyToExistingRecitationAttempt({ requestId, connection, taskId, res });
     if (replyToExistingRecitationAttemptResult) { return replyToExistingRecitationAttemptResult; }
+    if (task.taskType === 'review' && Number(task.compensationIndex) > 0) {
+      const [regularReview] = await connection.query(`SELECT teacher_completed AS teacherCompleted,
+        student_status AS studentStatus, execution_state AS executionState, review_execution_json AS reviewExecution,
+        to_surah AS toSurah, to_ayah AS toAyah, actual_to_surah AS actualToSurah, actual_to_ayah AS actualToAyah
+        FROM student_quran_tasks WHERE plan_id = ? AND task_date = ? AND task_type = 'review' AND compensation_index = 0`, [task.planId, date]);
+      if (!regularReview.length || !regularReview.every(row => isReviewAmountComplete(row, true))) {
+        await connection.rollback();
+        return res.status(409).json({ message: 'سمّع مراجعة اليوم كاملة أولًا، ثم ابدأ التعويض.' });
+      }
+    }
     let normalizedAyahMarks = null;
     let normalizedWordMarks = null;
     ({ mistakeCount, warningCount, hesitationCount } = await saveValidatedRecitationMarks({ ayahMarksPayload, wordMarksPayload, connection, task, normalizedWordMarks, markLimit, normalizedAyahMarks, mistakeCount, warningCount, hesitationCount, taskId, supervisorId }));
@@ -11308,7 +11329,11 @@ async function buildCompensationSummary(connection, { plan, date, settings }) {
     },
     review: {
       owed: review.owed,
-      addedDays: review.addedDays,
+      done: review.done,
+      blocked: review.blocked,
+      pendingTaskIds: pendingIds(review.pending),
+      sourceDate: review.pending?.rows[0].compensatedReviewDate || review.sourceDate,
+      label: (review.pending?.rows || review.ranges).map(range => compensationRangeLabel(range, names)).join('، ثم '),
     },
   };
 }
@@ -11334,7 +11359,7 @@ app.post('/api/supervisors/:id/quran-compensations', async (req, res, next) => {
     if (request.status) return res.status(request.status).json({ message: request.message });
     const { settings, studentId, date, plan } = request;
     const taskType = String(req.body?.taskType || '');
-    if (!['memorization', 'link'].includes(taskType)) {
+    if (!['memorization', 'link', 'review'].includes(taskType)) {
       return res.status(422).json({ message: 'نوع التعويض غير صحيح.' });
     }
     const [[present]] = await connection.query(
@@ -11344,9 +11369,19 @@ app.post('/api/supervisors/:id/quran-compensations', async (req, res, next) => {
     if (!present) return res.status(422).json({ message: 'سجّل حضور الطالب أولاً.' });
     await connection.beginTransaction();
     await connection.query('SELECT id FROM student_quran_plans WHERE id = ? FOR UPDATE', [plan.id]);
+    if (taskType === 'review') await assertStudentPlanRunning(connection, studentId);
     const state = taskType === 'memorization'
       ? await getMemorizationCompensationState(connection, plan, date, settings)
-      : await getLinkCompensationState(connection, plan, date, settings);
+      : taskType === 'review' ? await getReviewCompensationState(connection, plan, date, settings)
+        : await getLinkCompensationState(connection, plan, date, settings);
+    if (taskType === 'review' && state.blocked) {
+      await connection.rollback();
+      return res.status(409).json({ message: state.blocked });
+    }
+    if (taskType === 'review' && !state.owed) {
+      await connection.rollback();
+      return res.status(422).json({ message: 'لا يوجد تعويض مراجعة مستحق.' });
+    }
     if (state.pending) {
       await connection.commit();
       return res.json({ taskIds: state.pending.rows.map((row) => Number(row.id)), existing: true });
@@ -11370,14 +11405,16 @@ app.post('/api/supervisors/:id/quran-compensations', async (req, res, next) => {
     } else {
       if (!state.owed) {
         await connection.rollback();
-        return res.status(422).json({ message: 'لا يوجد تعويض ربط مستحق.' });
+        return res.status(422).json({ message: taskType === 'review' ? 'لا يوجد تعويض مراجعة مستحق.' : 'لا يوجد تعويض ربط مستحق.' });
       }
       for (const range of state.ranges) {
         await insertPlanTask(connection, {
-          plan: { ...plan, track: range.track }, date, type: 'link', fromPage: range.fromPage, toPage: range.toPage,
+          plan: { ...plan, track: range.track || plan.track }, date, type: taskType, fromPage: range.fromPage, toPage: range.toPage,
           targetPages: range.targetPages,
           bounds: { fromSurah: range.fromSurah, fromAyah: range.fromAyah, toSurah: range.toSurah, toAyah: range.toAyah },
           compensationIndex: index,
+          hizbNumber: range.hizbNumber,
+          compensatedReviewDate: taskType === 'review' ? state.sourceDate : null,
         });
       }
     }
@@ -11390,6 +11427,9 @@ app.post('/api/supervisors/:id/quran-compensations', async (req, res, next) => {
       await connection.rollback();
       return res.status(409).json({ message: 'تعذر تجهيز التعويض، أعد فتح الجلسة.' });
     }
+    if (taskType === 'review') await connection.query(`UPDATE student_quran_tasks
+      SET execution_actor_role = 'teacher', execution_actor_id = ?
+      WHERE plan_id = ? AND task_date = ? AND task_type = 'review' AND compensation_index = ?`, [request.supervisorId, plan.id, date, index]);
     await connection.commit();
     res.json({ taskIds: created.map((row) => Number(row.id)), existing: false });
   } catch (error) {
