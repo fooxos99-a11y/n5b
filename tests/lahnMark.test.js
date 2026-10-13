@@ -13,12 +13,14 @@ test('«لحن» is its own mark type and is graded like a mistake', async () =>
   const calls = [];
   await up({ query: async (sql) => calls.push(sql) });
   assert.match(calls[0], /ENUM\('mistake', 'warning', 'lahn'\)/);
-  const [dialog, server, page] = await Promise.all([
+  const [dialog, server, page, highlights] = await Promise.all([
     readFile(new URL('../src/components/portal/MushafWordMarkDialog.jsx', import.meta.url), 'utf8'),
     readFile(new URL('../server/index.js', import.meta.url), 'utf8'),
     readFile(new URL('../src/components/portal/MadaniMushafPage.jsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/portal/MushafHighlightLayer.jsx', import.meta.url), 'utf8'),
   ]);
   assert.match(dialog, /onClick=\{\(\) => save\('lahn'\)\}[\s\S]*لحن/);
-  assert.match(page, /mark\?\.markType === 'lahn'/);
+  assert.match(page, /tone: mark\.markType/);
+  assert.match(highlights, /lahn: 'fill-fuchsia-400\/20 stroke-fuchsia-500\/35'/);
   assert.doesNotMatch(server, /markType === 'mistake'\)\.length/);
 });

@@ -1,5 +1,5 @@
 import React, { useId, useState } from 'react';
-import { Contact, ExternalLink } from 'lucide-react';
+import { Contact } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import PasswordInput from '@/components/ui/password-input';
@@ -32,7 +32,7 @@ export default function AccountLoginForm({ onLogin, loading, autoFocus = true })
           enterKeyHint="next" autoFocus={autoFocus} placeholder="أدخل رقم الدخول" className="account-login-input" />
         <span className="account-login-input-icon" aria-hidden="true"><Contact className="h-6 w-6" /></span>
       </div>
-      <div className="mt-6">
+      <div className="account-login-password">
         <label htmlFor={`${inputId}-password`} className="account-login-label">كلمة المرور <span aria-hidden="true" className="account-login-required">*</span></label>
         <PasswordInput id={`${inputId}-password`} aria-label="كلمة المرور" value={password} onChange={(event) => setPassword(event.target.value)}
           onKeyDown={submitOnEnter} autoComplete="current-password" enterKeyHint="done"
@@ -40,9 +40,6 @@ export default function AccountLoginForm({ onLogin, loading, autoFocus = true })
       </div>
       <Button type="button" variant="link" className="account-login-forgot" onClick={() => setHelpOpen(true)}>هل نسيت كلمة المرور؟</Button>
       <Button type="submit" disabled={loading || !loginNumber.trim()} loading={loading} className="account-login-submit">تسجيل دخول</Button>
-      <Button asChild variant="link" className="account-login-contact">
-        <a href="https://wa.me/05" target="_blank" rel="noopener noreferrer">للتواصل اضغط هنا <ExternalLink className="h-5 w-5" aria-hidden="true" /></a>
-      </Button>
     </form>
     <LoginHelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
   </>;

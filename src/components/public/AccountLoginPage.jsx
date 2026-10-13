@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { resolveAssetUrl } from '@/lib/assetUrl';
 import { useStartup } from '@/components/startup/StartupProvider';
 import { StartupSplash } from '@/components/startup/StartupVisual';
 import AccountLoginForm from './AccountLoginForm';
 import { getStartupTiming } from '@/lib/startupTiming';
 import LoadingIndicator from '@/components/ui/loading-indicator';
+import { trackLoginViewport } from '@/lib/loginViewport';
 import './account-login.css';
 
 export default function AccountLoginPage({ site, onLogin, loading }) {
@@ -15,24 +16,14 @@ export default function AccountLoginPage({ site, onLogin, loading }) {
     return getStartupTiming({ active: startup?.active, reducedMotion: reduced });
   });
   const [entering, setEntering] = useState(timing.duration > 0);
+  const contentRef = useRef(null);
   useEffect(() => {
     const root = document.documentElement;
-    const viewport = window.visualViewport;
-    const resize = () => {
-      root.style.setProperty('--login-viewport-height', `${viewport?.height || window.innerHeight}px`);
-      if (document.activeElement?.matches('.account-login-input')) {
-        document.activeElement.scrollIntoView({ block: 'nearest' });
-      }
-    };
     root.classList.add('account-login-active');
-    resize();
-    window.addEventListener('resize', resize);
-    viewport?.addEventListener('resize', resize);
+    const stopTracking = trackLoginViewport(window, root, contentRef.current);
     return () => {
+      stopTracking();
       root.classList.remove('account-login-active');
-      root.style.removeProperty('--login-viewport-height');
-      window.removeEventListener('resize', resize);
-      viewport?.removeEventListener('resize', resize);
     };
   }, []);
   useEffect(() => {
@@ -42,7 +33,7 @@ export default function AccountLoginPage({ site, onLogin, loading }) {
   return <>{loading && <LoadingIndicator mode="screen" delayMs={0} />}
   <main hidden={loading} className={`${loading ? '!hidden' : ''} account-login-page ${entering ? 'account-login-enter' : ''}`} style={{ '--startup-delay': `-${timing.elapsed}ms` }} dir="rtl">
     {entering && <StartupSplash site={site} />}
-    <section className="account-login-content" aria-labelledby="login-title" aria-busy={entering}>
+    <section ref={contentRef} className="account-login-content" aria-labelledby="login-title" aria-busy={entering}>
       <header className="account-login-header">
         {site.logo && <img src={resolveAssetUrl(site.logo)} alt={site.name} className="account-login-logo" />}
         <h1 id="login-title">برنامج نخب التعليمي</h1>

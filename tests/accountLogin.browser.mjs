@@ -1,11 +1,13 @@
 import { URL } from 'node:url';
 import process from 'node:process';
 import assert from 'node:assert/strict';
-import { chromium } from 'playwright';
+import { chromium, webkit } from 'playwright';
 
 const base = process.env.PORTAL_TEST_URL || 'http://127.0.0.1:3000';
 assert.ok(['127.0.0.1', 'localhost'].includes(new URL(base).hostname));
-const browser = await chromium.launch({ headless: true });
+const browserType = process.env.PORTAL_TEST_BROWSER === 'webkit' ? webkit : chromium;
+const browser = await browserType.launch({ headless: true });
+const screenshotSuffix = browserType === webkit ? '-webkit' : '';
 try {
   for (const [role, permissions, destination] of [
     ['student', [], '/'], ['supervisor', [], '/portal'],
@@ -41,16 +43,44 @@ try {
     await page.getByRole('button', { name: 'هل نسيت كلمة المرور؟', exact: true }).click();
     await page.getByRole('dialog').getByRole('heading', { name: 'الرجاء التواصل مع الإدارة.' }).waitFor();
     await page.getByRole('button', { name: 'إغلاق', exact: true }).click();
-    assert.equal(await page.getByRole('link', { name: 'للتواصل اضغط هنا' }).getAttribute('href'), 'https://wa.me/05');
+    await page.getByRole('dialog').waitFor({ state: 'hidden' });
+    assert.equal(await page.getByRole('link', { name: 'للتواصل اضغط هنا' }).count(), 0);
     assert.equal(await page.evaluate(() => globalThis.document.documentElement.scrollWidth > globalThis.innerWidth), false);
     await page.mouse.wheel(0, 500);
     assert.equal(await page.evaluate(() => globalThis.scrollY), 0, 'login never scrolls the document');
     assert.equal(await page.locator('.account-login-content').evaluate(element => element.scrollHeight <= element.clientHeight), true, 'normal login viewport fits without inner scrolling');
-    await page.screenshot({ path: `outputs/account-login-${role}.png` });
+    await page.screenshot({ path: `outputs/account-login-${role}${screenshotSuffix}.png` });
     await page.getByLabel('رقم الدخول', { exact: true }).press('Enter');
     assert.equal(logins, 0, 'The keyboard action does not submit an empty account number');
     await page.getByLabel('رقم الدخول', { exact: true }).fill('١٢٣٤٥');
     await page.getByLabel('كلمة المرور', { exact: true }).fill('12');
+    // Simulate the visual viewport independently of the layout viewport, as a software keyboard does.
+    await page.evaluate(() => {
+      const viewport = globalThis.visualViewport;
+      Object.defineProperty(viewport, 'height', { configurable: true, value: 320 });
+      Object.defineProperty(viewport, 'offsetTop', { configurable: true, value: 48 });
+      viewport.dispatchEvent(new globalThis.Event('resize'));
+    });
+    await page.waitForFunction(() => globalThis.document.documentElement.dataset.loginKeyboard === 'open');
+    await page.getByLabel('كلمة المرور', { exact: true }).focus();
+    await page.waitForFunction(() => {
+      const field = globalThis.document.querySelector('input[autocomplete="current-password"]').getBoundingClientRect();
+      const content = globalThis.document.querySelector('.account-login-content').getBoundingClientRect();
+      return field.top >= content.top && field.bottom <= content.bottom;
+    });
+    assert.equal(await page.evaluate(() => globalThis.scrollY), 0);
+    assert.equal(await page.locator('main').evaluate(element => Math.round(element.getBoundingClientRect().height)), 320);
+    const submitBounds = await page.getByRole('button', { name: 'تسجيل دخول', exact: true }).boundingBox();
+    const pageBounds = await page.locator('main').boundingBox();
+    assert.ok(submitBounds.y + submitBounds.height <= pageBounds.y + pageBounds.height, 'The submit button stays above the keyboard');
+    await page.screenshot({ path: `outputs/account-login-keyboard-${role}${screenshotSuffix}.png` });
+    await page.evaluate(() => {
+      delete globalThis.visualViewport.height;
+      delete globalThis.visualViewport.offsetTop;
+      globalThis.visualViewport.dispatchEvent(new globalThis.Event('resize'));
+    });
+    await page.waitForFunction(() => globalThis.document.documentElement.dataset.loginKeyboard === 'closed');
+    assert.equal(await page.locator('main').evaluate(element => Math.round(element.getBoundingClientRect().height)), 844);
     await page.getByRole('button', { name: 'إظهار كلمة المرور' }).click();
     assert.equal(await page.getByLabel('كلمة المرور', { exact: true }).getAttribute('type'), 'text');
     await page.getByRole('button', { name: 'إخفاء كلمة المرور' }).click();

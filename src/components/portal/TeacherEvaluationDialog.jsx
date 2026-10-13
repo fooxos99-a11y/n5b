@@ -421,7 +421,6 @@ const TeacherEvaluationDialog = ({ supervisorId, open = false, onOpenChange, inl
     />;
     } else {
       recitationDialog = <Suspense fallback={<DashboardLoader />}><MushafRecitationDialog
-      secondaryAction={notCompletedAction}
       supervisorId={supervisorId}
       student={selectedStudent}
       tasks={selectedStudent?.tasks || []}

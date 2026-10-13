@@ -7,6 +7,7 @@ import { isStudentPlanPausedOn } from '../../shared/student-plan-pause.js';
 import { isSeasonalHoliday } from '../../shared/seasonal-holidays.js';
 import { currentQuranPlanSql } from './currentQuranPlan.js';
 import { loadMemorizedReading } from './selfReadingAmount.js';
+import { getBusinessDate } from '../../shared/business-date.js';
 
 const weekDayOf = (date) => new Date(`${date}T00:00:00Z`).getUTCDay();
 
@@ -61,7 +62,8 @@ const serializeReading = (row, amount) => ({
 
 const amountFor = async (connection, row, date) => {
   const detail = parseDetail(row.readingDetail);
-  if (detail?.ranges) return { faces: detail.requiredFaces, ranges: detail.ranges, range: detail.range,
+  // A missed reading today must not freeze the old assignment before it is read.
+  if (detail?.ranges && (Number(row.passed) === 1 || date < getBusinessDate())) return { faces: detail.requiredFaces, ranges: detail.ranges, range: detail.range,
     hizbCount: detail.hizbCount, fromHizb: detail.fromHizb, toHizb: detail.toHizb, cursor: detail.readingCursor };
   return loadMemorizedReading(connection, { studentId: row.studentId, date,
     faces: normalizeReadingFaces(row.planFaces), hizbs: row.planHizbs == null ? null : Number(row.planHizbs),

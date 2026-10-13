@@ -13,7 +13,7 @@ export default function SelfReadingDialog({ entry, studentName, isSaving = false
         <DialogHeader><DialogTitle>القراءة الذاتية — {studentName}</DialogTitle></DialogHeader>
         {available ? <div className="max-h-[55dvh] space-y-2 overflow-y-auto text-sm">
           {amount.ranges.map((range, index) => <p key={index}>{formatQuranRangeText(range)}</p>)}
-          <p className="font-bold">{entry.expectedHizbs ? `${amount.hizbCount} حزب` : `${amount.faces} أوجه`}</p>
+          <p className="font-bold">{entry.expectedHizbs && Number.isInteger(amount.hizbCount) ? `${amount.hizbCount} حزب` : `${amount.faces} أوجه`}</p>
         </div> : <p className="text-sm text-muted-foreground">لا يوجد محفوظ لتحديد مقدار الذاتي.</p>}
         <DialogFooter className="grid grid-cols-2 gap-2">
           <Button type="button" variant="outline" className="h-11" disabled={isSaving || !available} onClick={() => onSave({ completed: false })}>لم يقرأ</Button>

@@ -3,6 +3,20 @@ import { readQuranRange } from './quranReferenceCache.js';
 import { hizbOfAyah } from '../../shared/quran-hizbs.js';
 
 const positions = new Map(quranFacePositions.map(row => [`${row.surah}:${row.ayah}`, row]));
+const hizbLineCoverage = new Map();
+for (const position of quranFacePositions) {
+  const hizb = hizbOfAyah(position.surah, position.ayah);
+  const lines = hizbLineCoverage.get(hizb) || new Map();
+  for (let line = position.forwardStart; line <= position.forwardEnd; line++) lines.set(line, (lines.get(line) || 0) + 1);
+  hizbLineCoverage.set(hizb, lines);
+}
+const ayahHizbAmounts = new Map(quranFacePositions.map(position => {
+  const lines = hizbLineCoverage.get(hizbOfAyah(position.surah, position.ayah));
+  let covered = 0;
+  // Shared lines contribute once, while every verse retains a share of the hizb.
+  for (let line = position.forwardStart; line <= position.forwardEnd; line++) covered += 1 / lines.get(line);
+  return [`${position.surah}:${position.ayah}`, covered / lines.size];
+}));
 const keyOf = row => `${row.surah}:${row.ayah}`;
 const contains = (range, row) => {
   const startSurah = Number(range.startSurah), endSurah = Number(range.endSurah);
@@ -37,11 +51,11 @@ export function resolveMemorizedReading({ ayahs, memorized, faces, hizbs = null,
   }
   const selected = [], selectedLines = new Map(), selectedHizbs = new Set();
   let selectedFaces = 0;
+  let selectedHizbAmount = 0;
   for (const row of ordered) {
     const position = positions.get(keyOf(row));
     if (!position) continue;
     const hizb = hizbOfAyah(row.surah, row.ayah);
-    if (hizbs && !selectedHizbs.has(hizb) && selectedHizbs.size >= hizbs) break;
     const lines = selectedLines.get(row.page) || new Set();
     const nextLines = new Set(lines);
     for (let line = position.forwardStart; line <= position.forwardEnd; line++) nextLines.add(line);
@@ -51,6 +65,11 @@ export function resolveMemorizedReading({ ayahs, memorized, faces, hizbs = null,
     selectedHizbs.add(hizb);
     selectedLines.set(row.page, nextLines);
     selectedFaces = nextFaces;
+    if (hizbs) {
+      // A partial memorized range earns only its covered share of the Quran hizb.
+      selectedHizbAmount += ayahHizbAmounts.get(keyOf(row));
+      if (selectedHizbAmount >= Number(hizbs) - 0.000000001) break;
+    }
     if (!hizbs && selectedFaces >= Number(faces) - 0.00001) break;
   }
   const ranges = [];
@@ -63,7 +82,8 @@ export function resolveMemorizedReading({ ayahs, memorized, faces, hizbs = null,
       startSurahName: row.surahName, endSurahName: row.surahName });
   }
   const first = selected[0], last = selected.at(-1);
-  return { faces: Math.max(0.25, Math.round(selectedFaces * 4) / 4), hizbCount: selectedHizbs.size,
+  const hizbCount = hizbs ? Math.min(Number(hizbs), Math.floor((selectedHizbAmount + 0.000000001) * 1_000_000) / 1_000_000) : selectedHizbs.size;
+  return { faces: Math.max(0.25, Math.round(selectedFaces * 4) / 4), hizbCount,
     fromHizb: first ? hizbOfAyah(first.surah, first.ayah) : null, toHizb: last ? hizbOfAyah(last.surah, last.ayah) : null,
     ranges, range: ranges.length === 1 ? ranges[0] : null, cursor: last ? keyOf(last) : null };
 }

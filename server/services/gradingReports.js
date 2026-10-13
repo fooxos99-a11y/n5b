@@ -174,7 +174,7 @@ export async function buildGradingOverview(reportDb, { from, to, quranFaces = {}
   );
   const [readingStudentRows] = await reportDb.query(
     `SELECT student_id AS studentId, COUNT(*) AS days,
-       COALESCE(SUM(CAST(JSON_UNQUOTE(JSON_EXTRACT(detail_json, '$.hizbCount')) AS UNSIGNED)), 0) AS hizbs,
+       COALESCE(SUM(CAST(JSON_UNQUOTE(JSON_EXTRACT(detail_json, '$.hizbCount')) AS DECIMAL(10,6))), 0) AS hizbs,
        COALESCE(SUM(CAST(JSON_UNQUOTE(JSON_EXTRACT(detail_json, '$.requiredFaces')) AS DECIMAL(10,2))), 0) AS faces
      FROM student_daily_grades
      WHERE component = 'reading' AND passed = 1 AND ${studyDateSql('grade_date', 'student_daily_grades.student_id')} AND grade_date BETWEEN ? AND ? AND ${reportDb.student('student_id')}

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { resolveReadingHizbs } from '../server/services/selfReadingHizbs.js';
 import { loadTeacherReading, saveTeacherReading } from '../server/services/selfReading.js';
-import { getBusinessDate } from '../shared/business-date.js';
+import { getBusinessDate, shiftDateOnly } from '../shared/business-date.js';
 import { measureQuranFaces } from '../server/services/quranFaceMeasurement.js';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
@@ -80,4 +80,33 @@ test('reading assigns only memorized material, ignores client ranges, excludes u
   assert.equal(detail, null);
   available = false;
   await assert.rejects(saveTeacherReading(connection, payload), { status: 422 });
+});
+
+test('a missed reading today is recalculated while completed and historical snapshots remain unchanged', async () => {
+  const date = getBusinessDate();
+  let passed = 0;
+  const detail = { requiredFaces: 12.75, hizbCount: 2, fromHizb: 11, toHizb: 16, readingCursor: '7:87',
+    ranges: [{ startSurah: 5, startAyah: 1, endSurah: 5, endAyah: 5 }, { startSurah: 7, startAyah: 1, endSurah: 7, endAyah: 87 }] };
+  const connection = { query: async (sql, params = []) => {
+    assert.doesNotMatch(sql, /\b(?:INSERT|UPDATE|DELETE)\b/);
+    if (sql.includes('JOIN supervisor_committees')) return [params[0] === 7 ? [{ studentId: 3, studentName: 'طالب',
+      planFaces: 10, planHizbs: 2, direction: 1, passed, readingDetail: detail, recordedFaces: detail.requiredFaces }] : []];
+    if (sql.includes('FROM student_quran_plan_prior_memorization')) return [[
+      { startSurah: 5, startAyah: 1, endSurah: 5, endAyah: 5 }, { startSurah: 7, startAyah: 1, endSurah: 114, endAyah: 6 }]];
+    if (sql.includes('FROM quran_ayah_pages')) return [layout.map(([key, page]) => { const [surah, ayah] = key.split(':').map(Number); return { surah, ayah, page, juz: 1 }; })];
+    return [[]];
+  } };
+  const load = day => loadTeacherReading(connection, { supervisorId: 7, date: day }).then(result => result.students[0]);
+  const missed = await load(date);
+  assert.equal(missed.status, 'missed');
+  assert.equal(missed.amount.faces, 22);
+  assert.equal(missed.amount.cursor, '7:160');
+  assert.equal(detail.readingCursor, '7:87');
+  assert.equal((await load(shiftDateOnly(date, -1))).amount.cursor, '7:87');
+  passed = 1;
+  const completed = await load(date);
+  assert.equal(completed.status, 'read');
+  assert.equal(completed.amount.cursor, '7:87');
+  assert.equal(completed.amount.faces, 12.75);
+  assert.deepEqual((await loadTeacherReading(connection, { supervisorId: 8, date })).students, []);
 });

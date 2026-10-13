@@ -1,7 +1,8 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useRef } from 'react';
 import MushafLineDecoration from '@/components/portal/MushafLineDecoration';
 import MushafPageFrame from '@/components/portal/MushafPageFrame';
 import MushafPageHeader from '@/components/portal/MushafPageHeader';
+import MushafHighlightLayer from '@/components/portal/MushafHighlightLayer';
 
 const locationParts = (location = '') => String(location).split(':').map(Number);
 
@@ -23,6 +24,7 @@ const isVerseWithinRange = (surah, ayah, allowedRange) => {
 
 const MadaniMushafPage = ({ page, surahName, theme = 'dark', marks = [], allowedRange, highlightRange, selection, markingMode = false, fontReady = false, onSelectionStart, onSelectionMove, onSelectionEnd, pageAction }) => {
   const words = useMemo(() => page?.words || [], [page?.words]);
+  const textRef = useRef(null);
   const decorationsByLine = useMemo(() => new Map(
     (page?.decorations || []).map((decoration) => [Number(decoration.line), decoration])
   ), [page?.decorations]);
@@ -45,25 +47,17 @@ const MadaniMushafPage = ({ page, surahName, theme = 'dark', marks = [], allowed
     words.filter((word) => Number(word.line) === index + 1 - lineShift)
   )), [lineShift, words]);
   const fontFamily = `QCF-P${page?.page}`;
-  const selectionStart = selection ? Math.min(selection.startIndex, selection.endIndex) : -1;
-  const selectionEnd = selection ? Math.max(selection.startIndex, selection.endIndex) : -1;
-
-  const wordTone = (word, index) => {
-    if (selection && index >= selectionStart && index <= selectionEnd) {
-      const continuesRight = index > selectionStart && Number(words[index - 1]?.line) === Number(word.line);
-      const continuesLeft = index < selectionEnd && Number(words[index + 1]?.line) === Number(word.line);
-      const edge = `${continuesRight ? '' : 'rounded-r-md border-r'} ${continuesLeft ? '' : 'rounded-l-md border-l'}`;
-      return `relative z-10 border-y border-sky-500/45 bg-sky-400/25 shadow-[inset_0_-0.18em_0_hsl(199_89%_48%_/_0.35)] ${edge}`;
-    }
-    const mark = marks.find((item) => {
-      const start = locationIndex(words, item.startLocation);
-      const end = locationIndex(words, item.endLocation);
-      return start >= 0 && end >= 0 && index >= Math.min(start, end) && index <= Math.max(start, end);
+  const highlightRanges = useMemo(() => {
+    const ranges = marks.flatMap((mark, index) => {
+      const start = locationIndex(words, mark.startLocation);
+      const end = locationIndex(words, mark.endLocation);
+      return start < 0 || end < 0 ? [] : [{ start: Math.min(start, end), end: Math.max(start, end), tone: mark.markType, key: `mark:${mark.id || index}` }];
     });
-    if (mark?.markType === 'mistake') return 'bg-red-400/20 shadow-[inset_0_-0.16em_0_hsl(0_72%_51%_/_0.38)] ring-1 ring-inset ring-red-500/35';
-    if (mark?.markType === 'lahn') return 'bg-fuchsia-400/20 shadow-[inset_0_-0.16em_0_hsl(292_84%_45%_/_0.38)] ring-1 ring-inset ring-fuchsia-500/35';
-    if (mark?.markType === 'hesitation') return 'bg-sky-400/20 ring-1 ring-inset ring-sky-500/35';
-    if (mark?.markType === 'warning') return 'bg-amber-400/20 shadow-[inset_0_-0.16em_0_hsl(38_92%_50%_/_0.42)] ring-1 ring-inset ring-amber-500/35';
+    if (selection) ranges.push({ start: Math.min(selection.startIndex, selection.endIndex), end: Math.max(selection.startIndex, selection.endIndex), tone: 'selection', key: 'selection' });
+    return ranges;
+  }, [marks, selection, words]);
+
+  const wordTone = (word) => {
     const [surah, ayah] = locationParts(word.location);
     if (highlightRange && word.charType === 'word' && isVerseWithinRange(surah, ayah, highlightRange)) {
       return 'rounded-sm bg-primary/10 shadow-[inset_0_-0.12em_0_hsl(var(--primary)/0.22)]';
@@ -100,7 +94,8 @@ const MadaniMushafPage = ({ page, surahName, theme = 'dark', marks = [], allowed
             theme={theme}
           />
         )}
-        <div className="relative grid min-h-0 flex-1 grid-rows-[repeat(15,minmax(0,1fr))] px-[3.25%] pb-[16%] pt-[5%]">
+        <div ref={textRef} className="relative grid min-h-0 flex-1 grid-rows-[repeat(15,minmax(0,1fr))] px-[3.25%] pb-[16%] pt-[5%]">
+          <MushafHighlightLayer containerRef={textRef} ranges={highlightRanges} fontReady={fontReady} />
           {lines.map((lineWords, lineIndex) => (
             <div
               key={`${page?.page}-${lineIndex + 1}`}
@@ -122,6 +117,8 @@ const MadaniMushafPage = ({ page, surahName, theme = 'dark', marks = [], allowed
                     key={word.location}
                     data-mushaf-no-swipe={markingMode ? '' : undefined}
                     data-mushaf-word-index={selectable ? index : undefined}
+                    data-mushaf-highlight-index={index}
+                    data-mushaf-line={lineIndex + 1}
                     data-location={word.location}
                     data-surah={surah}
                     data-ayah={ayah}
@@ -133,7 +130,7 @@ const MadaniMushafPage = ({ page, surahName, theme = 'dark', marks = [], allowed
                       onSelectionStart?.(index);
                     }}
                     aria-disabled={!withinAllowedRange || undefined}
-                    className={`px-[0.055em] transition-[background-color,box-shadow,opacity,filter] duration-150 ${selectable && markingMode ? 'cursor-crosshair touch-none' : ''} ${!withinAllowedRange ? 'pointer-events-none opacity-20 grayscale' : ''} ${wordTone(word, index)}`}
+                    className={`relative z-10 px-[0.055em] transition-[background-color,box-shadow,opacity,filter] duration-150 ${selectable && markingMode ? 'cursor-crosshair touch-none' : ''} ${!withinAllowedRange ? 'pointer-events-none opacity-20 grayscale' : ''} ${wordTone(word)}`}
                     title={word.textQpcHafs}
                   >
                     {fontReady ? (word.codeV2 || word.textQpcHafs) : word.textQpcHafs}

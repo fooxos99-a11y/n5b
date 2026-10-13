@@ -85,6 +85,7 @@ const MushafRecitationDialog = ({
     typeof window !== 'undefined' && window.localStorage.getItem('nukhab_mushaf_theme') === 'dark' ? 'dark' : 'light'
   ));
   const tasksRef = useRef(tasks);
+  const savingRef = useRef(false);
   const loadTaskDataRef = useRef(loadTaskData);
   const toastRef = useRef(toast);
   tasksRef.current = tasks;
@@ -241,6 +242,8 @@ const MushafRecitationDialog = ({
   };
 
   const finishRecitation = async () => {
+    if (savingRef.current || isLoading || !draftReady || pendingMark || selection) return;
+    savingRef.current = true;
     setIsSaving(true);
     try {
       const saveRequestId = temporaryId();
@@ -293,6 +296,7 @@ const MushafRecitationDialog = ({
     } catch (error) {
       toast({ title: 'تعذر إنهاء التسميع', description: error.message, variant: 'destructive' });
     } finally {
+      savingRef.current = false;
       setIsSaving(false);
     }
   };
