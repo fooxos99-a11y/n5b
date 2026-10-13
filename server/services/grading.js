@@ -286,7 +286,7 @@ const recitationComponent = taskType => ({ memorization: 'memorization', review:
  * Recomputes the day grade of one recitation group (all rows of one type on one date).
  * A failure is recorded as soon as it is known; a pass only when every row was evaluated.
  */
-export async function recomputeRecitationGroupGrade(queryExecutor, { planId, studentId, date, taskType, actor }) {
+export async function recomputeRecitationGroupGrade(queryExecutor, { planId, studentId, date, taskType, compensationIndex = 0, actor }) {
   const component = recitationComponent(taskType);
   if (!component) return null;
   const [rows] = await queryExecutor.query(
@@ -294,14 +294,14 @@ export async function recomputeRecitationGroupGrade(queryExecutor, { planId, stu
        mistake_count AS mistakes, teacher_rating_key AS ratingKey, evaluated_at AS evaluatedAt,
        teacher_completed AS teacherCompleted
      FROM student_quran_tasks
-     WHERE plan_id = ? AND task_date = ? AND task_type = ? AND compensation_index = 0
+     WHERE plan_id = ? AND task_date = ? AND task_type = ? AND compensation_index = ?
      ORDER BY from_page ASC, id ASC`,
-    [planId, date, taskType],
+    [planId, date, taskType, compensationIndex],
   );
   if (!rows.length) return null;
   const evaluated = rows.filter(row => row.evaluatedAt);
   if (!evaluated.length) {
-    await deleteDailyGrade(queryExecutor, { studentId, date, component, actor });
+    if (!compensationIndex) await deleteDailyGrade(queryExecutor, { studentId, date, component, actor });
     return null;
   }
   const policy = await loadGradingPolicyForDate(queryExecutor, date);
@@ -326,6 +326,7 @@ export async function recomputeRecitationGroupGrade(queryExecutor, { planId, stu
     result = evaluateLink(policy, { ...total, manualFail });
   }
   const complete = evaluated.length === rows.length;
+  if (compensationIndex) return { result, complete, failed: !result.passed, taskIds: rows.map(row => Number(row.id)) };
   if (!result.passed || complete) {
     await upsertDailyGrade(queryExecutor, { studentId, date, result, policy, actor });
   } else {

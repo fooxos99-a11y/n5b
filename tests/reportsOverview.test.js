@@ -68,7 +68,7 @@ test('statistics are indicator cards with details, then the best students and ci
   assert.match(reports, /setDetailCommittee\(ALL_COMMITTEES\); setSelectedId\(item\.id\);/);
   assert.match(metrics, /const inCommittee = \(name\) => !filtered \|\| name === committee;/);
   assert.doesNotMatch(metrics, /'المرصود'/);
-  assert.match(server, /\.\.\.await buildOverviewRankings\(reportDb, \{ from: startDate, to: endDate, attendanceDates, attendanceWeekDays, grades \}\)/);
+  assert.match(server, /\.\.\.await buildOverviewRankings\(reportDb, \{ from: startDate, to: minDateOnly\(endDate,today\), attendanceDates,\s*readingDays:reportProgramPolicy\.readingDays\.map\(Number\), grades \}\)/);
 });
 
 test('statistics replace the reports name and lead the management sidebar', async () => {
@@ -141,15 +141,15 @@ test('rankings order students by grades, circles by their average and list every
     [[{ id: 1, name: 'الفجر', studentsCount: 4, grade: 120 }, { id: 2, name: 'العصر', studentsCount: 1, grade: 55 }]],
     [[{ id: 9, name: 'المعلم', committees: 'الفجر' }]],
     [[{ teacherId: 9, attended: 4, late: 1, absent: 1 }]],
-    [[{ teacherId: 9, grade: 45, max: 60 }]],
+    [[{ teacherId: 9, date:'a', requiredTasks:2, recordedTasks:2 }, { teacherId:9, date:'b', requiredTasks:1, recordedTasks:0 }]],
   ];
   const reportDb = { student: () => '1=1', committee: () => '1=1', staff: () => '1=1', query: async () => answers.shift() };
   const result = await buildOverviewRankings(reportDb, { from: '2026-09-20', to: '2026-09-26', attendanceDates: ['a', 'b', 'c', 'd', 'e'], attendanceWeekDays: [0, 1, 2, 3, 4] });
   assert.deepEqual(result.bestStudents.map((row) => row.name), ['بدر', 'أحمد']);
   // A small circle with a better average ranks above a larger one.
   assert.deepEqual(result.bestCommittees.map((row) => [row.name, row.average]), [['العصر', 55], ['الفجر', 30]]);
-  assert.deepEqual(result.teachers[0].attendance, { attended: 4, late: 1, absent: 1, expected: 5, percentage: 80 });
-  assert.deepEqual(result.teachers[0].achievement, { grade: 45, max: 60, percentage: 75 });
+  assert.deepEqual(result.teachers[0].attendance, { attended: 4, late: 1, absent: 1, excused:0, expected: 5, percentage: 80 });
+  assert.deepEqual(result.teachers[0].achievement, { completed:1, expected:2, percentage:50 });
 });
 
 test('plans start today or later, a not-started plan can move, and review is by whole ahzab', async () => {

@@ -25,6 +25,18 @@ export function buildPassingParts(ayahs, ranges, type, juz) {
     .map(([juzNumber, items]) => ({ juzNumber, ranges: toRanges(items) }));
 }
 
+export function buildBranchPassingParts(ayahs, tasks, juz) {
+  // Descending plans traverse surahs backwards but ayahs within each surah forwards.
+  const traversals = tasks.map(task => ({
+    start: { page: Number(task.startPage), surah: Number(task.startSurah), ayah: Number(task.startAyah) },
+    end: { page: Number(task.endPage), surah: Number(task.endSurah), ayah: Number(task.endAyah) },
+    direction: Number(task.startSurah) < Number(task.endSurah) || (Number(task.startSurah) === Number(task.endSurah) && Number(task.startAyah) <= Number(task.endAyah)) ? 1 : -1,
+  }));
+  const saved = ayahs.filter(ayah => traversals.some(range => compareQuranPositionInDirection(ayah, range.start, range.direction) >= 0
+    && compareQuranPositionInDirection(ayah, range.end, range.direction) <= 0));
+  return buildPassingParts(ayahs, toRanges(saved), 'branch', juz);
+}
+
 /** Branch passing credits only teacher-approved memorization in the current plan. */
 export async function loadEligiblePassingParts(connection, { studentId, type, juz, loadMemorizedRanges, loadAyahs }) {
   if (!['branch', 'hafiz'].includes(type)) throw Object.assign(new Error('نوع الاجتياز غير صحيح.'), { status: 422 });
@@ -36,13 +48,5 @@ export async function loadEligiblePassingParts(connection, { studentId, type, ju
     FROM student_quran_tasks t JOIN student_quran_plans p ON p.id=t.plan_id AND p.student_id=t.student_id
     WHERE t.student_id=? AND t.task_type='memorization' AND t.teacher_completed=1 AND ${currentQuranPlanSql('p')}
       AND t.from_surah IS NOT NULL AND t.from_ayah IS NOT NULL AND t.to_surah IS NOT NULL AND t.to_ayah IS NOT NULL`, [studentId]);
-  // Descending plans traverse surahs backwards but ayahs within each surah forwards.
-  const traversals = tasks.map(task => ({
-    start: { page: Number(task.startPage), surah: Number(task.startSurah), ayah: Number(task.startAyah) },
-    end: { page: Number(task.endPage), surah: Number(task.endSurah), ayah: Number(task.endAyah) },
-    direction: Number(task.startSurah) < Number(task.endSurah) || (Number(task.startSurah) === Number(task.endSurah) && Number(task.startAyah) <= Number(task.endAyah)) ? 1 : -1,
-  }));
-  const saved = ayahs.filter(ayah => traversals.some(range => compareQuranPositionInDirection(ayah, range.start, range.direction) >= 0
-    && compareQuranPositionInDirection(ayah, range.end, range.direction) <= 0));
-  return buildPassingParts(ayahs, toRanges(saved), type, juz);
+  return buildBranchPassingParts(ayahs, tasks, juz);
 }

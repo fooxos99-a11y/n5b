@@ -91,7 +91,8 @@ const CountOnlyEvaluationDialog = ({
       <DialogContent className="max-w-sm border-primary/30 bg-card [font-family:var(--font-ui)]" dir="rtl">
         <DialogHeader><DialogTitle className="text-right text-primary neon-text">{title}</DialogTitle></DialogHeader>
         {children}
-        {taskType === 'link' && groupEvaluation && <RecitationItemResult outcome={{ score: groupEvaluation.result.grade, failed: !groupEvaluation.result.passed }} />}
+        {['link', 'review'].includes(taskType) && groupEvaluation && <RecitationItemResult label={taskType === 'review' ? 'درجة المراجعة' : 'النتيجة الحالية'} outcome={{ score: groupEvaluation.result.grade, failed: !groupEvaluation.result.passed }} />}
+        {taskType === 'review' && groupEvaluation && !groupEvaluation.result.passed && <p className="text-sm font-bold text-destructive" role="status">{groupEvaluation.failedLabel ? `تجاوز ${groupEvaluation.failedLabel} حد الخصم؛ تحتاج المراجعة كاملة إلى إعادة.` : 'تحتاج المراجعة كاملة إلى إعادة.'}</p>}
         {items.length ? (
           <div className="max-h-[65dvh] space-y-3 overflow-y-auto pr-1">
             {items.map((item, index) => {
@@ -104,7 +105,7 @@ const CountOnlyEvaluationDialog = ({
                     <CountField id={`recitation-hesitation-count-${item.id}`} label="عدد الترددات" value={counts.hesitationCount} onChange={(value) => updateItemCount(item.id, 'hesitationCount', value)} />
                     <CountField id={`recitation-mistake-count-${item.id}`} label="عدد الأخطاء" value={counts.mistakeCount} onChange={(value) => updateItemCount(item.id, 'mistakeCount', value)} />
                   </div>
-                  <RecitationItemResult outcome={groupEvaluation?.itemResults.get(String(item.id))} />
+                  {taskType !== 'review' && <RecitationItemResult outcome={groupEvaluation?.itemResults.get(String(item.id))} />}
                 </section>
               );
             })}

@@ -16,7 +16,7 @@ export function getNativeBarAppearance(root, backgroundColor) {
   return { style: dark ? 'DARK' : 'LIGHT', color };
 }
 
-export async function syncNativeSystemBars({ platform, appearance, statusBar, systemBars }) {
+export async function syncNativeSystemBars({ platform, appearance, statusBar, systemBars, nativeBackground }) {
   if (platform === 'ios') {
     // The native bar owns the top inset; WKWebView must not add it a second time.
     await statusBar.setBackgroundColor({ color: appearance.color });
@@ -24,7 +24,7 @@ export async function syncNativeSystemBars({ platform, appearance, statusBar, sy
     await statusBar.setStyle({ style: appearance.style });
   } else {
     await systemBars.setStyle({ style: appearance.style });
-    await statusBar.setBackgroundColor({ color: appearance.color });
+    await nativeBackground.setBackgroundColor({ color: appearance.color });
   }
 }
 

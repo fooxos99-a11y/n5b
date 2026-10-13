@@ -87,3 +87,21 @@ test('each plan metric has its own achievement tone, with missing targets neutra
   assert.match(stats[4].tone, /emerald/);
   assert.equal(stats[2].value, '4 من 10');
 });
+
+test('branch card measures tested students, retains page totals and filters its detail counts', () => {
+  const data={ branchPassing:{ expected:10,tested:5,studentsList:[
+    { name:'الأول',committeeName:'الفجر',tested:true,juzNumbers:[1] },
+    { name:'الثاني',committeeName:'الفجر',tested:false,juzNumbers:[1,2] },
+    { name:'الثالث',committeeName:'العصر',tested:true,juzNumbers:[2] },
+  ] },studentLevels:[] };
+  const metrics=build(data), all=metrics.find(metric=>metric.id==='branchPassing');
+  assert.equal(all.display,'50%'); assert.equal(all.tiles[0].display,'10');
+  const selected=build(data,{ committee:'الفجر' }).find(metric=>metric.id==='branchPassing');
+  assert.equal(selected.display,'50%'); assert.equal(selected.tiles[0].display,'2');
+  assert.equal(selected.tiles[1].display,'1'); assert.equal(selected.tiles[2].display,'1');
+  assert.equal(selected.records[0].rows.length,2);
+  assert.equal(metrics.find(metric=>metric.id==='levels').label,'الطلاب');
+  assert.equal(metrics.some(metric=>metric.id==='narration'),false);
+  assert.equal(build({}).find(metric=>metric.id==='branchPassing').display,'غير متاح');
+  assert.equal(build({ branchPassing:{ expected:0,tested:0 } }).find(metric=>metric.id==='branchPassing').display,'—');
+});

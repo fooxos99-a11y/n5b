@@ -1,0 +1,20 @@
+/* Paint the exposed safe areas with the same color as the native status bar. */
+html.native-app body::after,
+html.native-app[data-native-platform="android"] body::before {
+  content: '';
+  position: fixed;
+  inset-inline: 0;
+  z-index: 2147483647;
+  background-color: var(--native-system-bar-color, #04433d);
+  pointer-events: none;
+}
+
+html.native-app[data-native-platform="android"] body::before {
+  top: 0;
+  height: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+}
+
+html.native-app body::after {
+  bottom: 0;
+  height: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
+}

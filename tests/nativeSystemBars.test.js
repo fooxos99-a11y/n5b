@@ -41,10 +41,11 @@ test('iOS paints a non-overlay bar and has exactly one owner of the top inset', 
   assert.equal(config.plugins.StatusBar.overlaysWebView, false);
 });
 
-test('Android retains SystemBars handling without resizing its edge-to-edge webview', async () => {
+test('Android applies one background for both bars after styling without resizing its edge-to-edge webview', async () => {
   const calls = [];
   await syncNativeSystemBars({ platform: 'android', appearance: { color: '#ffffff', style: 'LIGHT' },
-    statusBar: { setBackgroundColor: async (value) => calls.push(value), setOverlaysWebView: () => assert.fail('Android insets belong to SystemBars') },
+    statusBar: { setBackgroundColor: () => assert.fail('Background belongs to both bars'), setOverlaysWebView: () => assert.fail('Android insets belong to SystemBars') },
+    nativeBackground: { setBackgroundColor: async (value) => calls.push(value) },
     systemBars: { setStyle: async (value) => calls.push(value) } });
   assert.deepEqual(calls, [{ style: 'LIGHT' }, { color: '#ffffff' }]);
 });

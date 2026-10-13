@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { hizbOfPage, pickReviewPagesByHizbs, splitPageRangesByHizb, HIZB_START_PAGES } from '../shared/quran-hizbs.js';
-import { evaluateRecitationGroup } from '../src/lib/recitationGroupGrade.js';
+import { applyOfflineReviewGroupOutcome, evaluateRecitationGroup } from '../src/lib/recitationGroupGrade.js';
 import { DEFAULT_GRADING_POLICY } from '../shared/grading-policy.js';
 
 const allPages = new Set(Array.from({ length: 604 }, (_, index) => index + 1));
@@ -43,8 +43,33 @@ test('live evaluation fails memorization by a single face and review by a single
   assert.equal(passing.result.rawScore, 0.96);
   const review = evaluateRecitationGroup(DEFAULT_GRADING_POLICY, 'review',
     [{ id: 'a', fromPage: 1 }, { id: 'b', fromPage: 5 }, { id: 'c', fromPage: 11 }],
-    { a: { mistakeCount: 2 }, b: { mistakeCount: 1 }, c: {} });
+    { a: { mistakeCount: 2 }, b: { mistakeCount: 1, warningCount: 1 }, c: {} });
   assert.equal(review.result.passed, false);
   assert.equal(review.failedLabel, 'الحزب 1');
   assert.equal(review.itemResults.get('b').failed, true);
+  assert.equal(review.itemResults.get('c').failed, true);
+});
+
+test('review accumulates split ranges within one hizb and permits its exact cap', () => {
+  const review = evaluateRecitationGroup(DEFAULT_GRADING_POLICY, 'review',
+    [{ id: 'a', fromPage: 1 }, { id: 'b', fromPage: 5 }, { id: 'c', fromPage: 11 }],
+    { a: { mistakeCount: 2 }, b: { mistakeCount: 1 }, c: { warningCount: 15 } });
+  assert.equal(review.result.hizbCount, 2);
+  assert.equal(review.result.passed, true);
+  assert.equal(review.result.grade, 0.7);
+});
+
+test('offline review fails the whole amount, preserves counts and isolates compensation groups', () => {
+  const entries = [1, 2, 3, 4, 5].map((id) => ({
+    task: { id, planId: 1, taskDate: '2026-10-13', taskType: 'review', hizbNumber: id, compensationIndex: id === 5 ? 1 : 0 },
+    payload: { offlineOutcome: { warningCount: id === 1 ? 16 : 2, mistakeCount: 0, hesitationCount: 0, completed: id !== 1, score: 98 } },
+  }));
+  const result = applyOfflineReviewGroupOutcome(entries, DEFAULT_GRADING_POLICY);
+  assert.deepEqual(result.map(({ payload }) => payload.offlineOutcome.completed), [false, false, false, false, true]);
+  assert.deepEqual(result.map(({ payload }) => payload.offlineOutcome.warningCount), [16, 2, 2, 2, 2]);
+  assert.equal(entries[1].payload.offlineOutcome.completed, true, 'input remains unchanged');
+  assert.equal(applyOfflineReviewGroupOutcome(entries, null), entries);
+  const manual = entries.map((entry) => ({ ...entry, payload: { ...entry.payload, notMemorized: entry.task.id === 2,
+    offlineOutcome: { ...entry.payload.offlineOutcome, warningCount: 0 } } }));
+  assert.deepEqual(applyOfflineReviewGroupOutcome(manual, DEFAULT_GRADING_POLICY).map(({ payload }) => payload.offlineOutcome.completed), [false, false, false, false, true]);
 });

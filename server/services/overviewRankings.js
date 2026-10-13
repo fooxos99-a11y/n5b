@@ -1,4 +1,5 @@
 // Rankings of the statistics page: best students and circles by their grades, and each teacher's indicators.
+import { loadTeacherRecordingCompletion } from './teacherRecordingCompletion.js';
 
 const number = (value) => Number(value || 0);
 const percentage = (part, total) => (total > 0 ? Math.round((part / total) * 100) : 0);
@@ -29,7 +30,7 @@ function complexRankings(complexRows, circles, graded) {
  * @param reportDb scoped report connection (createOverviewReportScope)
  * @param {{ from: string, to: string, attendanceDates: string[], attendanceWeekDays: number[] }} period
  */
-export async function buildOverviewRankings(reportDb, { from, to, attendanceDates = [], grades = null }) {
+export async function buildOverviewRankings(reportDb, { from, to, attendanceDates = [], readingDays = [], grades = null }) {
   const [studentRows] = await reportDb.query(
     `SELECT s.id, s.name, c.id AS committeeId, c.name AS committeeName, cx.id AS complexId, cx.name AS complexName,
        COALESCE(SUM(${SIGNED_POINTS}), 0) AS grade
@@ -76,46 +77,34 @@ export async function buildOverviewRankings(reportDb, { from, to, attendanceDate
      FROM supervisors sp
      LEFT JOIN supervisor_committees sc ON sc.supervisor_id = sp.id
      LEFT JOIN committees c ON c.id = sc.committee_id
-     WHERE sp.role = 'supervisor' AND sp.is_active = 1 AND ${reportDb.staff('sp.id')}
+     WHERE sp.role = 'supervisor' AND sp.is_active = 1 AND ${reportDb.staff('sp.id')} AND ${reportDb.committee('sc.committee_id')}
      GROUP BY sp.id, sp.name, sp.created_at`,
   );
   const dayPlaceholders = attendanceDates.map(() => '?').join(', ');
   const [attendanceRows] = attendanceDates.length
     ? await reportDb.query(
       `SELECT ar.supervisor_id AS teacherId,
-         COALESCE(SUM(ar.status IN ('present', 'late', 'excused')), 0) AS attended,
+         COALESCE(SUM(ar.status IN ('present', 'late')), 0) AS attended,
+         COALESCE(SUM(ar.status = 'excused'), 0) AS excused,
          COALESCE(SUM(ar.status = 'late'), 0) AS late,
          COALESCE(SUM(ar.status = 'absent'), 0) AS absent
        FROM supervisor_attendance_records ar
        WHERE ar.record_date BETWEEN ? AND ? AND ${reportDb.staff('ar.supervisor_id')}
+         AND ar.record_date >= (SELECT DATE(joined_staff.created_at) FROM supervisors joined_staff WHERE joined_staff.id=ar.supervisor_id)
          AND ar.record_date IN (${dayPlaceholders})
        GROUP BY ar.supervisor_id`,
       [from, to, ...attendanceDates],
     )
     : [[]];
-  // A teacher's achievement is the weekly program result of the students in the teacher's circles.
-  const [achievementRows] = await reportDb.query(
-    `SELECT sc.supervisor_id AS teacherId, COALESCE(SUM(g.grade), 0) AS grade, COALESCE(SUM(g.max_grade), 0) AS max
-     FROM supervisor_committees sc
-     JOIN students s ON s.committee_id = sc.committee_id
-     JOIN student_daily_grades g ON g.student_id = s.id AND g.grade_date BETWEEN ? AND ?
-     WHERE ${reportDb.staff('sc.supervisor_id')}
-     GROUP BY sc.supervisor_id`,
-    [from, to],
-  );
+  const completionById = teacherRows.length
+    ? await loadTeacherRecordingCompletion(reportDb, { from, to, attendanceDates, readingDays }) : new Map();
   const attendanceById = new Map(attendanceRows.map((row) => [String(row.teacherId), row]));
-  const achievementById = new Map(achievementRows.map((row) => [String(row.teacherId), row]));
   const expectedDays = attendanceDates.length;
   const teachers = teacherRows
     .map((row) => {
       const attendance = attendanceById.get(String(row.id)) || {};
-      let achievement = achievementById.get(String(row.id)) || {};
-      if (grades) {
-        const ids = new Set(String(row.committeeIds || '').split(','));
-        achievement = (grades.weeklyProgram?.committees || []).filter(item => ids.has(String(item.id)))
-          .reduce((sum, item) => ({ grade: sum.grade + item.grade, max: sum.max + item.max }), { grade: 0, max: 0 });
-      }
       const teacherExpectedDays = row.joined ? attendanceDates.filter(date => date >= row.joined).length : expectedDays;
+      const requiredDays = Math.max(0, teacherExpectedDays-number(attendance.excused));
       return {
         id: number(row.id),
         name: row.name,
@@ -124,17 +113,14 @@ export async function buildOverviewRankings(reportDb, { from, to, attendanceDate
           attended: number(attendance.attended),
           late: number(attendance.late),
           absent: number(attendance.absent),
-          expected: teacherExpectedDays,
-          percentage: percentage(number(attendance.attended), teacherExpectedDays),
+          excused: number(attendance.excused),
+          expected: requiredDays,
+          percentage: requiredDays ? percentage(number(attendance.attended), requiredDays) : null,
         },
-        achievement: {
-          grade: number(achievement.grade),
-          max: number(achievement.max),
-          percentage: percentage(number(achievement.grade), number(achievement.max)),
-        },
+        achievement: completionById.get(String(row.id)) || { completed:0, expected:0, percentage:null },
       };
     })
-    .sort((a, b) => b.achievement.percentage - a.achievement.percentage || byName(a, b));
+    .sort((a, b) => byPercentage({ ...a, percentage:a.achievement.percentage }, { ...b, percentage:b.achievement.percentage }));
 
   if (grades) {
     const totals = new Map(bestStudents.map(row => [String(row.id), { ...row, grade: 0, max: 0 }]));

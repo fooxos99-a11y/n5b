@@ -25,6 +25,7 @@ import {
 } from '@/services/offlineRecitationService';
 import { sortRecitationTasks, formatContinuousRecitationRange } from '@/lib/recitationTaskRanges';
 import { advanceRecitationTaskQueue, canAdvanceRecitationSession } from '@/lib/recitationTaskQueue';
+import { applyOfflineReviewGroupOutcome } from '@/lib/recitationGroupGrade';
 import { evaluateLink, evaluateMemorization, evaluateReview } from '../../../shared/grading-engine.js';
 import { canMarkRecitationFailed, RECITATION_FAILED_LABEL } from '../../../shared/recitation-fail.js';
 
@@ -321,7 +322,7 @@ const TeacherEvaluationDialog = ({ supervisorId, open = false, onOpenChange, inl
         supervisorId,
         studentId: selectedStudent.studentId,
         sessionDate: data?.date,
-        tasks: taskPayloads,
+        tasks: applyOfflineReviewGroupOutcome(taskPayloads, data?.gradingPolicy),
       });
       markRecitationPending(selectedStudent.studentId, selectedStudent.tasks, session);
       setSelectedStudent(null);
@@ -344,14 +345,14 @@ const TeacherEvaluationDialog = ({ supervisorId, open = false, onOpenChange, inl
         supervisorId,
         studentId: student.studentId,
         sessionDate: data?.date,
-        tasks: sortRecitationTasks(memorizationTasks).map((task) => {
+        tasks: applyOfflineReviewGroupOutcome(sortRecitationTasks(memorizationTasks).map((task) => {
           const type = evaluationTypeForTask(task);
           const payload = {
             evaluationMode: data?.evaluationModes?.[type] || 'mushaf',
             notMemorized: true,
           };
           return { task, payload: { ...payload, offlineOutcome: offlineOutcome(task, payload, data?.gradingPolicy) } };
-        }),
+        }), data?.gradingPolicy),
       });
       markRecitationPending(student.studentId, memorizationTasks, session);
       setSelectedStudent(null);
@@ -432,7 +433,7 @@ const TeacherEvaluationDialog = ({ supervisorId, open = false, onOpenChange, inl
           supervisorId,
           studentId: selectedStudent.studentId,
           sessionDate: data?.date,
-          tasks: items.map(({ task, payload }) => ({
+          tasks: applyOfflineReviewGroupOutcome(items.map(({ task, payload }) => ({
             task,
             payload: {
               ...payload,
@@ -444,7 +445,7 @@ const TeacherEvaluationDialog = ({ supervisorId, open = false, onOpenChange, inl
                 ? { listeningCount: selectedStudent.listeningCount }
                 : {}),
             },
-          })),
+          })), data?.gradingPolicy),
         });
         markRecitationPending(selectedStudent.studentId, items.map(({ task }) => task), session);
         syncRecitationInBackground(session.sessionId);

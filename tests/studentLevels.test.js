@@ -115,7 +115,7 @@ test('the student header shows the level and the statistics split the students b
   assert.match(server, /app\.get\('\/api\/students\/:id\/quran-level'/);
   assert.match(server, /studentLevels: await loadStudentLevels\(\{/);
   assert.match(metrics, /studentLevelsMetric\(overview, inCommittee\),\s*committeesCountMetric/);
-  assert.match(metrics, /narrationMetric\(grades\.narration, inCommittee, filtered\)/);
+  assert.match(metrics, /branchPassingMetric\(overview\.branchPassing, inCommittee, filtered\)/);
   assert.doesNotMatch(metrics, /studentsCountMetric|label: 'عدد الطلاب'/);
   assert.match(metrics, /series: performance\.get\(String\(student\.id\)\) \|\| \[\]/);
   assert.doesNotMatch(metrics, /formatNumber\(student\.days\)/);

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import process from 'node:process';
+import { join } from 'node:path';
 import { URL } from 'node:url';
 import { chromium } from 'playwright';
 import { parsePassingPolicy, effectivePassingPolicy, evaluatePassingPart, passingExamStatus } from '../shared/passing-policy.js';
@@ -104,7 +105,12 @@ try {
     await page.getByRole('button', { name: 'اختبار طالب الاجتياز', exact: true }).waitFor();
     assert.equal(await page.getByRole('button', { name: 'اجتياز جديد', exact: true }).count(), 0);
     assert.equal(await page.getByRole('searchbox').count(), 0);
-    for (const label of ['المجمع', 'الحلقة', 'الطالب']) assert.equal(await page.getByRole('combobox', { name: label, exact: true }).innerText(), 'الكل');
+    for (const label of ['المجمع', 'الحلقة']) assert.equal(await page.getByRole('combobox', { name: label, exact: true }).innerText(), 'الكل');
+    assert.equal(await page.getByRole('combobox', { name: 'الطالب', exact: true }).count(), 0);
+    const complexBox = await page.getByRole('combobox', { name: 'المجمع', exact: true }).boundingBox();
+    const committeeBox = await page.getByRole('combobox', { name: 'الحلقة', exact: true }).boundingBox();
+    assert.equal(complexBox.y, committeeBox.y, `${width}: filters share one row`);
+    await page.screenshot({ path: join(process.env.TEMP, `nukhab-passing-filters-${width}.png`) });
     const filter = async (label, option) => {
       await page.getByRole('combobox', { name: label, exact: true }).click();
       await page.getByRole('option', { name: option, exact: true }).click();
@@ -113,10 +119,8 @@ try {
     assert.equal(await page.getByRole('button', { name: 'اختبار طالب آخر', exact: true }).count(), 0);
     await filter('الحلقة', 'الحلقة الأولى');
     assert.equal(await page.getByRole('button', { name: 'اختبار طالب الحلقة الثالثة', exact: true }).count(), 0);
-    await filter('الطالب', 'طالب الاجتياز');
     await filter('المجمع', 'المجمع الثاني');
     assert.equal(await page.getByRole('combobox', { name: 'الحلقة', exact: true }).innerText(), 'الكل');
-    assert.equal(await page.getByRole('combobox', { name: 'الطالب', exact: true }).innerText(), 'الكل');
     await page.getByRole('button', { name: 'اختبار طالب آخر', exact: true }).click();
     await page.getByText('لم يُكمل الطالب جزءًا كاملًا معتمدًا ضمن خطته.', { exact: true }).waitFor();
     await noOverflow();
@@ -225,6 +229,6 @@ try {
     await page.getByRole('button', { name: 'استئناف الخطة — طالب الاجتياز', exact: true }).waitFor();
     assert.ok(individualPause.paused); await noOverflow(); assert.deepEqual(errors, []);
     await page.close();
-    globalThis.console.log(`Passing dashboard/settings/plans: dependent complex/circle/student filters, student test icons, plan-only parts, single-part selection, full hafiz scope, reports, retry/error retention, policy independence/overrides, invalid draft, global/individual pause, RTL overflow passed at ${width}px.`);
+    globalThis.console.log(`Passing dashboard/settings/plans: dependent complex/circle filters in one row, student test icons, plan-only parts, single-part selection, full hafiz scope, reports, retry/error retention, policy independence/overrides, invalid draft, global/individual pause, RTL overflow passed at ${width}px.`);
   }
 } finally { await browser.close(); }

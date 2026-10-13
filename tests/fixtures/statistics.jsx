@@ -36,6 +36,8 @@ Object.assign(studentsApi, {
       },
       committeeIndicators: committees.filter(committee => selected.some(student => student.committeeId === committee.id)).map(committee => ({ ...committee, studentsCount: 1, students: selected.filter(student => student.committeeId === committee.id) })),
       studentLevels: selected.map(student => ({ ...student, level: STUDENT_LEVELS[0] })),
+      branchPassing:{ expected:selected.length, tested:selected.filter(student => student.id%2).length,
+        studentsList:selected.map(student => ({ ...student, tested:Boolean(student.id%2), juzNumbers:[1] })) },
       bestStudents: selected.map(student => ({ ...student, grade: student.id * 10 + 0.5, complexName: complexes.find(complex => complex.id === committees.find(circle => circle.id === student.committeeId).complexId).name, percentage: student.percentage })).sort((a, b) => b.grade - a.grade),
       bestCommittees: committees.filter(circle => (committeeId === 'all' || String(circle.id) === committeeId) && (complexId === 'all' || String(circle.complexId) === complexId))
         .map(circle => ({ ...circle, complexName: complexes.find(complex => complex.id === circle.complexId).name, studentsCount: selected.filter(student => student.committeeId === circle.id).length, percentage: 50 })),
@@ -45,9 +47,10 @@ Object.assign(studentsApi, {
           studentsCount: selected.filter(student => committees.find(circle => circle.id === student.committeeId).complexId === complex.id).length, percentage: complex.id === 3 ? null : 50, max: complex.id === 3 ? 0 : 100 })),
       teachers: selected.length ? [
         { id: 1, name: 'عبد الله بن عبد الرحمن مشرف المسارات', committees: 'الفجر، العصر، حلقة اختبار ذات اسم طويل',
-          attendance: { attended: 4, late: 1, absent: 1, expected: 5, percentage: 80 }, achievement: { grade: 45, max: 60, percentage: 75 } },
-        { id: 2, name: 'مشرف الاختبار الثاني', committees: 'العصر', attendance: { expected: 5, percentage: 0 }, achievement: { grade: 30, max: 60, percentage: 50 } },
-        { id: 3, name: 'مشرف الاختبار الثالث', committees: '', attendance: { expected: 0, percentage: 0 }, achievement: { grade: 0, max: 0, percentage: 0 } },
+          attendance: { attended: 3, late: 1, absent: 1, excused:1, expected: 4, percentage: 75 }, achievement: { completed:8, expected:10, percentage:80 } },
+        { id: 2, name: 'مشرف الاختبار الثاني', committees: 'العصر', attendance: { expected: 5, percentage: 0 }, achievement: { completed:1, expected:2, percentage:50 } },
+        { id: 3, name: 'مشرف الاختبار الثالث', committees: '', attendance: { expected: 0, percentage: null }, achievement: { completed:0, expected:0, percentage:null } },
+        { id: 4, name: 'مشرف أرشيف قديم', committees:'الفجر', attendance:{}, achievement:{ grade:90,max:100,percentage:90 } },
       ] : [],
       planPerformance: {
         series: selected.length ? [{ date: from, done: selected.length * 8, expected: selected.length * 10, percentage: 80, shortageFaces: selected.length * 2 },

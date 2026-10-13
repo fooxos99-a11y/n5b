@@ -12,7 +12,7 @@ import { ALL_COMMITTEES } from './reportMetrics';
 
 const tint = (color, amount = 14) => `color-mix(in oklab, ${color} ${amount}%, transparent)`;
 // Keep six indicators balanced across two rows.
-const TILE_GRID = Object.freeze({ 2: 'grid-cols-2', 3: 'grid-cols-3', 4: 'grid-cols-2 sm:grid-cols-4', 5: 'grid-cols-3 sm:grid-cols-5', 6: 'grid-cols-2 sm:grid-cols-3' });
+const TILE_GRID = Object.freeze({ 2: 'grid-cols-2', 3: 'grid-cols-2 sm:grid-cols-3', 4: 'grid-cols-2 sm:grid-cols-4', 5: 'grid-cols-3 sm:grid-cols-5', 6: 'grid-cols-2 sm:grid-cols-3' });
 const STAT_GRID = Object.freeze({ 1: 'grid-cols-1', 2: 'grid-cols-2', 3: 'grid-cols-3', 4: 'grid-cols-2 sm:grid-cols-4', 5: 'grid-cols-2 sm:grid-cols-5', 6: 'grid-cols-2 sm:grid-cols-3' });
 
 const BarGroup = ({ group, color }) => (
@@ -84,7 +84,7 @@ export default function MetricDetails({ metric, periodLabel, committees = [], co
       >
         {metric && (
           <>
-            <div className="sticky top-0 z-10 flex items-center gap-3 border-b border-border bg-[hsl(var(--background))] px-4 py-3 sm:px-6">
+            <div className="sticky top-0 z-10 flex min-w-0 items-center gap-3 border-b border-border bg-[hsl(var(--background))] px-4 py-3 sm:px-6">
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg" style={{ background: tint(metric.color), color: metric.color }}>
                 {Icon && <Icon className="h-5 w-5" />}
               </span>
@@ -97,7 +97,7 @@ export default function MetricDetails({ metric, periodLabel, committees = [], co
               </Button>
             </div>
 
-            <div className="space-y-6 p-4 sm:p-6">
+            <div className="min-w-0 space-y-6 p-4 sm:p-6">
               {committees.length > 1 && (
                 <Select value={committee} onValueChange={onCommitteeChange}>
                   <SelectTrigger aria-label="الحلقة" className="h-11 w-full text-sm sm:w-56 [&_span]:truncate">

@@ -20,7 +20,6 @@ export default function PassingSection() {
   const [loadError, setLoadError] = useState('');
   const [complexId, setComplexId] = useState('all');
   const [committeeId, setCommitteeId] = useState('all');
-  const [studentId, setStudentId] = useState('all');
   const [selected, setSelected] = useState(null);
   const loadRevision = useRef(0);
   const load = useCallback(async () => {
@@ -36,12 +35,10 @@ export default function PassingSection() {
   const complexes = useMemo(() => optionsFrom(students, 'complexId', 'complexName'), [students]);
   const complexStudents = students.filter(student => complexId === 'all' || String(student.complexId) === complexId);
   const committees = optionsFrom(complexStudents, 'committeeId', 'committeeName');
-  const committeeStudents = complexStudents.filter(student => committeeId === 'all' || String(student.committeeId) === committeeId);
-  const visible = committeeStudents.filter(student => studentId === 'all' || String(student.id) === studentId);
+  const visible = complexStudents.filter(student => committeeId === 'all' || String(student.committeeId) === committeeId);
   const filters = [
-    { label: 'المجمع', value: complexId, options: complexes, change: value => { setComplexId(value); setCommitteeId('all'); setStudentId('all'); } },
-    { label: 'الحلقة', value: committeeId, options: committees, change: value => { setCommitteeId(value); setStudentId('all'); } },
-    { label: 'الطالب', value: studentId, options: committeeStudents, change: setStudentId },
+    { label: 'المجمع', value: complexId, options: complexes, change: value => { setComplexId(value); setCommitteeId('all'); } },
+    { label: 'الحلقة', value: committeeId, options: committees, change: setCommitteeId },
   ];
   return <div dir="rtl" className="space-y-4 [font-family:var(--font-ui)]">
     <div role="group" aria-label="نوع الاجتياز" className="grid grid-cols-2 gap-2 sm:max-w-md">
@@ -49,7 +46,7 @@ export default function PassingSection() {
         className="min-h-11" onClick={() => { setType(key); setSelected(null); }}>{label}</Button>)}
     </div>
     <ManagementPanel>
-      <ManagementToolbar className="grid grid-cols-1 items-end sm:grid-cols-3">
+      <ManagementToolbar className="grid grid-cols-2 items-end">
         {filters.map(filter => <FormField key={filter.label} label={filter.label}>
           <Select value={filter.value} onValueChange={filter.change} disabled={loading || Boolean(loadError)}>
             <SelectTrigger aria-label={filter.label} className="min-h-11"><SelectValue /></SelectTrigger>

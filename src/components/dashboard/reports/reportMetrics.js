@@ -10,7 +10,7 @@ export const METRIC_COLORS = Object.freeze({
   trackSession: '#2563eb',
   levels: STUDENT_LEVELS[0].color,
   committees: '#4f46e5',
-  narration: '#e11d48',
+  branchPassing: '#e11d48',
   points: '#dc2626',
 });
 
@@ -210,7 +210,7 @@ function studentLevelsMetric(overview, inCommittee) {
   const performance = new Map((overview.planPerformance?.students || []).map(student => [String(student.studentId), student.series]));
   return {
     id: 'levels',
-    label: 'مستويات الطلاب',
+    label: 'الطلاب',
     icon: GraduationCap,
     color: METRIC_COLORS.levels,
     ...(Array.isArray(overview.studentLevels) ? countMetric(allStudents.length) : { value: 0, display: 'غير متاح' }),
@@ -271,17 +271,20 @@ function committeesCountMetric(overview, inCommittee) {
   };
 }
 
-function narrationMetric(narration = {}, inCommittee, filtered) {
-  const students = (narration.studentsList || []).filter((row) => inCommittee(row.committeeName));
+function branchPassingMetric(data, inCommittee, filtered) {
+  const students = (data?.studentsList || []).filter((row) => inCommittee(row.committeeName));
+  const expected = filtered ? students.length : Number(data?.expected || 0);
+  const tested = filtered ? students.filter(row => row.tested).length : Number(data?.tested || 0);
   return {
-    id: 'narration',
-    label: 'يوم السرد',
+    id: 'branchPassing',
+    label: 'اختبارات الاجتياز الفرعي',
     icon: BookMarked,
-    color: METRIC_COLORS.narration,
-    ...countMetric(narration.grade),
+    color: METRIC_COLORS.branchPassing,
+    ...(data ? { value:pct(data.tested,data.expected), display:data.expected ? `${formatNumber(pct(data.tested,data.expected))}%` : '—' } : { value:0, display:'غير متاح' }),
     tiles: [
-      countTile('الدرجات', filtered ? sum(students, (row) => row.grade) : narration.grade),
-      countTile('الطلاب', filtered ? students.length : narration.students),
+      countTile('المستحقون للاختبار', expected),
+      countTile('اختُبروا', tested),
+      countTile('لم يُختبروا', expected-tested),
     ],
     bars: [],
     records: [{
@@ -289,9 +292,11 @@ function narrationMetric(narration = {}, inCommittee, filtered) {
       rows: students.map((row) => ({
         label: row.name,
         note: row.committeeName || 'بدون حلقة',
-        value: `${formatNumber(row.grade)} درجة`,
-        stats: [{ label: 'مرات السرد', value: formatNumber(row.times) }],
+        value: row.tested ? 'اختُبر' : 'لم يُختبر',
+        tone:row.tested ? TONES.good : TONES.warn,
+        stats: [{ label:'الأجزاء', value:(row.juzNumbers || []).map(formatNumber).join('، ') }],
       })),
+      emptyText:'لا يوجد طلاب مستحقون للاختبار في هذه الفترة.',
     }],
   };
 }
@@ -353,7 +358,7 @@ export function buildReportMetrics(overview, {
       weeklyProgramMetric(overview, students, filtered),
       weeklySessionMetric(grades.weeklySession, inCommittee, filtered),
       trackSessionMetric(grades.trackSession, inCommittee, filtered),
-      narrationMetric(grades.narration, inCommittee, filtered),
+      branchPassingMetric(overview.branchPassing, inCommittee, filtered),
       studentLevelsMetric(overview, inCommittee),
       committeesCountMetric(overview, inCommittee),
     );

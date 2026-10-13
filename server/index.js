@@ -6,6 +6,7 @@ import { assertSupervisorStudentScope } from './services/supervisorStudentScope.
 import { validatePlanReadingHizbs } from '../shared/quran-plan-options.js';
 import { assertPlanDailyThreshold } from './services/planDailyThreshold.js';
 import { loadQuranPlanPerformance } from './services/quranPlanPerformance.js';
+import { loadBranchPassingOverview } from './services/branchPassingOverview.js';
 import { normalizeSeasonalHolidays, isSeasonalHoliday } from '../shared/seasonal-holidays.js';
 import { parseStudentPlanPause, studentPlanPauseStatus, isStudentStudyHoliday, withStudentPlanPause, effectiveStudentPlanPaused } from '../shared/student-plan-pause.js';
 import { loadIndividualStudentPlanPauses, assertStudentPlanRunning } from './services/studentPlanPause.js';
@@ -11181,7 +11182,7 @@ const rateSupervisorQuranTaskHandler = async (req, res, next) => {
         JSON.stringify(attemptWordMarksByTask.get(taskId) || []),
       ]
     );
-    const groupGrade = await applyRecitationGroupGrade({ task, connection, req, supervisorId });
+    const groupGrade = await applyRecitationGroupGrade({ task, connection, req, supervisorId, sessionId: sessionClaim.sessionId });
     if (groupGrade?.failed && completed) {
       completed = false;
       await connection.query(
@@ -11219,7 +11220,7 @@ const rateSupervisorQuranTaskHandler = async (req, res, next) => {
       evaluationMaxScore: policy.maxScore,
       evaluatedFaces,
       attemptNumber,
-      teacherRatingLabel: ratingLabel,
+      teacherRatingLabel: task.taskType === 'review' && groupGrade?.failed && !notMemorized ? 'يحتاج إعادة' : ratingLabel,
       teacherCompleted: completed,
     };
     await finalizeRecitationTask(connection, {
@@ -11241,7 +11242,7 @@ const rateSupervisorQuranTaskHandler = async (req, res, next) => {
       evaluationMaxScore: policy.maxScore,
       evaluatedFaces,
       attemptNumber,
-      teacherRatingLabel: ratingLabel,
+      teacherRatingLabel: recitationResult.teacherRatingLabel,
       teacherCompleted: completed,
       ayahMarkCount: new Set(savedAyahMarks.map((mark) => `${mark.surah}:${mark.ayah}`)).size,
       ayahMarks: savedAyahMarks,
@@ -11537,6 +11538,19 @@ app.post('/api/offline-recitation/batch', async (req, res) => {
             requestId: req.traceId,
           });
           if (!['accepted', 'already_synced'].includes(result)) break;
+        }
+        // A later hizb can fail the whole review, including parts already returned above.
+        if (taskResults.some((item) => ['accepted', 'already_synced'].includes(item.result))) {
+          const [reviewParts] = await connection.query(
+            `SELECT task_id AS taskId, result_json AS resultJson
+             FROM student_quran_recitation_session_parts
+             WHERE session_id = ? AND task_type = 'review' AND status = 'accepted'`,
+            [session.sessionId],
+          );
+          const outcomes = new Map(reviewParts.map((part) => [Number(part.taskId), parseJsonValue(part.resultJson, {})]));
+          for (const item of taskResults) {
+            if (outcomes.has(item.taskId) && item.data) item.data = { ...item.data, ...outcomes.get(item.taskId) };
+          }
         }
         transaction.failed = !taskResults.length || taskResults.some((item) => !['accepted', 'already_synced'].includes(item.result));
         return taskResults;
@@ -12568,24 +12582,50 @@ async function calculateTaskEvaluationOutcome({ task, connection, notMemorized, 
 }
 
 /** Apply the day result of a whole recitation group: a failed group is failed on every row and repeated. */
-async function applyRecitationGroupGrade({ task, connection, req, supervisorId }) {
-  // A compensation is graded on its own and never changes the day's own grade.
-  if (Number(task.compensationIndex || 0) > 0) return null;
+async function applyRecitationGroupGrade({ task, connection, req, supervisorId, sessionId }) {
+  // Review compensations share group completion, but never change the day's grade.
+  if (Number(task.compensationIndex || 0) > 0 && task.taskType !== 'review') return null;
   const group = await recomputeRecitationGroupGrade(connection, {
     planId: task.planId,
     studentId: task.studentId,
     date: task.taskDate,
     taskType: task.taskType,
+    compensationIndex: Number(task.compensationIndex || 0),
     actor: { role: req.auth?.role || 'supervisor', id: supervisorId },
   });
-  if (!group?.failed) return group;
+  if (!group) return group;
+  if (!group.failed) {
+    if (task.taskType !== 'review' || !group.complete) return group;
+    const [[coverage]] = await connection.query(
+      `SELECT COUNT(DISTINCT task_id) AS count FROM student_quran_recitation_attempts
+       WHERE session_id = ? AND is_official = 1 AND task_id IN (${group.taskIds.map(() => '?').join(', ')})`,
+      [sessionId, ...group.taskIds],
+    );
+    // On a retry, restore success only after the entire amount was heard again.
+    if (Number(coverage.count) !== group.taskIds.length) return group;
+  }
   await connection.query(
     `UPDATE student_quran_tasks
-     SET teacher_completed = 0,
-         teacher_rating_label = CASE WHEN teacher_rating_key = ? THEN teacher_rating_label ELSE 'يحتاج إعادة' END
+     SET teacher_completed = ?,
+         teacher_rating_label = CASE WHEN teacher_rating_key = ? THEN teacher_rating_label ELSE ? END
      WHERE id IN (${group.taskIds.map(() => '?').join(', ')}) AND evaluated_at IS NOT NULL`,
-    [MANUAL_FAIL_RATING_KEY, ...group.taskIds],
+    [group.failed ? 0 : 1, MANUAL_FAIL_RATING_KEY, group.failed ? 'يحتاج إعادة' : 'ناجح', ...group.taskIds],
   );
+  if (task.taskType === 'review') {
+    await connection.query(
+      `UPDATE student_quran_recitation_attempts SET teacher_completed = ?
+       WHERE session_id = ? AND is_official = 1 AND task_id IN (${group.taskIds.map(() => '?').join(', ')})`,
+      [group.failed ? 0 : 1, sessionId, ...group.taskIds],
+    );
+    await connection.query(
+      `UPDATE student_quran_recitation_session_parts
+       SET result_json = JSON_SET(result_json, '$.teacherCompleted', CAST(? AS JSON),
+         '$.teacherRatingLabel', CASE WHEN JSON_EXTRACT(payload_json, '$.notMemorized') = CAST('true' AS JSON)
+           THEN JSON_UNQUOTE(JSON_EXTRACT(result_json, '$.teacherRatingLabel')) ELSE ? END)
+       WHERE session_id = ? AND status = 'accepted' AND task_id IN (${group.taskIds.map(() => '?').join(', ')})`,
+      [group.failed ? 'false' : 'true', group.failed ? 'يحتاج إعادة' : 'ناجح', sessionId, ...group.taskIds],
+    );
+  }
   return group;
 }
 
@@ -13463,6 +13503,9 @@ async function buildOverviewReport({ from, startDate: requestedStartDate, date, 
         readingDays: reportProgramPolicy.readingDays.map(Number),
         expand: range => expandQuranTraversalRange(queryExecutor || db(), range),
       }),
+      branchPassing: await loadBranchPassingOverview(reportDb, {
+        from:startDate, to:minDateOnly(endDate,today), referenceConnection:queryExecutor || db(),
+      }),
       studentLevels: await loadStudentLevels({
         query: reportDb.query,
         referenceConnection: queryExecutor || db(),
@@ -13470,7 +13513,8 @@ async function buildOverviewReport({ from, startDate: requestedStartDate, date, 
         acceptedSql: acceptedMemorizationSql,
         today,
       }),
-      ...await buildOverviewRankings(reportDb, { from: startDate, to: endDate, attendanceDates, attendanceWeekDays, grades }),
+      ...await buildOverviewRankings(reportDb, { from: startDate, to: minDateOnly(endDate,today), attendanceDates,
+        readingDays:reportProgramPolicy.readingDays.map(Number), grades }),
   };
 }
 

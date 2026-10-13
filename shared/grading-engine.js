@@ -105,7 +105,7 @@ export function evaluateLink(rawPolicy, { mistakes = 0, warnings = 0, hesitation
 }
 
 /**
- * Review measured in ahzab. Any single hizb reaching the hizb limit fails the whole review,
+ * Review measured in ahzab. Any single hizb exceeding the hizb limit fails the whole review,
  * then the total is compared with 1 - (ahzab × limit).
  */
 export function evaluateReview(rawPolicy, { hizbs = [], manualFail = false } = {}) {
@@ -114,7 +114,7 @@ export function evaluateReview(rawPolicy, { hizbs = [], manualFail = false } = {
   const limit = policy.weeklyProgram.hizbDeductionLimit;
   const rows = (hizbs.length ? hizbs : [{}]).map((item, index) => {
     const { mistakes, warnings, hesitations, deduction } = deductionOf(policy, item);
-    return { index: index + 1, hizb: item.hizb ?? null, mistakes, warnings, hesitations, deduction, failed: deduction >= limit };
+    return { index: index + 1, hizb: item.hizb ?? null, mistakes, warnings, hesitations, deduction, failed: deduction > limit };
   });
   const totalDeduction = round(rows.reduce((sum, item) => sum + item.deduction, 0));
   const rawScore = round(1 - totalDeduction);
@@ -135,7 +135,7 @@ export function evaluateReview(rawPolicy, { hizbs = [], manualFail = false } = {
   if (manualFail) return failed(base, FAIL_TYPES.manual);
   const failedHizb = rows.find(item => item.failed);
   if (failedHizb) return failed(base, FAIL_TYPES.hizb, { failedHizbIndex: failedHizb.index });
-  if (rawScore <= base.amountThreshold) return failed(base, FAIL_TYPES.amount);
+  if (rawScore <= 0 || rawScore < base.amountThreshold) return failed(base, FAIL_TYPES.amount);
   return { ...base, passed: true, failType: null, failReason: null, grade: round(Math.max(0, rawScore) * max) };
 }
 

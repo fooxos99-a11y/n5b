@@ -35,7 +35,7 @@ export function evaluateRecitationGroup(policy, taskType, items = [], counts = {
     const ordered = [...groups.values()];
     const result = evaluateReview(policy, { hizbs: ordered });
     result.hizbs.forEach((hizb, index) => {
-      for (const id of ordered[index].itemIds) itemResults.set(id, { score: Math.max(0, 1 - hizb.deduction), failed: hizb.failed });
+      for (const id of ordered[index].itemIds) itemResults.set(id, { score: Math.max(0, 1 - hizb.deduction), failed: !result.passed });
     });
     const failedHizb = result.failedHizbIndex ? ordered[result.failedHizbIndex - 1] : null;
     return { itemResults, result, failedLabel: failedHizb ? (failedHizb.hizb ? `الحزب ${failedHizb.hizb}` : `الحزب ${result.failedHizbIndex}`) : '' };
@@ -50,4 +50,29 @@ export function evaluateRecitationGroup(policy, taskType, items = [], counts = {
     return { itemResults, result, failedLabel: '' };
   }
   return null;
+}
+
+/** Keep local review completion consistent with the whole group before server sync. */
+export function applyOfflineReviewGroupOutcome(entries, policy) {
+  if (!policy) return entries;
+  const groups = new Map();
+  for (const entry of entries) {
+    if (entry.task.taskType !== 'review' || !entry.payload.offlineOutcome) continue;
+    const { planId, taskDate, compensationIndex = 0 } = entry.task;
+    const key = JSON.stringify([planId, taskDate, compensationIndex]);
+    const group = groups.get(key) || [];
+    group.push(entry);
+    groups.set(key, group);
+  }
+  const failedIds = new Set();
+  for (const group of groups.values()) {
+    const counts = Object.fromEntries(group.map(({ task, payload }) => [String(task.id), payload.offlineOutcome]));
+    const evaluation = evaluateRecitationGroup(policy, 'review', group.map(({ task }) => task), counts);
+    if (!evaluation.result.passed || group.some(({ payload }) => payload.notMemorized)) {
+      for (const { task } of group) failedIds.add(String(task.id));
+    }
+  }
+  return entries.map((entry) => failedIds.has(String(entry.task.id))
+    ? { ...entry, payload: { ...entry.payload, offlineOutcome: { ...entry.payload.offlineOutcome, completed: false } } }
+    : entry);
 }

@@ -124,14 +124,32 @@ test('review threshold is computed from the number of ahzab', () => {
   assert.equal(reviewAmountThreshold(policy, 4), 0.4);
 });
 
-test('review: any hizb reaching 0.15 fails the whole review', () => {
+test('review allows the exact hizb deduction cap and fails only above it', () => {
   for (const hizb of [{ mistakes: 3 }, { warnings: 15 }, { mistakes: 2, warnings: 5 }]) {
-    assert.equal(evaluateReview(policy, { hizbs: [hizb] }).passed, false);
+    assert.equal(evaluateReview(policy, { hizbs: [hizb] }).passed, true);
+    assert.equal(evaluateReview(policy, { hizbs: [hizb] }).grade, 0.85);
   }
-  const result = evaluateReview(policy, { hizbs: [{ mistakes: 2 }, { mistakes: 1, warnings: 3 }, { mistakes: 3 }, { warnings: 2 }] });
+  const result = evaluateReview(policy, { hizbs: [{ mistakes: 2 }, { mistakes: 1, warnings: 3 }, { mistakes: 3, warnings: 1 }, { warnings: 2 }] });
   assert.equal(result.failType, 'hizb');
   assert.equal(result.failedHizbIndex, 3);
   assert.equal(result.grade, 0);
+});
+
+test('review has one grade from one regardless of hizb count; any failed hizb zeros it', () => {
+  for (const count of [1, 4]) {
+    const perfect = evaluateReview(policy, { hizbs: Array.from({ length: count }, () => ({})) });
+    assert.equal(perfect.max, 1);
+    assert.equal(perfect.grade, 1);
+  }
+  assert.equal(evaluateReview(policy, { hizbs: Array.from({ length: 4 }, () => ({ warnings: 15 })) }).grade, 0.4);
+  assert.equal(evaluateReview(policy, { hizbs: Array.from({ length: 4 }, () => ({ mistakes: 1 })) }).grade, 0.8);
+  for (const position of [0, 3]) {
+    const hizbs = Array.from({ length: 4 }, (_, index) => ({ warnings: index === position ? 16 : 0 }));
+    const result = evaluateReview(policy, { hizbs });
+    assert.equal(result.passed, false);
+    assert.equal(result.failedHizbIndex, position + 1);
+    assert.equal(result.grade, 0);
+  }
 });
 
 test('review passes with partial deductions below every limit', () => {
