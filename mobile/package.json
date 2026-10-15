@@ -31,6 +31,7 @@
     "@eslint/js": "^10.0.1",
     "@types/node": "^22.20.5",
     "@types/react": "~19.2.2",
+    "@types/react-dom": "~19.2.0",
     "braces": "file:../shared/vendor/braces-safe",
     "eslint": "^10.12.0",
     "eslint-plugin-react-hooks": "^7.1.1",
