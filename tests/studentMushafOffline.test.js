@@ -85,7 +85,6 @@ test('student-only Mushaf route uses local pages, local fonts, and cached daily 
   assert.match(section, /saveStudentMushafBookmarks\(readerStorageId, next\)/);
   assert.match(section, /\{studentId && \(/);
   assert.match(section, /حفظ علامة الصفحة/);
-  assert.match(section, /toolbarControlClass/);
   assert.match(indexDialog, /<DialogContent/);
   assert.match(indexDialog, /aria-labelledby="student-mushaf-index-title"/);
   assert.doesNotMatch(section, /highlightRange=/);

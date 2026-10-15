@@ -51,6 +51,8 @@ for (const [engineName, engine] of [['chromium', chromium], ['webkit', webkit]])
       await page.getByRole('button', { name: 'حفظ', exact: true }).click();
       const session = page.getByLabel('جلسة التسميع', { exact: true });
       await session.locator('[data-mushaf-word-index]').first().waitFor();
+      const themeControl = session.getByRole('button', { name: 'تفعيل المصحف الداكن', exact: true });
+      assert.equal(await themeControl.isVisible(), false, 'recitation starts with hidden tools');
       assert.equal(await session.getByRole('button', { name: 'راسب', exact: true }).count(), 0);
       assert.ok(await session.evaluate(element => element.scrollWidth <= element.clientWidth));
       const start = session.locator('[data-mushaf-line="4"][data-mushaf-word-index]').first();
@@ -78,24 +80,33 @@ for (const [engineName, engine] of [['chromium', chromium], ['webkit', webkit]])
       await page.mouse.up();
       const markDialog = page.getByRole('dialog');
       await markDialog.getByRole('button', { name: 'خطأ', exact: true }).waitFor();
+      await markDialog.focus();
+      assert.ok(await markDialog.evaluate((dialog) => dialog.contains(globalThis.document.activeElement)));
       await page.keyboard.press('Escape');
       await markDialog.waitFor({ state: 'hidden' });
+      assert.equal(await themeControl.isVisible(), false, 'selecting words must not reveal the reading tools');
       for (const [index, type] of markTypes.entries()) {
         await session.locator('[data-mushaf-line="7"][data-mushaf-word-index]').nth(index).click();
         await page.getByRole('dialog').getByRole('button', { name: { mistake: 'خطأ', lahn: 'لحن', warning: 'تنبيه', hesitation: 'تردد' }[type], exact: true }).click();
       }
       if (width === 390) {
+        const face = session.locator('.mushaf-page-turn .mushaf-page');
+        const faceBounds = await face.boundingBox();
+        await face.click({ position: { x: 3, y: faceBounds.height / 2 } });
+        await themeControl.waitFor({ state: 'visible' });
         await session.getByRole('button', { name: 'تفعيل المصحف الداكن', exact: true }).click();
-        await page.setViewportSize({ width: 360, height: 700 });
-        await page.waitForFunction(() => {
-          const svg = globalThis.document.querySelector('[data-mushaf-highlights]');
-          const bounds = svg.getBoundingClientRect();
-          const words = [...svg.parentElement.querySelectorAll('[data-mushaf-line="7"][data-mushaf-word-index]')];
-          return [...svg.querySelectorAll('path')].every((path, index) => {
-            const word = words[index].getBoundingClientRect();
-            return path.isPointInFill(new globalThis.DOMPoint(word.left + word.width / 2 - bounds.left, word.top + word.height / 2 - bounds.top));
+        for (const viewport of [{ width: 360, height: 700 }, { width: 375, height: 667 }, { width: 390, height: 844 }, { width: 1440, height: 900 }]) {
+          await page.setViewportSize(viewport);
+          await page.waitForFunction(() => {
+            const svg = globalThis.document.querySelector('[data-mushaf-highlights]');
+            const bounds = svg.getBoundingClientRect();
+            const words = [...svg.parentElement.querySelectorAll('[data-mushaf-line="7"][data-mushaf-word-index]')];
+            return [...svg.querySelectorAll('path')].every((path, index) => {
+              const word = words[index].getBoundingClientRect();
+              return path.isPointInFill(new globalThis.DOMPoint(word.left + word.width / 2 - bounds.left, word.top + word.height / 2 - bounds.top));
+            });
           });
-        });
+        }
         assert.equal(await session.locator('[data-highlight-tone="lahn"]').count(), 1);
         await page.screenshot({ path: join(tmpdir(), `nukhab-marks-dark-${engineName}.png`) });
       }

@@ -1,6 +1,7 @@
 import React, { useEffect, useLayoutEffect, useRef } from 'react';
 import { animate, motion, useMotionValue, useReducedMotion } from 'framer-motion';
 import MushafPageControls from '@/components/portal/MushafPageControls';
+import { useMushafReader } from '@/components/portal/MushafReaderLayout';
 import '@/components/portal/MushafPageCarousel.css';
 
 const SWIPE_DISTANCE = 52;
@@ -8,6 +9,7 @@ const SWIPE_BLOCK_SELECTOR = 'button, input, textarea, [data-recitation-control]
 
 const MushafPageCarousel = ({ index, total, pageNumber, pageNumbers = [], isSaving, onFinish, onNextRandom, pageAction, onIndexChange, onInteractionCancel, previousPage, nextPage, children }) => {
   const pointer = useRef(null);
+  const reader = useMushafReader();
   const surface = useRef(null);
   const dragX = useMotionValue(0);
   const reduceMotion = useReducedMotion();
@@ -69,9 +71,9 @@ const MushafPageCarousel = ({ index, total, pageNumber, pageNumbers = [], isSavi
 
   const startSwipe = (event) => {
     if (!event.isPrimary || event.button !== 0) return;
-    if (event.target.closest?.(SWIPE_BLOCK_SELECTOR)) return;
     dragX.stop();
     suppressClick.current = false;
+    if (event.target.closest?.(SWIPE_BLOCK_SELECTOR)) return;
     pointer.current = {
       id: event.pointerId,
       startX: event.clientX,
@@ -87,6 +89,7 @@ const MushafPageCarousel = ({ index, total, pageNumber, pageNumbers = [], isSavi
     const deltaY = event.clientY - current.startY;
     if (current.horizontal === null && Math.max(Math.abs(deltaX), Math.abs(deltaY)) > 8) {
       current.horizontal = Math.abs(deltaX) > Math.abs(deltaY);
+      suppressClick.current = true;
     }
     if (current.horizontal) {
       event.currentTarget.setPointerCapture?.(event.pointerId);
@@ -123,10 +126,23 @@ const MushafPageCarousel = ({ index, total, pageNumber, pageNumbers = [], isSavi
       onPointerDownCapture={startSwipe}
       onPointerMoveCapture={moveSwipe}
       onPointerUpCapture={endSwipe}
-      onPointerCancelCapture={() => { pointer.current = null; animate(dragX, 0, { duration: reduceMotion ? 0 : 0.22 }); }}
-      onClickCapture={(event) => { if (suppressClick.current) { event.preventDefault(); event.stopPropagation(); suppressClick.current = false; } }}
+      onPointerCancelCapture={() => {
+        pointer.current = null;
+        suppressClick.current = false;
+        animate(dragX, 0, { duration: reduceMotion ? 0 : 0.22 });
+      }}
+      onClickCapture={(event) => {
+        if (event.target.closest?.(SWIPE_BLOCK_SELECTOR)) return;
+        if (suppressClick.current) {
+          event.preventDefault();
+          event.stopPropagation();
+          suppressClick.current = false;
+          return;
+        }
+        reader?.toggleControls();
+      }}
     >
-      <motion.div style={{ x: dragX }} className="relative min-h-0 w-full flex-1 sm:px-14" data-mushaf-drag-surface>
+      <motion.div style={{ x: dragX }} className="relative min-h-0 w-full flex-1" data-mushaf-drag-surface>
         {nextPage && <div aria-hidden="true" inert="" className="pointer-events-none absolute inset-0 -translate-x-full">{nextPage}</div>}
         {previousPage && <div aria-hidden="true" inert="" className="pointer-events-none absolute inset-0 translate-x-full">{previousPage}</div>}
         <div

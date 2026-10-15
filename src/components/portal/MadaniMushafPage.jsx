@@ -1,8 +1,11 @@
-import React, { useMemo, useRef } from 'react';
+import React, { useLayoutEffect, useMemo, useRef } from 'react';
 import MushafLineDecoration from '@/components/portal/MushafLineDecoration';
-import MushafPageFrame from '@/components/portal/MushafPageFrame';
 import MushafPageHeader from '@/components/portal/MushafPageHeader';
 import MushafHighlightLayer from '@/components/portal/MushafHighlightLayer';
+import { useMushafReader } from '@/components/portal/MushafReaderLayout';
+import { formatMushafNumber, getMushafPageMetadata } from '@/lib/mushafPageMetadata';
+import { getMushafPagePresentation } from '@/lib/mushafPagePresentation';
+import './mushaf-reader.css';
 
 const locationParts = (location = '') => String(location).split(':').map(Number);
 
@@ -24,29 +27,49 @@ const isVerseWithinRange = (surah, ayah, allowedRange) => {
 
 const MadaniMushafPage = ({ page, surahName, theme = 'dark', marks = [], allowedRange, highlightRange, selection, markingMode = false, fontReady = false, onSelectionStart, onSelectionMove, onSelectionEnd, pageAction }) => {
   const words = useMemo(() => page?.words || [], [page?.words]);
+  const presentation = useMemo(() => getMushafPagePresentation(page), [page]);
   const textRef = useRef(null);
+  const reader = useMushafReader();
+  const metadata = getMushafPageMetadata(page, reader?.index, surahName);
   const decorationsByLine = useMemo(() => new Map(
-    (page?.decorations || []).map((decoration) => [Number(decoration.line), decoration])
-  ), [page?.decorations]);
+    presentation.decorations.map((decoration) => [Number(decoration.line), decoration])
+  ), [presentation]);
   const topSurahDecoration = useMemo(() => (
-    (page?.decorations || []).find((decoration) => decoration.type === 'surah' && Number(decoration.line) === 0)
-  ), [page?.decorations]);
+    presentation.decorations.find((decoration) => decoration.type === 'surah' && Number(decoration.line) === 0)
+  ), [presentation]);
   const lineShift = useMemo(() => {
     if (![1, 2].includes(Number(page?.page))) return 0;
     const occupiedLines = [
-      ...words.map((word) => Number(word.line)),
-      ...(page?.decorations || []).filter((decoration) => decoration.type !== 'surah').map((decoration) => Number(decoration.line)),
+      ...words.map(presentation.lineOf),
+      ...presentation.decorations.filter((decoration) => decoration.type !== 'surah').map((decoration) => Number(decoration.line)),
     ].filter((line) => line >= 1 && line <= 15);
     if (!occupiedLines.length) return 0;
     const firstLine = Math.min(...occupiedLines);
     const lastLine = Math.max(...occupiedLines);
     const targetFirstLine = Math.floor((15 - (lastLine - firstLine + 1)) / 2) + 1;
     return targetFirstLine - firstLine;
-  }, [page?.decorations, page?.page, words]);
+  }, [page?.page, presentation, words]);
   const lines = useMemo(() => Array.from({ length: 15 }, (_, index) => (
-    words.filter((word) => Number(word.line) === index + 1 - lineShift)
-  )), [lineShift, words]);
-  const fontFamily = `QCF-P${page?.page}`;
+    words.filter((word) => presentation.lineOf(word) === index + 1 - lineShift)
+  )), [lineShift, presentation, words]);
+  const fontFamily = presentation.hasV1 ? `QCF-V1-P${page?.page}` : `QCF-P${page?.page}`;
+  useLayoutEffect(() => {
+    const element = textRef.current;
+    if (!element) return undefined;
+    const fitLines = () => {
+      element.style.setProperty('--mushaf-line-scale', '1');
+      const lineElements = [...element.querySelectorAll('.mushaf-line')];
+      const scale = lineElements.reduce((smallest, line) => {
+        const width = [...line.querySelectorAll('.mushaf-word')].reduce((sum, word) => sum + word.getBoundingClientRect().width, 0);
+        return width > 0 ? Math.min(smallest, (line.clientWidth - 1) / width) : smallest;
+      }, 1);
+      element.style.setProperty('--mushaf-line-scale', String(Math.max(.1, scale)));
+    };
+    fitLines();
+    const observer = new ResizeObserver(fitLines);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [fontReady, fontFamily, lines]);
   const highlightRanges = useMemo(() => {
     const ranges = marks.flatMap((mark, index) => {
       const start = locationIndex(words, mark.startLocation);
@@ -78,15 +101,24 @@ const MadaniMushafPage = ({ page, surahName, theme = 'dark', marks = [], allowed
   return (
     <div className="mx-auto flex h-full min-h-0 w-full flex-col items-center justify-center">
       <article
-        className={`mushaf-page relative mx-auto flex aspect-[13/24] h-full max-h-full w-auto flex-none select-none flex-col overflow-hidden shadow-[0_20px_55px_rgb(2_6_23_/_0.22)] transition-none [container-type:inline-size] ${theme === 'light' ? 'bg-[#fffdf7] text-slate-950' : 'bg-[#172033] text-slate-100'} ${markingMode ? 'touch-none' : 'touch-pan-y'}`}
-        style={{ maxWidth: 'min(100%, 38rem)' }}
+        className={`mushaf-page mx-auto flex-none select-none ${markingMode ? 'touch-none' : 'touch-pan-y'}`}
+        data-reader-theme={theme}
         dir="rtl"
         onPointerMove={moveSelection}
         onPointerUp={() => markingMode && onSelectionEnd?.()}
         onPointerCancel={() => markingMode && onSelectionEnd?.()}
         translate="no"
       >
-        <MushafPageFrame theme={theme} />
+        <header className="mushaf-page-meta">
+          <div className="mushaf-page-meta-parts">
+            <span>جزء {formatMushafNumber(metadata.juz)}</span>
+            <span className="mushaf-hizb-marker">
+              <svg viewBox="0 0 20 20" aria-hidden><circle cx="10" cy="10" r="8.5" fill="none" stroke="currentColor" /><path d="M10 1.5v8.5h8.5A8.5 8.5 0 0 0 10 1.5Z" fill="currentColor" /></svg>
+              حزب {formatMushafNumber(metadata.hizb)}
+            </span>
+          </div>
+          <span>{metadata.surahName}</span>
+        </header>
         {topSurahDecoration && (
           <MushafPageHeader
             surahNumber={topSurahDecoration.surah}
@@ -94,15 +126,14 @@ const MadaniMushafPage = ({ page, surahName, theme = 'dark', marks = [], allowed
             theme={theme}
           />
         )}
-        <div ref={textRef} className="relative grid min-h-0 flex-1 grid-rows-[repeat(15,minmax(0,1fr))] px-[3.25%] pb-[16%] pt-[5%]">
+        <div ref={textRef} className="mushaf-text">
           <MushafHighlightLayer containerRef={textRef} ranges={highlightRanges} fontReady={fontReady} />
           {lines.map((lineWords, lineIndex) => (
             <div
               key={`${page?.page}-${lineIndex + 1}`}
-              className="flex min-w-0 items-center justify-center gap-0 whitespace-nowrap text-center leading-none"
+              className="mushaf-line"
               style={{
                 fontFamily,
-                fontSize: '4.7cqw',
               }}
             >
               {decorationsByLine.get(lineIndex + 1 - lineShift) ? (
@@ -130,10 +161,11 @@ const MadaniMushafPage = ({ page, surahName, theme = 'dark', marks = [], allowed
                       onSelectionStart?.(index);
                     }}
                     aria-disabled={!withinAllowedRange || undefined}
-                    className={`relative z-10 px-[0.055em] transition-[background-color,box-shadow,opacity,filter] duration-150 ${selectable && markingMode ? 'cursor-crosshair touch-none' : ''} ${!withinAllowedRange ? 'pointer-events-none opacity-20 grayscale' : ''} ${wordTone(word)}`}
+                    className={`mushaf-word relative z-10 transition-[background-color,box-shadow,opacity,filter] duration-150 ${selectable && markingMode ? 'cursor-crosshair touch-none' : ''} ${!withinAllowedRange ? 'pointer-events-none opacity-20 grayscale' : ''} ${wordTone(word)}`}
                     title={word.textQpcHafs}
+                    style={presentation.hasV1 ? { fontFamily: `QCF-V1-P${presentation.display[word.location].pageV1}` } : undefined}
                   >
-                    {fontReady ? (word.codeV2 || word.textQpcHafs) : word.textQpcHafs}
+                    {fontReady ? (presentation.hasV1 ? presentation.display[word.location].codeV1 : (word.codeV2 || word.textQpcHafs)) : word.textQpcHafs}
                   </span>
                 );
               })}

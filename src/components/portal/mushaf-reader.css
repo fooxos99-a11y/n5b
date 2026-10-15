@@ -1,0 +1,170 @@
+.mushaf-reader,
+.mushaf-page {
+  --reader-paper: #f9f7f8;
+  --reader-ink: #101010;
+  --reader-toolbar: #f1efef;
+  --reader-control: #e8e6e6;
+  --reader-muted: #595858;
+}
+
+.mushaf-reader[data-reader-theme="dark"],
+.mushaf-page[data-reader-theme="dark"] {
+  --reader-paper: #181816;
+  --reader-ink: #f7f7f7;
+  --reader-toolbar: #202020;
+  --reader-control: #343434;
+  --reader-muted: #c5c5c5;
+}
+
+.mushaf-reader {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
+  background: var(--reader-paper);
+  color: var(--reader-ink);
+  font-family: var(--font-ui);
+}
+
+.mushaf-reader-pages {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  container-type: size;
+}
+
+.mushaf-page {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  max-height: 100%;
+  overflow: hidden;
+  background: var(--reader-paper);
+  color: var(--reader-ink);
+  container-type: size;
+}
+
+.mushaf-page-meta {
+  position: absolute;
+  inset: 0 5.3% auto;
+  top: max(4.9%, env(safe-area-inset-top));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 3.1%;
+  font-size: clamp(10px, 2.8cqw, 18px);
+  line-height: 1.5;
+  font-weight: 400;
+  font-family: var(--font-ui);
+}
+
+.mushaf-page-meta-parts { display: flex; align-items: center; gap: 4cqw; }
+.mushaf-hizb-marker { display: inline-flex; align-items: center; gap: .65cqw; }
+.mushaf-hizb-marker svg { width: 2.7cqw; height: 2.7cqw; }
+
+.mushaf-text {
+  position: absolute;
+  inset: 12.65% 5.3% 12.8%;
+  display: grid;
+  grid-template-rows: repeat(15, minmax(0, 1fr));
+  min-height: 0;
+}
+
+.mushaf-line {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  gap: 0;
+  white-space: nowrap;
+  text-align: center;
+  line-height: 1;
+  font-size: min(calc(6.4cqw * var(--mushaf-line-scale, 1)), calc(4.3cqh * var(--mushaf-line-scale, 1)));
+}
+
+.mushaf-word { flex: none; padding-inline: 0; }
+.mushaf-page-surah-opening { position: absolute; inset: 8% 7% auto; height: 4.2%; }
+
+.mushaf-page-controls {
+  position: absolute;
+  inset-inline: 5.3%;
+  bottom: max(5.9%, env(safe-area-inset-bottom));
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 44px;
+  font-family: var(--font-ui);
+}
+
+.mushaf-page-number { margin-inline-start: auto; font-size: clamp(11px, 2.8cqw, 18px); line-height: 1.5; font-weight: 400; }
+.mushaf-page-controls .mushaf-finish-button,
+.mushaf-page-controls .mushaf-next-button {
+  min-width: 56px;
+  min-height: 44px;
+  height: 44px;
+  padding: 0;
+  background: transparent;
+  color: var(--reader-ink);
+  box-shadow: none;
+}
+.mushaf-finish-button span,
+.mushaf-next-button span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 48px;
+  min-height: 25px;
+  padding: 3px 11px;
+  border-radius: 15px;
+  background: var(--reader-control);
+  color: var(--reader-ink);
+  font-size: clamp(10px, 2.4cqw, 15px);
+  font-weight: 500;
+}
+
+.mushaf-reader-toolbar-layer {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 40;
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+.mushaf-reader-toolbar-layer[data-visible="true"] { visibility: visible; opacity: 1; pointer-events: auto; }
+.mushaf-reader-toolbar { background: var(--reader-toolbar); padding: calc(12px + env(safe-area-inset-top)) 12px 10px; }
+.mushaf-reader-toolbar-main { display: flex; align-items: center; gap: 8px; min-height: 56px; max-width: 640px; margin-inline: auto; }
+.mushaf-reader-location { display: flex; align-items: center; justify-content: space-between; flex: 1; min-width: 0; height: 44px; border: 1px solid color-mix(in srgb, var(--reader-ink) 18%, transparent); border-radius: 4px; background: var(--reader-control); padding-inline: 9px; }
+.mushaf-reader-location-text { min-width: 0; }
+.mushaf-reader-location-text p { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 13px; font-weight: 500; }
+.mushaf-reader-location-text span { display: block; color: var(--reader-muted); font-size: 9px; white-space: nowrap; }
+.mushaf-reader-toolbar button { box-shadow: none; color: var(--reader-ink); }
+.mushaf-reader-toolbar .mushaf-reader-icon { width: 44px; min-width: 44px; height: 44px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--reader-ink); box-shadow: none; }
+.mushaf-reader-toolbar button:hover { background: var(--reader-control); color: var(--reader-ink); transform: none; }
+.mushaf-reader-toolbar-extra { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; max-width: 640px; margin: 4px auto 0; }
+.mushaf-reader-keyboard-control:not(:focus) { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.mushaf-reader-keyboard-control:focus { position: absolute; z-index: 45; inset-inline-start: 8px; top: 8px; background: var(--reader-control); color: var(--reader-ink); }
+
+html[data-native-surface="dark"],
+html[data-native-surface="dark"] body,
+html[data-native-surface="dark"] #root { background: #181816; }
+html[data-native-surface="light"],
+html[data-native-surface="light"] body,
+html[data-native-surface="light"] #root { background: #f9f7f8; }
+
+@media (min-width: 768px) {
+  .mushaf-page { width: min(100%, 46cqh); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mushaf-reader-toolbar-layer { transition: none; }
+}

@@ -1,10 +1,8 @@
 import React from 'react';
-import MushafPageNumber from './MushafPageNumber';
+import MushafPageControls from './MushafPageControls';
 
-const StudentMushafPageControls = ({ pageNumber }) => (
-  <div className="absolute inset-x-[4%] bottom-0 z-30 flex h-11 items-center justify-center" data-recitation-control>
-    <MushafPageNumber pageNumber={pageNumber} />
-  </div>
+const StudentMushafPageControls = ({ pageNumber, onFinish }) => (
+  <MushafPageControls pageNumber={pageNumber} onFinish={onFinish} />
 );
 
 export default StudentMushafPageControls;

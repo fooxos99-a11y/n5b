@@ -5,6 +5,7 @@ import { resolveAssetUrl } from '@/lib/assetUrl';
 const PAGE_COUNT = 604;
 const indexPromise = { current: null };
 const pagePromises = new Map();
+const displayPromises = new Map();
 const resolvedPages = new Map();
 const completeMushafPromise = { current: null };
 
@@ -29,10 +30,14 @@ export const getOfflineMushafIndex = () => {
 export const getOfflineMushafPage = (pageNumber) => {
   const page = clampMushafPage(pageNumber);
   if (!pagePromises.has(page)) {
-    pagePromises.set(page, fetchLocalJson(`quran/hafs/pages/${page}.json`)
-      .then((data) => {
-        resolvedPages.set(page, data);
-        return data;
+    pagePromises.set(page, Promise.all([
+      fetchLocalJson(`quran/hafs/pages/${page}.json`),
+      getOfflineMushafDisplay(page),
+    ])
+      .then(([data, displayLayout]) => {
+        const displayedPage = { ...data, displayLayout };
+        resolvedPages.set(page, displayedPage);
+        return displayedPage;
       })
       .catch((error) => {
         pagePromises.delete(page);
@@ -40,6 +45,23 @@ export const getOfflineMushafPage = (pageNumber) => {
       }));
   }
   return pagePromises.get(page);
+};
+
+export const getOfflineMushafDisplay = (pageNumber) => {
+  const page = clampMushafPage(pageNumber);
+  if (!displayPromises.has(page)) {
+    displayPromises.set(page, fetchLocalJson(`quran/hafs/layout-v1/${page}.json`)
+      .then((layout) => {
+        if (Number(layout?.page) !== page || !layout.words || typeof layout.words !== 'object') {
+          throw new Error('تعذر فتح تخطيط صفحة المصحف.');
+        }
+        return layout;
+      }).catch((error) => {
+        displayPromises.delete(page);
+        throw error;
+      }));
+  }
+  return displayPromises.get(page);
 };
 
 export const getCachedOfflineMushafPage = (pageNumber) => resolvedPages.get(clampMushafPage(pageNumber)) || null;
@@ -59,6 +81,8 @@ const completeMushafAssets = [
   'quran/hafs/fonts/uthmanic-hafs.woff2',
   ...Array.from({ length: PAGE_COUNT }, (_, index) => `quran/hafs/pages/${index + 1}.json`),
   ...Array.from({ length: PAGE_COUNT }, (_, index) => `quran/hafs/fonts/p${index + 1}.woff2`),
+  ...Array.from({ length: PAGE_COUNT }, (_, index) => `quran/hafs/layout-v1/${index + 1}.json`),
+  ...Array.from({ length: PAGE_COUNT }, (_, index) => `quran/hafs/fonts/v1/p${index + 1}.woff2`),
 ];
 
 export const preloadCompleteOfflineMushaf = () => {

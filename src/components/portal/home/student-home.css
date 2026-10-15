@@ -96,9 +96,6 @@
 
 .student-home .student-home-task[aria-pressed=true]{background:#e1f3ee;border-color:#66b59c;color:#176b55;box-shadow:inset 0 0 0 1px #66b59c}
 .student-home .student-home-task[aria-pressed=true] small{color:#347764}
-.student-mushaf-toolbar{grid-template-columns:1fr minmax(60px,1fr) 1fr}
-.student-mushaf-toolbar button{border-radius:12px;min-width:44px}
-.student-mushaf-toolbar button svg{color:inherit}
 
 .student-home-header-actions{display:flex;align-items:center;gap:10px}
 .student-home-entry-loading{min-height:100svh;display:grid;place-items:center;color:#08897e;background:#f6f8f9;font-family:var(--font-ui)}

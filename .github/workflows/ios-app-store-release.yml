@@ -40,11 +40,11 @@ jobs:
           case "${{ inputs.app }}" in
             nukhab)
               echo "APP_IDENTIFIER=sa.nukhab.app" >> "$GITHUB_ENV"
-              echo "APP_VERSION=1.0.16" >> "$GITHUB_ENV"
+              echo "APP_VERSION=1.0.17" >> "$GITHUB_ENV"
               echo "APP_NAME=نخب" >> "$GITHUB_ENV"
               echo "APP_COPYRIGHT=2026 نخب" >> "$GITHUB_ENV"
-              echo "APP_DESCRIPTION_AR=نخب منصة متكاملة لإدارة الحلقات والمجمعات القرآنية، تساعد الطلاب والمعلمين والإداريين على متابعة الحفظ والمراجعة والربط والتكرار والاختبارات، وإدارة جلسات التسميع والحضور والتقارير. يرسل التطبيق رسائل الغياب تلقائيًا إلى أولياء الأمور عبر واتساب، ويوفر للطالب مصحفًا كاملًا للقراءة دون اتصال بالإنترنت، مع متابعة المهام اليومية والنقاط والترتيب بواجهة عربية حديثة ومتوافقة مع مختلف أحجام الشاشات." >> "$GITHUB_ENV"
-              echo "APP_DESCRIPTION_EN=Nukhab is an integrated platform for managing Quran learning groups and centers. It helps students, teachers, and administrators follow memorization, revision, recitation sessions, attendance, assessments, reports, daily tasks, points, and rankings. It also provides an offline Quran reader and can send absence notifications to guardians through WhatsApp." >> "$GITHUB_ENV"
+              echo "APP_DESCRIPTION_AR=برنامج نخب التعليمي" >> "$GITHUB_ENV"
+              echo "APP_DESCRIPTION_EN=Nukhab Educational Program" >> "$GITHUB_ENV"
               ;;
             *)
               echo "Unsupported app: ${{ inputs.app }}"

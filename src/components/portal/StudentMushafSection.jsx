@@ -1,10 +1,10 @@
-import './student-mushaf-toolbar.css';
 import React, { useEffect, useMemo, useState } from 'react';
-import { Bookmark, List, RotateCcw } from 'lucide-react';
+import { Bookmark, RotateCcw } from 'lucide-react';
 import DashboardLoader from '@/components/dashboard/DashboardLoader';
 import MadaniMushafPage from '@/components/portal/MadaniMushafPage';
 import MushafPageCarousel from '@/components/portal/MushafPageCarousel';
-import MushafThemeSwitch from '@/components/portal/MushafThemeSwitch';
+import MushafReaderLayout from '@/components/portal/MushafReaderLayout';
+import MushafReaderToolbar from '@/components/portal/MushafReaderToolbar';
 import StudentMushafIndexDialog from '@/components/portal/StudentMushafIndexDialog';
 import StudentMushafPageControls from '@/components/portal/StudentMushafPageControls';
 import PageBackButton from '@/components/ui/page-back-button';
@@ -134,9 +134,6 @@ const StudentMushafSection = ({ studentId, onBack, initialTarget = null }) => {
       ? Number(chapter.number) === activeSurahNumber
       : (displayedPage >= Number(chapter.startPage) && displayedPage <= Number(chapter.endPage))
   )), [activeSurahNumber, displayedPage, index?.chapters]);
-  const toolbarControlClass = theme === 'light'
-    ? '!border-teal-200 !bg-teal-50 !text-[#065c55] shadow-none hover:border-slate-400 hover:bg-slate-100 hover:text-[#065c55]'
-    : '!border-slate-500 !bg-slate-700 !text-white shadow-none hover:border-white/30 hover:bg-white/10 hover:text-white';
   const isBookmarked = bookmarks.includes(displayedPage);
 
   const goToPage = (nextPage) => {
@@ -159,13 +156,14 @@ const StudentMushafSection = ({ studentId, onBack, initialTarget = null }) => {
 
   const renderNeighbor = (number) => neighbors[number] && <MadaniMushafPage
     page={neighbors[number].data} theme={theme} fontReady={neighbors[number].ready}
-    pageAction={<StudentMushafPageControls pageNumber={number} />} />;
+    pageAction={<StudentMushafPageControls pageNumber={number} onFinish={onBack} />} />;
 
   if (isInitializing) return <DashboardLoader className="min-h-[calc(100svh-8rem)]" />;
 
   if (!index) {
     return (
       <div className="flex min-h-[420px] flex-col items-center justify-center gap-3 text-center">
+        <PageBackButton onClick={onBack} iconOnly />
         <p className="font-bold text-muted-foreground">تعذر فتح حزمة المصحف المحلية.</p>
         <Button type="button" variant="outline" onClick={() => setIndexLoadVersion((value) => value + 1)} className="h-11"><RotateCcw className="h-4 w-4" />إعادة المحاولة</Button>
       </div>
@@ -182,7 +180,7 @@ const StudentMushafSection = ({ studentId, onBack, initialTarget = null }) => {
             theme={theme}
             previousPage={renderNeighbor(displayedPage - 1)}
             nextPage={renderNeighbor(displayedPage + 1)}
-            pageAction={<StudentMushafPageControls pageNumber={displayedPage} />}
+            pageAction={<StudentMushafPageControls pageNumber={displayedPage} onFinish={onBack} />}
             onIndexChange={(nextIndex) => goToPage(nextIndex + 1)}
           >
             <MadaniMushafPage
@@ -196,6 +194,7 @@ const StudentMushafSection = ({ studentId, onBack, initialTarget = null }) => {
     }
     if (pageError) {
       return <div className="flex h-full flex-col items-center justify-center gap-3 px-4 text-center">
+            <PageBackButton onClick={onBack} iconOnly />
             <p className="font-bold text-muted-foreground">{pageError}</p>
             <Button type="button" variant="outline" onClick={() => setLoadVersion((value) => value + 1)} className="h-11"><RotateCcw className="h-4 w-4" />إعادة المحاولة</Button>
           </div>;
@@ -203,34 +202,33 @@ const StudentMushafSection = ({ studentId, onBack, initialTarget = null }) => {
     return <DashboardLoader className="h-full min-h-0" />;
   };
   return (
-    <section className={`student-mushaf-reader flex h-dvh min-h-0 w-full flex-col overflow-hidden overscroll-none ${theme === 'light' ? 'bg-slate-100' : 'bg-[#111827]'}`} aria-label="مصحف الطالب" data-reader-theme={theme}>
-      <div className={`student-mushaf-toolbar z-30 grid shrink-0 items-center gap-2 border-b px-2 pb-2 pt-[calc(0.5rem+env(safe-area-inset-top))] sm:px-3 ${theme === 'light' ? 'border-slate-200 bg-white/90 text-slate-900' : 'border-slate-600/70 bg-[#172033]/95 text-slate-100'}`}>
-        <div className="flex items-center gap-2 justify-self-start"><PageBackButton onClick={onBack} iconOnly className={`shrink-0 ${toolbarControlClass}`} />
-        <Button type="button" variant="outline" size="icon" onClick={() => setIndexOpen(true)} className={`h-11 w-11 shrink-0 ${toolbarControlClass}`} aria-label="فتح فهرس المصحف"><List className="h-5 w-5" /></Button></div>
-        <div className="min-w-0 text-center">
-          <p className="truncate text-sm font-black">{activeChapter?.name || 'المصحف'}</p>
-          {displayedPage === todayTarget?.page && <p className="truncate text-[10px] font-bold text-primary">{todayTarget.label || 'حفظ اليوم'}</p>}
-        </div>
-        <div className="flex items-center gap-2 justify-self-end">{studentId && (
-          <Button
-            type="button"
-            variant={isBookmarked ? 'default' : 'outline'}
-            size="icon"
-            onClick={toggleBookmark}
-            className={`h-11 w-11 shrink-0 ${isBookmarked ? 'border-primary bg-primary !text-white hover:bg-primary/90 hover:!text-white' : toolbarControlClass}`}
+    <MushafReaderLayout
+      theme={theme}
+      label="مصحف الطالب"
+      className="student-mushaf-reader h-dvh min-h-0 w-full"
+      index={index}
+      toolbar={<MushafReaderToolbar
+        theme={theme}
+        onIndex={() => setIndexOpen(true)}
+        onThemeChange={changeTheme}
+        pageNumber={displayedPage}
+        page={pageData}
+        surahName={activeChapter?.name}
+        bookmarkButton={studentId && (
+          <Button type="button" variant="ghost" size="icon" onClick={toggleBookmark}
+            className="mushaf-reader-icon h-11 w-11 shrink-0"
             aria-label={isBookmarked ? 'إزالة علامة الصفحة' : 'حفظ علامة الصفحة'}
-            aria-pressed={isBookmarked}
-          >
+            aria-pressed={isBookmarked}>
             <Bookmark className={`h-5 w-5 ${isBookmarked ? 'fill-current' : ''}`} />
           </Button>
         )}
-        <MushafThemeSwitch theme={theme} onChange={changeTheme} className={toolbarControlClass} /></div>
-      </div>
-
-      {todayTarget?.ranges?.length > 1 && <div className={`flex shrink-0 gap-2 overflow-x-auto p-2 ${theme === 'light' ? 'bg-white' : 'bg-[#172033]'}`} aria-label="مقاطع المقدار">
-        {todayTarget.ranges.map((target) => <Button key={`${target.page}:${target.preview}`} type="button" variant="outline" className={`min-h-11 shrink-0 ${toolbarControlClass}`} onClick={() => goToPage(target.page)}>{target.preview}</Button>)}
-      </div>}
-
+      >
+        {todayTarget?.ranges?.length > 1 && <div className="flex gap-2 overflow-x-auto" aria-label="مقاطع المقدار">
+          {todayTarget.ranges.map((target) => <Button key={`${target.page}:${target.preview}`} type="button" variant="ghost"
+            className="min-h-11 shrink-0" onClick={() => goToPage(target.page)}>{target.preview}</Button>)}
+        </div>}
+      </MushafReaderToolbar>}
+    >
       <div className="relative min-h-0 flex-1">
         {_resolveStudentMushafSection()}
         {pageError && pageData && <div role="alert" className="absolute inset-x-4 bottom-4 z-40 rounded-xl bg-background p-3 text-center text-foreground shadow-lg">
@@ -248,7 +246,7 @@ const StudentMushafSection = ({ studentId, onBack, initialTarget = null }) => {
         bookmarks={bookmarks}
         onSelectPage={goToPage}
       />
-    </section>
+    </MushafReaderLayout>
   );
 };
 

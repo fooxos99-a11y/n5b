@@ -2,16 +2,16 @@ import React from 'react';
 
 const normalizeSurahName = (name = '') => String(name).replace(/^سُ?و?رَ?ةُ?\s*/u, '').trim();
 
-const Ornament = ({ theme }) => (
+const Ornament = () => (
   <svg
-    className="absolute inset-0 h-full w-full text-primary"
+    className="absolute inset-0 h-full w-full text-current"
     viewBox="0 0 600 80"
     preserveAspectRatio="none"
     aria-hidden
   >
     <path
       d="M4 40 18 9h164l18-6h200l18 6h164l14 31-14 31H418l-18 6H200l-18-6H18Z"
-      fill="hsl(var(--accent) / 0.78)"
+      fill="var(--reader-control)"
       stroke="currentColor"
       strokeWidth="3"
     />
@@ -24,7 +24,7 @@ const Ornament = ({ theme }) => (
     />
     <path
       d="M184 15c12 0 18 10 26 15-8 5-14 15-26 15 8 5 14 15 26 15h180c12 0 18-10 26-15-8-5-14-15-26-15H210c-12 0-18-10-26-15Z"
-      fill={theme === 'light' ? '#fffdf7' : '#020617'}
+      fill="var(--reader-paper)"
       stroke="currentColor"
       strokeWidth="1.8"
     />
@@ -43,20 +43,20 @@ const Ornament = ({ theme }) => (
   </svg>
 );
 
-const MushafSurahBanner = ({ surahName, theme = 'dark', className = '' }) => {
+const MushafSurahBanner = ({ surahName, className = '' }) => {
   const accessibleName = `سورة ${normalizeSurahName(surahName)}`;
 
   return (
     <div
       data-mushaf-no-swipe
-      className={`relative flex h-full w-full max-w-[29rem] items-center justify-center overflow-hidden text-primary ${className}`}
+      className={`relative flex h-full w-full max-w-[29rem] items-center justify-center overflow-hidden text-current ${className}`}
       aria-label={accessibleName}
       translate="no"
     >
-      <Ornament theme={theme} />
+      <Ornament />
       <span
-        className={`relative z-10 flex h-[62%] w-[48%] items-center justify-center overflow-hidden rounded-full border border-primary/70 px-1.5 text-center font-extrabold leading-none ${theme === 'light' ? 'bg-[#fffdf7] text-primary' : 'bg-[#172033] text-[#f6ead2]'}`}
-        style={{ fontFamily: 'var(--font-ui)', fontSize: '3.1cqw' }}
+        className="relative z-10 flex h-[62%] w-[48%] items-center justify-center overflow-hidden rounded-full border border-current px-1.5 text-center font-extrabold leading-none"
+        style={{ fontFamily: 'var(--font-ui)', fontSize: '3.1cqw', background: 'var(--reader-paper)' }}
         dir="rtl"
       >
         <span className="block max-w-full whitespace-nowrap">{accessibleName}</span>

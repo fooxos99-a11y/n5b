@@ -410,7 +410,7 @@ test('App Store release replaces older draft and waiting-for-review builds befor
   assert.doesNotMatch(workflowText, /Update App Store product name\s+continue-on-error: true/);
   assert.match(workflowText, /APP_COPYRIGHT=2026 نخب/);
   assert.match(brandingText, /"copyright": copyright_text/);
-  assert.match(workflowText, /APP_DESCRIPTION_AR=نخب/);
+  assert.match(workflowText, /APP_DESCRIPTION_AR=برنامج نخب التعليمي"/);
   assert.doesNotMatch(workflowText, /APP_DESCRIPTION_AR=رواسي/);
   assert.match(workflowText, /TARGET_BUILD_NUMBER: \$\{\{ inputs\.build_number \}\}/);
   assert.match(inspectorText, /reopen_for_metadata = os\.environ\.get\("REOPEN_FOR_METADATA"\) == "true"/);

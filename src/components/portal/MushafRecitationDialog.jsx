@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, List, RotateCcw } from 'lucide-react';
+import { AlertTriangle, RotateCcw } from 'lucide-react';
 import LoadingSpinner from '@/components/ui/loading-spinner';
 import FullScreenPage from '@/components/ui/full-screen-page';
 import MadaniMushafPage from '@/components/portal/MadaniMushafPage';
 import MushafPageCarousel from '@/components/portal/MushafPageCarousel';
-import MushafThemeSwitch from '@/components/portal/MushafThemeSwitch';
+import MushafReaderLayout from '@/components/portal/MushafReaderLayout';
+import MushafReaderToolbar from '@/components/portal/MushafReaderToolbar';
 import MushafWordMarkDialog from '@/components/portal/MushafWordMarkDialog';
 import StudentMushafIndexDialog from '@/components/portal/StudentMushafIndexDialog';
 import PageBackButton from '@/components/ui/page-back-button';
@@ -15,7 +16,7 @@ import { preloadMushafFonts } from '@/lib/quranFonts';
 import { pickRandomMushafEntry } from '@/lib/randomMushafExcerpt';
 import { studentsApi } from '@/services/studentsApi';
 import { getRecitationDraft, saveRecitationDraft } from '@/services/offlineRecitationService';
-import { clampMushafPage, getOfflineMushafIndex, getOfflineMushafPage, MUSHAF_PAGE_COUNT } from '@/services/offlineMushaf';
+import { clampMushafPage, getOfflineMushafDisplay, getOfflineMushafIndex, getOfflineMushafPage, MUSHAF_PAGE_COUNT } from '@/services/offlineMushaf';
 import { formatQuranSelectionText } from '../../../shared/quranSelectionText.js';
 import { secureRandomId } from '../../../shared/secure-random.js';
 
@@ -130,7 +131,11 @@ const MushafRecitationDialog = ({
             : Promise.resolve(null),
         ]);
         if (!active) return;
-        const nextEntries = loaded.flatMap(({ task, data }) => (data.pages || []).map((page) => ({ task, data, page })));
+        const nextEntries = await Promise.all(loaded.flatMap(({ task, data }) => (data.pages || []).map(async (page) => ({
+          task,
+          data,
+          page: { ...page, displayLayout: await getOfflineMushafDisplay(page.page) },
+        }))));
         const initialRandom = randomMode
           ? pickRandomMushafEntry(nextEntries.length)
           : { index: 0, visitedIndexes: [] };
@@ -365,6 +370,11 @@ const MushafRecitationDialog = ({
   const activeSurahName = activeEntry?.task.fromSurahName
     || activeEntry?.page.decorations?.find((decoration) => decoration.type === 'surah')?.name
     || `سورة ${activeEntry?.data.allowedRange?.fromSurah || ''}`;
+  const visiblePageData = browsing && !viewingAmount ? browsePage?.data : activeEntry?.page;
+  const visiblePageNumber = browsing ? (viewPage || activePageNumber) : activePageNumber;
+  const visibleSurahNumber = Number(visiblePageData?.words?.[0]?.verseKey?.split(':')?.[0] || 0);
+  const visibleSurahName = mushafIndex?.chapters?.find((chapter) => Number(chapter.number) === visibleSurahNumber)?.name
+    || (viewingAmount ? activeSurahName : 'المصحف');
   const pendingEntry = pendingMark ? entries.find((item) => (
     Number(item.task.id) === Number(pendingMark.taskId)
     && Number(item.page.page) === Number(pendingMark.page)
@@ -382,6 +392,7 @@ const MushafRecitationDialog = ({
     }
     if (loadError) {
       return <div className="flex h-full flex-col items-center justify-center gap-4 px-5 pb-[env(safe-area-inset-bottom)] text-center" role="alert">
+                  <PageBackButton onClick={() => onOpenChange?.(false)} label="العودة" iconOnly />
                   <span className={`flex h-14 w-14 items-center justify-center rounded-2xl ${mushafTheme === 'light' ? 'bg-red-100 text-red-700' : 'bg-red-500/15 text-red-300'}`}>
                     <AlertTriangle className="h-7 w-7" />
                   </span>
@@ -440,31 +451,37 @@ const MushafRecitationDialog = ({
                   />
                 </MushafPageCarousel>;
     }
-    return <div className="flex h-full items-center justify-center px-4 pb-[env(safe-area-inset-bottom)] text-center font-bold text-muted-foreground">لا توجد صفحات للتسميع.</div>;
+    return <div className="flex h-full flex-col items-center justify-center gap-3 px-4 pb-[env(safe-area-inset-bottom)] text-center font-bold text-muted-foreground">
+      <PageBackButton onClick={() => onOpenChange?.(false)} label="العودة" iconOnly />
+      لا توجد صفحات للتسميع.
+    </div>;
   };
   return (
     <>
-      <FullScreenPage open={open} onClose={() => onOpenChange?.(false)} label="جلسة التسميع" className={mushafTheme === 'light' ? 'bg-slate-100' : 'bg-[#111827]'}>
-          <div className={`flex min-h-0 flex-1 flex-col ${mushafTheme === 'light' ? 'bg-slate-100' : 'bg-[#111827]'}`}>
-            <div className="flex shrink-0 items-center justify-between px-2 pb-2 pt-[calc(0.5rem+env(safe-area-inset-top))] sm:px-3">
-              <div className="flex items-center gap-2">
-                <PageBackButton onClick={() => onOpenChange?.(false)} label="العودة" iconOnly />
-                {browsing && mushafIndex && entries.length > 0 && (
-                  <Button type="button" variant="outline" size="icon" className="h-11 w-11 shrink-0" onClick={() => setIndexOpen(true)} aria-label="فتح فهرس المصحف">
-                    <List className="h-5 w-5" />
-                  </Button>
-                )}
-                {browsing && entries.length > 0 && !viewingAmount && (
-                  <Button type="button" variant="outline" className="min-h-11 px-3" onClick={() => goToPage(entries[activeEntryIndex]?.page?.page || entries[0].page.page)}>المقدار</Button>
-                )}
-              </div>
+      <FullScreenPage open={open} onClose={() => onOpenChange?.(false)} label="جلسة التسميع">
+          <MushafReaderLayout
+            theme={mushafTheme}
+            label="مصحف التسميع"
+            className="min-h-0 flex-1"
+            index={mushafIndex}
+            toolbar={<MushafReaderToolbar
+              theme={mushafTheme}
+              onIndex={browsing && mushafIndex && entries.length > 0 ? () => setIndexOpen(true) : undefined}
+              onThemeChange={changeMushafTheme}
+              pageNumber={visiblePageNumber}
+              page={visiblePageData}
+              surahName={visibleSurahName}
+            >
+              {browsing && entries.length > 0 && !viewingAmount && (
+                <Button type="button" variant="ghost" className="min-h-11 px-3" onClick={() => goToPage(entries[activeEntryIndex]?.page?.page || entries[0].page.page)}>المقدار</Button>
+              )}
               {secondaryAction}
-              <MushafThemeSwitch theme={mushafTheme} onChange={changeMushafTheme} />
-            </div>
-            <div className="min-h-0 flex-1 sm:px-2 sm:pb-2">
+            </MushafReaderToolbar>}
+          >
+            <div className="relative min-h-0 flex-1">
               {_resolveMushafRecitationDialog()}
             </div>
-          </div>
+          </MushafReaderLayout>
       </FullScreenPage>
 
       {browsing && mushafIndex && (

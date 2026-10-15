@@ -1,10 +1,10 @@
 .student-mushaf-index[data-reader-theme] {
-  --background: 175 30% 97%;
-  --card: 0 0% 100%;
-  --foreground: 215 28% 17%;
-  --muted: 175 25% 94%;
-  --muted-foreground: 175 18% 42%;
-  --border: 175 28% 84%;
+  --background: 0 14% 97%;
+  --card: 0 14% 97%;
+  --foreground: 0 0% 6%;
+  --muted: 0 4% 91%;
+  --muted-foreground: 0 1% 35%;
+  --border: 0 2% 84%;
   --primary: 186 83% 27%;
   --primary-dark: 175 86% 22%;
   --ring: 186 83% 27%;
@@ -14,12 +14,12 @@
 }
 
 .student-mushaf-index[data-reader-theme="dark"] {
-  --background: 215 38% 14%;
-  --card: 217 36% 19%;
-  --foreground: 210 40% 98%;
-  --muted: 216 25% 25%;
-  --muted-foreground: 210 20% 78%;
-  --border: 215 20% 35%;
+  --background: 90 4% 9%;
+  --card: 0 0% 13%;
+  --foreground: 0 0% 97%;
+  --muted: 0 0% 20%;
+  --muted-foreground: 0 0% 77%;
+  --border: 0 0% 30%;
   --primary: 186 83% 27%;
   --primary-dark: 175 86% 22%;
   --ring: 186 65% 58%;

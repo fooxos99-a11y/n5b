@@ -7,7 +7,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 export default function StudentHomeWindow({ title, onClose, children, wide = false, compact = false, surfaceKey = title }) {
   const mobile = useMediaQuery('(max-width: 899px)');
   const storePage = surfaceKey === 'store';
-  const fullPage = surfaceKey === 'mushaf' || (storePage && !mobile);
+  const readerPage = surfaceKey === 'mushaf';
+  const fullPage = readerPage || (storePage && !mobile);
   const heading = useRef(null);
   const body = useRef(null);
   const positions = useRef(new Map());
@@ -21,8 +22,8 @@ export default function StudentHomeWindow({ title, onClose, children, wide = fal
     return () => { document.body.style.overflow = overflow; };
   }, [mobile, fullPage]);
   if (mobile || fullPage) return <section ref={fullPage ? heading : undefined} tabIndex={fullPage ? -1 : undefined} className={`student-home-window ${fullPage ? 'student-full-page' : 'student-mobile-screen'}`} dir="rtl" aria-label={title}>
-    {(!mobile && fullPage) && <header className="student-home-window-header"><Button variant="ghost" size="icon" onClick={onClose} aria-label="رجوع"><ArrowRight size={21} /></Button><h1>{title}</h1></header>}
-    {(mobile || !fullPage) && <header className="student-home-window-header"><Button variant="ghost" size="icon" onClick={onClose} aria-label="إغلاق النافذة" title="رجوع"><ArrowRight size={21} /></Button><h1 ref={heading} tabIndex={-1}>{title}</h1></header>}
+    {!readerPage && (!mobile && fullPage) && <header className="student-home-window-header"><Button variant="ghost" size="icon" onClick={onClose} aria-label="رجوع"><ArrowRight size={21} /></Button><h1>{title}</h1></header>}
+    {!readerPage && (mobile || !fullPage) && <header className="student-home-window-header"><Button variant="ghost" size="icon" onClick={onClose} aria-label="إغلاق النافذة" title="رجوع"><ArrowRight size={21} /></Button><h1 ref={heading} tabIndex={-1}>{title}</h1></header>}
     {content}
   </section>;
   return <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
