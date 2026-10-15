@@ -41,13 +41,20 @@ jobs:
         with:
           node-version: 24.19.0
           cache: npm
-          cache-dependency-path: mobile/package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            mobile/package-lock.json
+      - name: Install locked shared-package dependencies
+        run: npm ci --ignore-scripts
       - name: Install Expo dependencies
         working-directory: mobile
         run: npm ci
       - name: Check types, lint and behavior
         working-directory: mobile
         run: npm run typecheck && npm run lint && npm test
+      - name: Verify embedded JavaScript before native compilation
+        working-directory: mobile
+        run: npm run build:js
       - name: Report dependency audit
         working-directory: mobile
         continue-on-error: true
