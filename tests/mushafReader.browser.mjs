@@ -127,6 +127,7 @@ for (const engine of [chromium, webkit]) {
       await waitForFace(page, 4);
       assert.equal(await openIndex(page).isVisible(), false, 'swipe must not reveal tools');
 
+      for (let escapeTrial = 0; escapeTrial < 3; escapeTrial += 1) {
       await showTools(page);
       await openIndex(page).click();
       const dialog = page.getByRole('dialog');
@@ -136,6 +137,7 @@ for (const engine of [chromium, webkit]) {
       assert.ok(await currentPage(page, 4).count(), 'open index captures navigation keys');
       await page.keyboard.press('Escape');
       await dialog.waitFor({ state: 'hidden' });
+      }
       await page.evaluate(() => globalThis.mushafReaderFixture.preloadCompleteOfflineMushaf());
       await page.waitForLoadState('networkidle');
       await page.reload();

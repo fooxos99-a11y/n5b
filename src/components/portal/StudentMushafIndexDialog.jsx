@@ -68,6 +68,12 @@ const StudentMushafIndexDialog = ({ open, onOpenChange, theme = 'light', index, 
         dir="rtl"
         aria-labelledby="student-mushaf-index-title"
         aria-describedby={undefined}
+        onKeyDownCapture={(event) => {
+          if (event.key !== 'Escape') return;
+          event.preventDefault();
+          event.stopPropagation();
+          handleOpenChange(false);
+        }}
         onOpenAutoFocus={() => { previousFocus.current = document.activeElement; }}
         onCloseAutoFocus={(event) => {
           event.preventDefault();
