@@ -1,0 +1,51 @@
+{
+  "expo": {
+    "name": "نخب",
+    "slug": "nukhab",
+    "scheme": "nukhab",
+    "version": "0.1.0",
+    "orientation": "default",
+    "icon": "../public/branding/nukhab/nukhab-app.png",
+    "userInterfaceStyle": "automatic",
+    "backgroundColor": "#04433D",
+    "plugins": [
+      "expo-dev-client",
+      "expo-font",
+      "expo-secure-store",
+      ["expo-location", {
+        "locationWhenInUsePermission": "يستخدم نخب موقعك للتحقق من نطاق تحضير حسابك.",
+        "locationAlwaysAndWhenInUsePermission": "يستخدم نخب موقعك للتحقق من نطاق تحضير حسابك.",
+        "isIosBackgroundLocationEnabled": false,
+        "isAndroidBackgroundLocationEnabled": false,
+        "isAndroidForegroundServiceEnabled": false
+      }],
+      ["expo-sqlite", { "useSQLCipher": true }],
+      ["expo-splash-screen", {
+        "backgroundColor": "#04433D",
+        "image": "../public/branding/nukhab/nukhab-white.png",
+        "imageWidth": 200
+      }],
+      "@livekit/react-native-expo-plugin",
+      ["@config-plugins/react-native-webrtc", {
+        "cameraPermission": "يحتاج نخب إلى الكاميرا للمشاركة في جلسة التسميع.",
+        "microphonePermission": "يحتاج نخب إلى الميكروفون للمشاركة في جلسة التسميع."
+      }]
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "sa.nukhab.app"
+    },
+    "android": {
+      "allowBackup": false,
+      "package": "sa.nukhab.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#04433D",
+        "foregroundImage": "../public/branding/nukhab/nukhab-app.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "../public/branding/nukhab/icon-192.png"
+    }
+  }
+}

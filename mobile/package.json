@@ -1,0 +1,67 @@
+{
+  "name": "nukhab-native",
+  "version": "0.1.0",
+  "main": "index.ts",
+  "dependencies": {
+    "@config-plugins/react-native-webrtc": "^15.0.2",
+    "@livekit/react-native": "^3.0.0",
+    "@livekit/react-native-expo-plugin": "^1.0.3",
+    "@livekit/react-native-webrtc": "^144.2.0",
+    "expo": "~57.0.28",
+    "expo-clipboard": "~57.0.2",
+    "expo-crypto": "~57.0.4",
+    "expo-dev-client": "~57.0.20",
+    "expo-file-system": "~57.0.7",
+    "expo-font": "~57.0.4",
+    "expo-location": "~57.0.21",
+    "expo-secure-store": "~57.0.4",
+    "expo-splash-screen": "~57.0.10",
+    "expo-sqlite": "~57.0.4",
+    "expo-status-bar": "~57.0.1",
+    "expo-system-ui": "~57.0.4",
+    "livekit-client": "^2.20.1",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-svg": "15.15.4",
+    "react-native-web": "^0.21.2"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^22.20.5",
+    "@types/react": "~19.2.2",
+    "braces": "file:../shared/vendor/braces-safe",
+    "eslint": "^10.12.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.8.0",
+    "tsx": "^4.23.15",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.71.2"
+  },
+  "scripts": {
+    "start": "expo start --dev-client",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "web": "expo start --web",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --max-warnings=0",
+    "test": "tsx --test tests/*.test.ts",
+    "assets:fonts": "python scripts/prepare_mushaf_fonts.py",
+    "build:js": "expo export --platform android --platform ios --output-dir dist/native",
+    "build:web": "expo export --platform web --output-dir dist/web",
+    "verify:quick": "npm run typecheck && npm run lint && npm test && npm run build:js",
+    "audit": "npm audit --audit-level=moderate",
+    "verify": "npm run verify:quick && npm run audit",
+    "test:web": "node scripts/export-probe-web.mjs && node scripts/verify-web-ui.mjs",
+    "doctor": "npx expo-doctor"
+  },
+  "overrides": {
+    "braces": "$braces",
+    "uuid": "^11.1.1"
+  },
+  "private": true,
+  "engines": {
+    "node": ">=22.13.0"
+  }
+}
