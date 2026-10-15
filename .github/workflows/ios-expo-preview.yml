@@ -58,11 +58,13 @@ jobs:
           curl --fail --silent --show-error --max-time 30 \
             https://nokhab.cc/n5b-expo-preview/api/health
       - name: Import existing distribution certificate
+        if: ${{ inputs.publish }}
         uses: apple-actions/import-codesign-certs@7abe6dfe88f6bf6b1fa06e6a5704a2605d897418 # v7
         with:
           p12-file-base64: ${{ secrets.APPSTORE_CERTIFICATES_FILE_BASE64 }}
           p12-password: ${{ secrets.APPSTORE_CERTIFICATES_PASSWORD }}
       - name: Prepare separate preview identifier and profile
+        if: ${{ inputs.publish }}
         env:
           APPSTORE_API_PRIVATE_KEY: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
         run: |
@@ -76,6 +78,7 @@ jobs:
         working-directory: mobile
         run: npx expo prebuild --platform ios --no-install && npx pod-install ios
       - name: Configure application signing
+        if: ${{ inputs.publish }}
         working-directory: mobile
         run: |
           ruby <<'RUBY'
@@ -99,9 +102,12 @@ jobs:
         run: |
           set -o pipefail
           workspace=$(find ios -maxdepth 1 -name '*.xcworkspace' -print -quit)
-          xcodebuild -workspace "$workspace" -scheme "$PREVIEW_SCHEME" \
+          scheme="${PREVIEW_SCHEME:-$(basename "$workspace" .xcworkspace)}"
+          signing=()
+          if [[ '${{ inputs.publish }}' != 'true' ]]; then signing+=(CODE_SIGNING_ALLOWED=NO); fi
+          xcodebuild -workspace "$workspace" -scheme "$scheme" \
             -configuration Release -destination 'generic/platform=iOS' \
-            -archivePath "$RUNNER_TEMP/NukhabPreview.xcarchive" archive \
+            -archivePath "$RUNNER_TEMP/NukhabPreview.xcarchive" "${signing[@]}" archive \
             | tee "$RUNNER_TEMP/preview-archive.log" | tail -n 80
       - name: Verify identity and export options
         run: |
@@ -125,6 +131,7 @@ jobs:
           print({key: info[key] for key in ['CFBundleIdentifier', 'CFBundleDisplayName', 'CFBundleVersion']})
           PY
       - name: Export signed preview IPA
+        if: ${{ inputs.publish }}
         run: |
           xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/NukhabPreview.xcarchive" \
             -exportPath "$RUNNER_TEMP/preview-export" -exportOptionsPlist "$RUNNER_TEMP/PreviewExport.plist"

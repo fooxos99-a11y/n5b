@@ -38,7 +38,12 @@ def prepare():
             with opener.open(request, timeout=30) as response:
                 return json.load(response)['data']
         except urllib.error.HTTPError as error:
-            raise RuntimeError(f'Apple preview provisioning returned HTTP {error.code}') from None
+            try:
+                errors = json.load(error).get('errors', [])
+                codes = ', '.join(str(item.get('code', 'UNKNOWN')) for item in errors)
+            except (ValueError, AttributeError):
+                codes = 'UNKNOWN'
+            raise RuntimeError(f'Apple preview provisioning returned HTTP {error.code} ({codes})') from None
 
     bundles = api('/bundleIds?' + urllib.parse.urlencode({'filter[identifier]': IDENTIFIER}))
     bundles = [row for row in bundles if row['attributes']['identifier'] == IDENTIFIER]
