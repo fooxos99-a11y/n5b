@@ -8,17 +8,41 @@ on:
         required: true
         type: boolean
         default: false
+      prepare_only:
+        description: Register only the separate preview identifier and profile before creating its app record
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 concurrency:
-  group: nukhab-expo-preview
+  group: nukhab-expo-preview-${{ inputs.prepare_only || false }}
   cancel-in-progress: false
 
 jobs:
+  prepare:
+    if: github.ref == 'refs/heads/codex/nukhab-expo-preview-testflight' && inputs.prepare_only && !inputs.publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Register only the preview identity and profile
+        env:
+          NUKHAB_APP_VARIANT: testflight-preview
+          APPLE_TEAM_ID: N3VFH76QCU
+          APPSTORE_API_KEY_ID: W57M846854
+          APPSTORE_ISSUER_ID: f8699d66-10db-4ef1-baec-dc481005ca60
+          APPSTORE_API_PRIVATE_KEY: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
+        run: |
+          python3 -m venv "$RUNNER_TEMP/preview-signing"
+          "$RUNNER_TEMP/preview-signing/bin/pip" install --quiet PyJWT cryptography
+          "$RUNNER_TEMP/preview-signing/bin/python" scripts/prepare-expo-preview-profile.py
   ios:
-    if: github.ref == 'refs/heads/codex/nukhab-expo-preview-testflight'
+    if: github.ref == 'refs/heads/codex/nukhab-expo-preview-testflight' && !inputs.prepare_only
     runs-on: macos-26
     timeout-minutes: 90
     env:

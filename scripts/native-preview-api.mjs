@@ -28,7 +28,7 @@ boundary.disable('x-powered-by');
 boundary.use('/api', (req, res, next) => {
   res.setHeader('X-Nukhab-Environment', 'expo-preview');
   if (req.path === '/health' && req.method === 'GET') return next();
-  if (req.get('X-Registration-Number') !== 'expo-preview' || /^\/platform(?:\/|$)/.test(req.path)) {
+  if (req.get('X-Registration-Number') !== 'expo-preview' || /^\/platform(?:\/|$)/i.test(req.path)) {
     return res.status(403).json({ message: 'هذه الخدمة مخصصة لبيئة التجربة.' });
   }
   return next();

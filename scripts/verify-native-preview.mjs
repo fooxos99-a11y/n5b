@@ -27,6 +27,7 @@ try {
   await request('Production registration denied at boundary', '/auth/session', 403, { registration: '1483' });
   await request('Foreign tenant denied at boundary', '/auth/session', 403, { registration: 'foreign-preview' });
   await request('Platform administration unavailable', '/platform/auth/login', 403, { method: 'POST', body: {} });
+  await request('Platform guard matches case-insensitive routing', '/PLATFORM/auth/login', 403, { method: 'POST', body: {} });
   await request('Session requires authentication', '/auth/session', 401);
   await request('Unknown bearer rejected', '/auth/session', 401, { token: 'f'.repeat(64) });
   await request('Wrong password rejected', '/auth/login', 401, {
