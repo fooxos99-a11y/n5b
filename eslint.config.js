@@ -6,6 +6,7 @@ export default [
   {
     ignores: [
       'node_modules/**',
+      'mobile/**',
       'dist/**',
       'public/sw.js',
       'tools/**',
@@ -21,7 +22,7 @@ export default [
     languageOptions: { sourceType: 'commonjs', globals: globals.node },
   },
   {
-    files: ['src/**/*.{js,jsx}', 'server/**/*.js', 'scripts/**/*.mjs', 'tests/**/*.js', '*.js'],
+    files: ['src/**/*.{js,jsx}', 'server/**/*.js', 'scripts/**/*.mjs', 'tests/**/*.{js,mjs}', '*.js'],
     languageOptions: {
       ecmaVersion: 'latest',
       sourceType: 'module',

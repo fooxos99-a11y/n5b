@@ -22,7 +22,8 @@ import { createComplexRouter } from './routes/complexRoutes.js';
 import { requireComplex, assertStudentComplex } from './services/complexes.js';
 import { gradingPermissionForComponent } from '../shared/dashboard-permissions.js';
 import { planScheduleDates } from './services/planScheduleDates.js';
-import { normalizeNarrationRanges, prepareNarrationAssignments } from './services/narrationPreparation.js';
+import { buildNarrationStudentPreparation, loadNarrationPreparationStudents, normalizeNarrationRanges, prepareNarrationAssignments } from './services/narrationPreparation.js';
+import { createNarrationPreparationRouter } from './routes/narrationPreparationRoutes.js';
 import { assertCommitteeNameAvailable, transferStudentCommittee } from './services/committeeMaintenance.js';
 import { assertStudentIdentityAvailable } from './services/studentIdentity.js';
 import { rememberResetGradeKeys } from './services/gradePointReset.js';
@@ -665,6 +666,7 @@ function getSharedApiAccess(req, path) {
     path === '/committees' ||
     path.startsWith('/rankings/') ||
     path === '/dashboard-permissions/me' ||
+    path === '/auth/session' ||
     path === '/dashboard-bootstrap'
   );
   const sharedPost = req.method === 'POST' && (
@@ -6371,6 +6373,12 @@ function narrationRangeDependencies(connection) {
   };
 }
 
+app.use('/api/narration-events', createNarrationPreparationRouter({ db, requireAccess: requireNarrationAccess,
+  isDate: isValidDateOnly, ensureCommitteeIds: ensureCommitteeIdsExist, canAccessCommittee: canAccessNarrationCommittee,
+  rangeDependencies: narrationRangeDependencies, loadMemorizedRanges: getStudentMemorizedRanges,
+  mergeRanges: mergeQuranRanges, loadJuzRanges: getQuranJuzRanges, loadChapters: getQuranChaptersForClient,
+  loadClientJuzRanges: getQuranJuzRangesForClient, collectParts: collectNarrationJuzParts, nextDate: date => addUtcDays(date, 1) }));
+
 app.post('/api/narration-events/preview-ranges', requireNarrationAccess, async (req, res, next) => {
   try {
     res.json(await normalizeNarrationRanges(req.body.ranges, narrationRangeDependencies(db())));
@@ -6466,20 +6474,7 @@ app.post('/api/narration-events', requireNarrationAccess, async (req, res, next)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [name, startDate, endDate, scope, committeeId, req.auth.role, Number(req.auth.id || 0), req.auth.name || 'مستخدم']
     );
-    const filters = [];
-    const params = [];
-    if (committeeIds.length) {
-      filters.push(`s.committee_id IN (${committeeIds.map(() => '?').join(', ')})`);
-      params.push(...committeeIds);
-    }
-    if (req.auth?.role === 'supervisor') {
-      filters.push('EXISTS (SELECT 1 FROM supervisor_committees sc WHERE sc.supervisor_id = ? AND sc.committee_id = s.committee_id)');
-      params.push(req.auth.id);
-    }
-    const [students] = await connection.query(
-      `SELECT s.id, s.name, s.committee_id AS committeeId, c.name AS committeeName FROM students s LEFT JOIN committees c ON c.id = s.committee_id ${filters.length ? 'WHERE ' + filters.join(' AND ') : ''} ORDER BY s.name`,
-      params
-    );
+    const students = await loadNarrationPreparationStudents(connection, req.auth, committeeIds);
     const assignments = await prepareNarrationAssignments(req.body.mode, req.body.assignments, students, narrationRangeDependencies(connection));
     const juzRanges = await getQuranJuzRanges(connection);
     let included = 0;
@@ -9423,17 +9418,17 @@ function countNarrationWarnings(evaluationMode, normalizedWordMarks, req) {
 
 /** Snapshot each eligible student range within the narration event transaction. */
 async function createNarrationStudentEntries({ students, connection, startDate, juzRanges, created, included, assignments = null }) {
-  for (const student of students) {
-    if (assignments && !assignments.has(Number(student.id))) continue;
-    const memorized = assignments ? assignments.get(Number(student.id))
-      : await mergeQuranRanges(connection, await getStudentMemorizedRanges(connection, student.id, { beforeDate: addUtcDays(startDate, 1) }));
-    const parts = [];
-    await collectNarrationJuzParts(memorized, juzRanges, parts, connection);
-    if (!parts.length) continue;
-    const totalFaces = parts.reduce((sum, part) => sum + Number(part.faces || 0), 0);
+  const prepared = await buildNarrationStudentPreparation({ students, assignments, startDate }, {
+    loadMemorizedRanges: (id, filters) => getStudentMemorizedRanges(connection, id, filters),
+    mergeRanges: ranges => mergeQuranRanges(connection, ranges),
+    collectParts: async ranges => { const parts = []; await collectNarrationJuzParts(ranges, juzRanges, parts, connection); return parts; },
+    nextDate: date => addUtcDays(date, 1),
+  });
+  for (const student of prepared.students) {
+    const parts = student.juzParts;
     const [studentResult] = await connection.query(
       `INSERT INTO narration_event_students (event_id, student_id, student_name, committee_id, committee_name, total_faces) VALUES (?, ?, ?, ?, ?, ?)`,
-      [created.insertId, student.id, student.name, student.committeeId, student.committeeName, totalFaces]
+      [created.insertId, student.studentId, student.name, student.committeeId, student.committeeName, student.totalFaces]
     );
     await connection.query(
       `INSERT INTO narration_event_parts (event_student_id, juz_number, start_surah, start_ayah, start_page, end_surah, end_ayah, end_page, faces) VALUES ?`,

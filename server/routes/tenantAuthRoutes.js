@@ -25,6 +25,35 @@ import {
 
 const router = express.Router();
 
+function buildTenantPayload(req) {
+  const tenant = getDatabaseContext().tenant;
+  const apiBase = trimTrailingCharacter(String(
+    process.env.PLATFORM_PUBLIC_API_URL || process.env.PUBLIC_API_URL
+    || `${req.protocol}://${req.get('host')}/api`,
+  ), '/');
+  return {
+    ...(isNativeApiRequest(req) ? { apiBase } : {}),
+    complex: { registrationNumber: String(tenant?.registrationNumber || '').trim(), name: tenant?.name || '' },
+  };
+}
+
+// Restore only a server-validated identity; persisted mobile metadata is never authorization.
+router.get('/session', async (req, res, next) => {
+  try {
+    const { role, id } = req.auth || {};
+    if (!['manager', 'supervisor', 'admin', 'student'].includes(role) || !id) {
+      return res.status(401).json({ message: 'سجل الدخول أولاً.' });
+    }
+    const [rows] = role === 'student'
+      ? await db().query('SELECT id, name FROM students WHERE id = ? LIMIT 1', [id])
+      : await db().query('SELECT id, name FROM supervisors WHERE id = ? AND role = ? AND is_active = 1 LIMIT 1', [id, role]);
+    if (!rows[0]) return res.status(401).json({ message: 'انتهت جلسة الدخول. سجل الدخول من جديد.' });
+    const dashboardPermissions = role === 'manager' ? DASHBOARD_PERMISSION_KEYS
+      : ['supervisor', 'admin'].includes(role) ? await getSupervisorDashboardPermissions(id) : [];
+    return res.json({ role, id: rows[0].id, name: rows[0].name, dashboardPermissions, ...buildTenantPayload(req) });
+  } catch (error) { return next(error); }
+});
+
 async function createLoginPayload(req, res, role, user, payload = {}) {
   const token = await createAuthSession(role, user.id, user.name);
   if (role === 'student') {
@@ -49,15 +78,7 @@ router.post('/login', async (req, res, next) => {
       return res.status(422).json({ message: 'رقم الحساب مطلوب.' });
     }
 
-    const nativeApiBase = trimTrailingCharacter(String(
-      process.env.PLATFORM_PUBLIC_API_URL
-      || process.env.PUBLIC_API_URL
-      || `${req.protocol}://${req.get('host')}/api`,
-    ), '/');
-    const tenantPayload = {
-      ...(isNativeApiRequest(req) ? { apiBase: nativeApiBase } : {}),
-      complex: { registrationNumber, name: tenant?.name || '' },
-    };
+    const tenantPayload = buildTenantPayload(req);
     const loginIdentities = createLoginAttemptIdentities({
       ip: req.ip,
       registrationNumber,
