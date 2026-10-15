@@ -40,7 +40,8 @@ def prepare():
         except urllib.error.HTTPError as error:
             try:
                 errors = json.load(error).get('errors', [])
-                codes = ', '.join(str(item.get('code', 'UNKNOWN')) for item in errors)
+                codes = '; '.join(' | '.join(str(item.get(key, ''))[:500]
+                  for key in ('code', 'title', 'detail')) for item in errors)
             except (ValueError, AttributeError):
                 codes = 'UNKNOWN'
             raise RuntimeError(f'Apple preview provisioning returned HTTP {error.code} ({codes})') from None
