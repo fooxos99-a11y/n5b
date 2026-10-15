@@ -125,7 +125,7 @@ jobs:
           options = {'method': 'app-store-connect', 'destination': 'export',
             'signingStyle': 'manual', 'teamID': os.environ['APPLE_TEAM_ID'],
             'manageAppVersionAndBuildNumber': False,
-            'provisioningProfiles': {'sa.nukhab.app.preview': os.environ['PREVIEW_PROFILE']}}
+            'provisioningProfiles': {'sa.nukhab.app.preview': os.environ.get('PREVIEW_PROFILE', 'Nukhab Expo Preview App Store')}}
           with open(root + '/PreviewExport.plist', 'wb') as output:
               plistlib.dump(options, output)
           print({key: info[key] for key in ['CFBundleIdentifier', 'CFBundleDisplayName', 'CFBundleVersion']})
