@@ -11,7 +11,7 @@ API_ROOT = "https://api.appstoreconnect.apple.com/v1"
 ALLOWED_RESOURCES = frozenset({
     "apps", "appInfos", "appInfoLocalizations", "appStoreVersions",
     "appStoreVersionLocalizations", "reviewSubmissions", "reviewSubmissionItems",
-    "bundleIds", "bundleIdCapabilities", "profiles",
+    "bundleIds", "bundleIdCapabilities", "profiles", "builds", "betaGroups",
 })
 
 

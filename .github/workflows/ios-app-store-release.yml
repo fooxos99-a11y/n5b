@@ -98,12 +98,21 @@ jobs:
           REOPEN_FOR_METADATA: "true"
           CREATE_VERSION_IF_MISSING: "true"
           TARGET_BUILD_NUMBER: ${{ inputs.build_number }}
+          TESTFLIGHT_GROUP_ID: "19fde5d2-840a-4afd-8a54-eb3c35dad1cf"
           APP_RELEASE_NOTES_AR: "توحيد بداية التشغيل وتحسين الانتقال إلى الحساب ومعالجة تعثر التحميل وإعادة المحاولة."
           APP_RELEASE_NOTES_EN: "Unified app startup, smoother account entry, and improved loading recovery and retry."
         run: |
           python3 -m venv "$RUNNER_TEMP/app-store-status-venv"
           "$RUNNER_TEMP/app-store-status-venv/bin/pip" install --quiet PyJWT cryptography
+          "$RUNNER_TEMP/app-store-status-venv/bin/python" scripts/testflight_release.py
           "$RUNNER_TEMP/app-store-status-venv/bin/python" scripts/inspect-app-store-version.py
+
+      - name: Store verified TestFlight availability
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: nukhab-testflight-status-${{ inputs.build_number }}
+          path: testflight-release-status.json
+          retention-days: 7
 
       - name: Update App Store product name
         env:
@@ -151,3 +160,15 @@ jobs:
             echo "Build is still processing in App Store Connect; retrying in 60 seconds ($attempt/15)."
             sleep 60
           done
+
+      - name: Verify App Store submission
+        env:
+          APPSTORE_API_PRIVATE_KEY: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
+        run: '"$RUNNER_TEMP/app-store-status-venv/bin/python" scripts/testflight_release.py --verify-app-store'
+
+      - name: Store verified App Store submission
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: nukhab-app-store-status-${{ inputs.build_number }}
+          path: app-store-release-status.json
+          retention-days: 7
