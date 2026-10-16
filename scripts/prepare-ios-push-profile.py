@@ -27,6 +27,14 @@ def decode_profile(profile):
     return content, plistlib.loads(result.stdout)
 
 
+def select_registered_bundle(bundles, identifier):
+    matching = [bundle for bundle in bundles
+                if bundle.get("attributes", {}).get("identifier") == identifier]
+    if len(matching) != 1:
+        raise RuntimeError("Expected one matching registered bundle ID")
+    return matching[0]
+
+
 def main():
     identifier = os.environ["APP_IDENTIFIER"]
     original_name = os.environ["APP_PROVISIONING_PROFILE"]
@@ -40,9 +48,7 @@ def main():
     )
     query = urllib.parse.urlencode({"filter[identifier]": identifier})
     bundles = api.request_json("/bundleIds?" + query, token)["data"]
-    if len(bundles) != 1 or bundles[0]["attributes"]["identifier"] != identifier:
-        raise RuntimeError("Expected one matching registered bundle ID")
-    bundle_id = bundles[0]["id"]
+    bundle_id = select_registered_bundle(bundles, identifier)["id"]
     capabilities = api.request_json(
         f"/bundleIds/{bundle_id}/bundleIdCapabilities", token
     )["data"]
