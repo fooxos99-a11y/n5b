@@ -13,7 +13,7 @@ import DashboardLoader from '@/components/dashboard/DashboardLoader';
 import SettingsGroup from '@/components/dashboard/SettingsGroup';
 import { weekDayOptions } from '@/lib/weekDayOptions';
 import { gradingApi } from '@/services/gradingApi';
-import { normalizeGradingPolicy, gradingPolicyErrors, trackSegmentDefinitions } from '../../../shared/grading-policy.js';
+import { normalizeGradingPolicy, gradingPolicyErrors, gradingMaxima, trackSegmentDefinitions } from '../../../shared/grading-policy.js';
 
 const AMOUNT = { min: 0, max: 1000, step: 'any' };
 const RATIO = { min: 0, max: 1, step: '0.01' };
@@ -266,7 +266,22 @@ const GradingSettingsPanel = ({ section = 'program', extraCards = [], onStatusCh
 
   const fieldProps = { draft, errors, onChange: updateField };
   const thresholds = draft.weeklyProgram.memorizationThresholds;
-  const summary = errors.total ? <div className="p-4"><FieldError id="grading-total-error" message={errors.total} /></div> : null;
+  const maxima = gradingMaxima(toPolicy(draft));
+  const excess = Number(Math.max(0, maxima.total - 100).toFixed(4));
+  const balancedMargin = Number((maxima.generalMargin - excess).toFixed(4));
+  const formatGrade = (value) => value.toLocaleString('ar-SA', { maximumFractionDigits: 4 });
+  const summary = (
+    <div className="space-y-2 rounded-xl border border-border bg-card p-4 text-sm">
+      <output aria-live="polite" className="block font-bold">إجمالي الدرجات: {formatGrade(maxima.total)} / 100</output>
+      {errors.total && <>
+        <FieldError id="grading-total-error" message={errors.total} />
+        <p className="text-xs leading-5 text-muted-foreground">إضافة الأيام تزيد درجات البرنامج. الزيادة: {formatGrade(excess)}. خفّض الدرجات أو الهامش للحفظ.</p>
+        {balancedMargin >= 0 && <Button type="button" variant="outline" onClick={() => updateField('generalMargin', balancedMargin)}>
+          خفض الهامش إلى {formatGrade(balancedMargin)}
+        </Button>}
+      </>}
+    </div>
+  );
   const sessionSection = section === 'track' ? 'trackSession' : 'weeklySession';
   const sessionDayField = <SettingsGroup>
     <Label htmlFor={`grading-${sessionSection}-day`}>يوم الجلسة</Label>

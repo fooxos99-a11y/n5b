@@ -188,7 +188,7 @@ test('teacher recitation attendance reveals grouped actions without a page reloa
   assert.match(taskList, /hasRecitationTasks && canRecite/);
   assert.match(taskList, /attendanceEditable = Boolean\(onAttendanceChange\)/);
   assert.match(taskList, /attendanceAllowsActions = \['present', 'late'\]\.includes\(student.attendanceStatus\)/);
-  assert.match(taskList, /canRecord = Boolean\(readingEntry\) && attendanceAllowsActions/);
+  assert.match(taskList, /canRecord = canRecordStudentReading\(student, readingEntry\)/);
   assert.match(taskList, /teacherAttendanceMode && !studentById\.has\(studentId\)/);
   assert.match(taskList, /canRecite = !student.offlineSequenceBlocked && attendanceAllowsActions/);
   assert.match(taskList, /\{mistakeCount\} خطأ/);

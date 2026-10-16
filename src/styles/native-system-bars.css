@@ -1,4 +1,5 @@
-/* Paint the exposed safe areas with the same color as the native status bar. */
+/* Non-dashboard screens keep their existing bottom surface. The dashboard and its
+   drawer paint their own edges, so no global strip can cover either screen. */
 html.native-app body::after,
 html.native-app[data-native-platform="android"] body::before {
   content: '';
@@ -17,4 +18,63 @@ html.native-app[data-native-platform="android"] body::before {
 html.native-app body::after {
   bottom: 0;
   height: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
+}
+
+html.native-app {
+  --app-safe-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+  --app-safe-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
+  --app-safe-left: var(--safe-area-inset-left, env(safe-area-inset-left, 0px));
+  --app-safe-right: var(--safe-area-inset-right, env(safe-area-inset-right, 0px));
+}
+
+html.native-app[data-native-dashboard="true"] body::before,
+html.native-app[data-native-dashboard="true"] body::after,
+html.native-app[data-native-surface] body::before,
+html.native-app[data-native-surface] body::after {
+  content: none;
+}
+
+html.native-app .dashboard-header {
+  height: calc(68px + var(--app-safe-top));
+  padding-top: var(--app-safe-top);
+  padding-left: max(0.75rem, var(--app-safe-left));
+  padding-right: max(0.75rem, var(--app-safe-right));
+  background-color: hsl(var(--card));
+}
+
+html.native-app .dashboard-main {
+  padding-top: calc(84px + var(--app-safe-top));
+  padding-bottom: calc(1.5rem + var(--app-safe-bottom));
+  padding-left: max(0.75rem, var(--app-safe-left));
+  padding-right: max(0.75rem, var(--app-safe-right));
+}
+
+html.native-app .dashboard-sidebar-content {
+  padding-top: var(--app-safe-top);
+  padding-bottom: var(--app-safe-bottom);
+  padding-right: var(--app-safe-right);
+}
+
+html.native-app .dashboard-header:has(#dashboard-header-filters:not(:empty)) {
+  height: calc(120px + var(--app-safe-top));
+}
+
+html.native-app .dashboard-header:has(#dashboard-header-filters:not(:empty)) ~ .dashboard-main {
+  padding-top: calc(136px + var(--app-safe-top));
+}
+
+@media (min-width: 640px) {
+  html.native-app .dashboard-main { padding-top: calc(92px + var(--app-safe-top)); }
+}
+
+@media (min-width: 1024px) {
+  html.native-app .dashboard-header,
+  html.native-app .dashboard-header:has(#dashboard-header-filters:not(:empty)) {
+    height: calc(84px + var(--app-safe-top));
+  }
+  html.native-app .dashboard-main,
+  html.native-app .dashboard-header:has(#dashboard-header-filters:not(:empty)) ~ .dashboard-main {
+    padding-top: calc(114px + var(--app-safe-top));
+    padding-right: calc(308px + var(--app-safe-right));
+  }
 }

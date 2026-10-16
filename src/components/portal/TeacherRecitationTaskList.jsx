@@ -2,7 +2,7 @@ import SessionCompensationActions from '@/components/dashboard/grades/SessionCom
 import { getBusinessDate } from '../../../shared/business-date.js';
 import { isRecitationAttendanceVisible } from '../../../shared/recitation-attendance-policy.js';
 import React, { useMemo, useState } from 'react';
-import { isRecitationActionPending, shouldShowRecitationStudent } from '@/lib/recitationActionState';
+import { canRecordStudentReading, isRecitationActionPending, shouldShowRecitationStudent } from '@/lib/recitationActionState';
 import RecitationIdentity from '@/components/portal/RecitationIdentity';
 import './recitation-reference.css';
 import DashboardLoader from '@/components/dashboard/DashboardLoader';
@@ -175,11 +175,17 @@ const TeacherRecitationTaskList = ({
         const position = (item) => actionOrder.indexOf(item.action.key === 'mastery' && !memorizationView ? 'saved' : item.action.key);
         const displayActionViews = [...actionViews].sort((a, b) => position(a) - position(b));
         const readingEntry = onReading ? readingByStudent.get(String(student.studentId)) : null;
-        const canRecord = Boolean(readingEntry) && attendanceAllowsActions;
+        const canRecord = canRecordStudentReading(student, readingEntry);
         const readingSummary = readingEntry?.status === 'read'
           ? (readingEntry.hizbCount != null ? `قرأ ${readingEntry.hizbCount} حزب` : `قرأ ${readingEntry.recordedFaces ?? readingEntry.faces} وجه`)
           : readingEntry?.status === 'missed' ? 'لم يقرأ' : 'اختر أحزاب القراءة';
         const _resolveTeacherRecitationTaskList = () => {
+          if (student.readingOnly) return 'لا توجد جلسة تسميع اليوم';
+          if (student.offlineSequenceBlocked) return 'بانتظار مزامنة التسميع السابق';
+          if (!attendanceAllowsActions) {
+            if (['absent', 'excused'].includes(student.attendanceStatus)) return 'التسميع متاح للحاضر والمتأخر';
+            return attendanceEditable ? 'حدد الحضور لبدء التسميع' : 'بانتظار تحضير الطالب';
+          }
           if (student.recitationPending) {
             return 'حُفظت النتيجة';
           }
@@ -198,7 +204,7 @@ const TeacherRecitationTaskList = ({
           <div key={student.studentId} className="recitation-reference-card">
             <div className="min-w-0">
               <RecitationIdentity name={student.studentName} nameAction={<>{compensationAction}{onDayCompensated && <SessionCompensationActions studentId={student.studentId} studentName={student.studentName} scope="program" date={compensationDate} today={getBusinessDate()} disabled={isLoading || navigator.onLine === false} onSaved={onDayCompensated} />}</>}>
-                {attendanceEditable && (
+                {attendanceEditable ? (
                   <Select
                     value={student.attendanceStatus || ''}
                     onValueChange={(value) => onAttendanceChange?.(student, value)}
@@ -219,6 +225,10 @@ const TeacherRecitationTaskList = ({
                       ))}
                     </SelectContent>
                   </Select>
+                ) : (
+                  <span className="shrink-0 text-xs font-bold text-muted-foreground" aria-label={`حضور ${student.studentName}`}>
+                    {attendanceStatuses.find((status) => status.value === student.attendanceStatus)?.label || (student.readingOnly ? 'قراءة ذاتية' : 'بانتظار التحضير')}
+                  </span>
                 )}
               </RecitationIdentity>
 
@@ -276,7 +286,7 @@ const TeacherRecitationTaskList = ({
                 <TeacherRecitationPractice repeatControl={memorizationView?.repeatControl} listeningControl={memorizationView?.listeningControl} />
               )}
 
-              {canRecite && !hasRecitationTasks && !canRecord && (
+              {onRecite && !canRecord && (!canRecite || !hasRecitationTasks) && (
                 <span className="self-center text-xs font-bold text-muted-foreground">
                   {_resolveTeacherRecitationTaskList()}
                 </span>

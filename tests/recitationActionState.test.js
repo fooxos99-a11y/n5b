@@ -3,7 +3,20 @@ import { mergeCommittedOfflineEvaluation } from '../src/lib/offlineEvaluationMer
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isRecitationActionPending, shouldShowRecitationStudent } from '../src/lib/recitationActionState.js';
+import { canRecordStudentReading, isRecitationActionPending, shouldShowRecitationStudent } from '../src/lib/recitationActionState.js';
+
+test('reading-only days do not require a nonexistent session attendance, but absent and unauthorized entries stay blocked', () => {
+  const reading = { studentId: 8, status: null };
+  assert.equal(canRecordStudentReading({ readingOnly: true, attendanceStatus: '' }, reading), true);
+  for (const attendanceStatus of ['present', 'late']) assert.equal(canRecordStudentReading({ attendanceStatus }, reading), true);
+  for (const attendanceStatus of ['absent', 'excused', '']) {
+    assert.equal(canRecordStudentReading({ attendanceStatus }, reading), false);
+  }
+  for (const attendanceStatus of ['absent', 'excused']) {
+    assert.equal(canRecordStudentReading({ readingOnly: true, attendanceStatus }, reading), false);
+  }
+  assert.equal(canRecordStudentReading({ readingOnly: true }, null), false);
+});
 
 test('only unevaluated or failed tasks stay actionable', () => {
   assert.equal(isRecitationActionPending({ teacherCompleted: false }), true);

@@ -23,7 +23,13 @@ export default function useNativeSystemBars() {
     root.classList.add('native-app');
     root.dataset.nativePlatform = platform;
     const sync = createNativeBarSynchronizer({
-      readAppearance: () => getNativeBarAppearance(root, getComputedStyle(root).backgroundColor),
+      readAppearance: () => {
+        const style = getComputedStyle(root);
+        return {
+          ...getNativeBarAppearance(root, style.backgroundColor, style.getPropertyValue('--brand-navigation').trim()),
+          overlay: root.dataset.nativeDashboard === 'true' || Boolean(root.dataset.nativeSurface),
+        };
+      },
       applyAppearance: (appearance) => {
         root.style.setProperty('--native-system-bar-color', appearance.color);
         return syncNativeSystemBars({ platform, appearance, statusBar: StatusBar, systemBars: SystemBars, nativeBackground: NativeSystemBarBackground });
@@ -39,7 +45,7 @@ export default function useNativeSystemBars() {
     const resume = () => { void sync.request(true); };
     const observer = new MutationObserver(schedule);
     // SiteProvider applies its palette through inline CSS variables after a class change.
-    observer.observe(root, { attributes: true, attributeFilter: ['class', 'style', 'data-native-surface', 'data-startup-active'] });
+    observer.observe(root, { attributes: true, attributeFilter: ['class', 'style', 'data-native-surface', 'data-startup-active', 'data-native-sidebar', 'data-native-dashboard'] });
     window.addEventListener('pageshow', resume);
     window.addEventListener('resize', resume);
     const listener = App.addListener('appStateChange', ({ isActive }) => { if (isActive) resume(); });

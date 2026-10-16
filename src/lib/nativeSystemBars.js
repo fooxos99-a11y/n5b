@@ -1,5 +1,9 @@
-export function getNativeBarAppearance(root, backgroundColor) {
+export function getNativeBarAppearance(root, backgroundColor, navigationColor) {
   if (root.dataset.startupActive === 'true') return { style: 'DARK', color: '#04433d' };
+  // A full-screen Mushaf overrides the dashboard beneath it, even with its drawer open.
+  if (!root.dataset.nativeSurface && root.dataset.nativeSidebar === 'open') {
+    return { style: 'DARK', color: navigationColor || '#06332f' };
+  }
   const surface = root.dataset.nativeSurface;
   const dark = surface === 'dark' || (surface !== 'light' && root.classList.contains('dark'));
   const channels = backgroundColor.match(/^rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)/);
@@ -18,9 +22,9 @@ export function getNativeBarAppearance(root, backgroundColor) {
 
 export async function syncNativeSystemBars({ platform, appearance, statusBar, systemBars, nativeBackground }) {
   if (platform === 'ios') {
-    // The native bar owns the top inset; WKWebView must not add it a second time.
-    await statusBar.setBackgroundColor({ color: appearance.color });
-    await statusBar.setOverlaysWebView({ overlay: false });
+    // The web surface extends under the bar; each screen owns its safe-area padding.
+    if (appearance.overlay === false) await statusBar.setBackgroundColor({ color: appearance.color });
+    await statusBar.setOverlaysWebView({ overlay: appearance.overlay ?? true });
     await statusBar.setStyle({ style: appearance.style });
   } else {
     await systemBars.setStyle({ style: appearance.style });

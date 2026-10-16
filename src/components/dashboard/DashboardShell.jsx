@@ -1,6 +1,6 @@
 import './dashboard-header-filters.css';
 import PageLoadingBoundary from '@/components/ui/page-loading-boundary';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Helmet } from 'react-helmet';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Menu } from 'lucide-react';
@@ -30,6 +30,16 @@ const DashboardShell = ({
   const dashboardTitle = title || site.name;
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [entered, setEntered] = useState(false);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    root.dataset.nativeDashboard = 'true';
+    root.dataset.nativeSidebar = sidebarOpen ? 'open' : 'closed';
+    return () => {
+      delete root.dataset.nativeDashboard;
+      delete root.dataset.nativeSidebar;
+    };
+  }, [sidebarOpen]);
 
   const activeItem = useMemo(
     () => sections.flatMap((section) => [section, ...(section.children || [])])

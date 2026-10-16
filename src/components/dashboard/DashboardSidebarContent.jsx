@@ -32,7 +32,7 @@ const DashboardSidebarContent = ({
   }, [activeParentKey]);
 
   return (
-  <div className="flex h-full flex-col bg-[var(--brand-navigation)] text-white">
+  <div className="dashboard-sidebar-content flex h-full flex-col bg-[var(--brand-navigation)] text-white">
     <div className="relative flex h-[88px] shrink-0 items-center border-b border-white/[0.06] px-4">
       <div
         className="absolute right-4 h-[4.25rem] w-[4.6rem] rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-navigation-accent)]"
@@ -60,7 +60,7 @@ const DashboardSidebarContent = ({
       )}
     </div>
 
-    <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-5 scrollbar-hide" aria-label="أقسام المنصة">
+    <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 py-5 scrollbar-hide" aria-label="أقسام المنصة">
       {sections.map((section) => {
         const Icon = section.icon;
         const hasChildren = Boolean(section.children?.length);
@@ -132,7 +132,7 @@ const DashboardSidebarContent = ({
       })}
     </nav>
 
-    <div className="border-t border-white/[0.06] p-3">
+    <div className="shrink-0 border-t border-white/[0.06] p-3">
       <div className="flex items-center justify-between gap-2">
         <Button
           type="button"

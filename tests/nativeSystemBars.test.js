@@ -30,15 +30,15 @@ test('native bar follows the actual page color, with readable icons and Mushaf o
   assert.equal(getNativeBarAppearance(root, 'rgb(17, 24, 39)').style, 'DARK');
 });
 
-test('iOS paints a non-overlay bar and has exactly one owner of the top inset', async () => {
+test('iOS lets the page paint under the bar with exactly one owner of the top inset', async () => {
   const calls = [];
   const statusBar = Object.fromEntries(['setStyle', 'setBackgroundColor', 'setOverlaysWebView'].map((method) => [method, async (value) => calls.push([method, value])]));
   await syncNativeSystemBars({ platform: 'ios', appearance: { color: '#002926', style: 'DARK' }, statusBar,
     systemBars: { setStyle: () => assert.fail('Do not race two iOS bar style APIs') } });
-  assert.deepEqual(calls, [['setBackgroundColor', { color: '#002926' }], ['setOverlaysWebView', { overlay: false }], ['setStyle', { style: 'DARK' }]]);
+  assert.deepEqual(calls, [['setOverlaysWebView', { overlay: true }], ['setStyle', { style: 'DARK' }]]);
   const config = JSON.parse(await readFile(new URL('../capacitor.config.json', import.meta.url), 'utf8'));
   assert.equal(config.ios.contentInset, 'never');
-  assert.equal(config.plugins.StatusBar.overlaysWebView, false);
+  assert.equal(config.plugins.StatusBar.overlaysWebView, true);
 });
 
 test('Android applies one background for both bars after styling without resizing its edge-to-edge webview', async () => {
@@ -77,11 +77,42 @@ test('native background updates after delayed palette changes and serializes rap
   await sync.request();
   assert.equal(calls.length, 3);
   const source = await readFile(new URL('../src/hooks/useNativeSystemBars.js', import.meta.url), 'utf8');
-  assert.match(source, /attributeFilter: \['class', 'style', 'data-native-surface', 'data-startup-active'\]/);
+  assert.match(source, /attributeFilter: \['class', 'style', 'data-native-surface', 'data-startup-active', 'data-native-sidebar', 'data-native-dashboard'\]/);
   const config = JSON.parse(await readFile(new URL('../capacitor.config.json', import.meta.url), 'utf8'));
   assert.equal(config.appName, 'نخب');
   assert.equal(config.plugins.StatusBar.backgroundColor, '#04433D');
   assert.equal(config.plugins.StatusBar.style, 'DARK');
+});
+
+test('the drawer uses its configured green surface and restores the page or full-screen reader style', () => {
+  const root = { dataset: { nativeSidebar: 'open' }, classList: { contains: () => false } };
+  assert.deepEqual(getNativeBarAppearance(root, 'rgb(250, 251, 252)', '#06332f'), { color: '#06332f', style: 'DARK' });
+  root.dataset.nativeSurface = 'light';
+  assert.equal(getNativeBarAppearance(root, 'rgb(255, 255, 255)', '#06332f').style, 'LIGHT');
+  delete root.dataset.nativeSurface;
+  root.dataset.nativeSidebar = 'closed';
+  assert.equal(getNativeBarAppearance(root, 'rgb(250, 251, 252)', '#06332f').style, 'LIGHT');
+});
+
+test('native failures remain retryable and non-dashboard screens preserve their inset behavior', async () => {
+  let attempts = 0;
+  let errors = 0;
+  const sync = createNativeBarSynchronizer({
+    readAppearance: () => ({ color: '#ffffff', style: 'LIGHT', overlay: false }),
+    applyAppearance: async (appearance) => {
+      attempts++;
+      if (attempts === 1) throw new Error('not ready');
+      await syncNativeSystemBars({ platform: 'ios', appearance, statusBar: {
+        setBackgroundColor: async ({ color }) => assert.equal(color, '#ffffff'),
+        setOverlaysWebView: async ({ overlay }) => assert.equal(overlay, false),
+        setStyle: async () => {},
+      } });
+    }, onSuccess: () => {}, onError: () => { errors++; },
+  });
+  await sync.request();
+  await sync.request();
+  assert.equal(attempts, 2);
+  assert.equal(errors, 1);
 });
 
 test('startup overrides a light page until the splash finishes', () => {
