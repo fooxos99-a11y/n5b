@@ -61,7 +61,9 @@ const MadaniMushafPage = ({ page, surahName, theme = 'dark', marks = [], allowed
       const lineElements = [...element.querySelectorAll('.mushaf-line')];
       const scale = lineElements.reduce((smallest, line) => {
         const width = [...line.querySelectorAll('.mushaf-word')].reduce((sum, word) => sum + word.getBoundingClientRect().width, 0);
-        return width > 0 ? Math.min(smallest, (line.clientWidth - 1) / width) : smallest;
+        const gap = Number.parseFloat(getComputedStyle(line).columnGap) || 0;
+        const totalWidth = width + Math.max(0, line.querySelectorAll('.mushaf-word').length - 1) * gap;
+        return totalWidth > 0 ? Math.min(smallest, (line.clientWidth - 1) / totalWidth) : smallest;
       }, 1);
       element.style.setProperty('--mushaf-line-scale', String(Math.max(.1, scale)));
     };

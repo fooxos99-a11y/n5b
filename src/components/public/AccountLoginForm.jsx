@@ -14,7 +14,7 @@ export default function AccountLoginForm({ onLogin, loading, autoFocus = true })
   const [helpOpen, setHelpOpen] = useState(false);
   const submit = (event) => {
     event.preventDefault();
-    if (!loading && loginNumber.trim()) onLogin(loginNumber.trim(), password);
+    if (!loading && loginNumber.trim() && password) onLogin(loginNumber.trim(), password);
   };
   const submitOnEnter = (event) => {
     if (event.key !== 'Enter' || event.nativeEvent.isComposing) return;
@@ -34,12 +34,12 @@ export default function AccountLoginForm({ onLogin, loading, autoFocus = true })
       </div>
       <div className="account-login-password">
         <label htmlFor={`${inputId}-password`} className="account-login-label">كلمة المرور <span aria-hidden="true" className="account-login-required">*</span></label>
-        <PasswordInput id={`${inputId}-password`} aria-label="كلمة المرور" value={password} onChange={(event) => setPassword(event.target.value)}
+        <PasswordInput id={`${inputId}-password`} aria-label="كلمة المرور" value={password} required onChange={(event) => setPassword(event.target.value)}
           onKeyDown={submitOnEnter} autoComplete="current-password" enterKeyHint="done"
           placeholder="أدخل كلمة المرور" className="account-login-input" />
       </div>
       <Button type="button" variant="link" className="account-login-forgot" onClick={() => setHelpOpen(true)}>هل نسيت كلمة المرور؟</Button>
-      <Button type="submit" disabled={loading || !loginNumber.trim()} loading={loading} className="account-login-submit">تسجيل دخول</Button>
+      <Button type="submit" disabled={loading || !loginNumber.trim() || !password} loading={loading} className="account-login-submit">تسجيل دخول</Button>
     </form>
     <LoginHelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
   </>;

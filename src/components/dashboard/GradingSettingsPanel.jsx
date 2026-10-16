@@ -13,7 +13,8 @@ import DashboardLoader from '@/components/dashboard/DashboardLoader';
 import SettingsGroup from '@/components/dashboard/SettingsGroup';
 import { weekDayOptions } from '@/lib/weekDayOptions';
 import { gradingApi } from '@/services/gradingApi';
-import { normalizeGradingPolicy, gradingPolicyErrors, gradingMaxima, trackSegmentDefinitions } from '../../../shared/grading-policy.js';
+import { normalizeGradingPolicy, gradingPolicyErrors, trackSegmentDefinitions } from '../../../shared/grading-policy.js';
+import { balanceGradingPolicy } from '@/lib/balanceGradingPolicy';
 
 const AMOUNT = { min: 0, max: 1000, step: 'any' };
 const RATIO = { min: 0, max: 1, step: '0.01' };
@@ -215,7 +216,16 @@ const GradingSettingsPanel = ({ section = 'program', extraCards = [], onStatusCh
 
   // Every user edit bumps the version; loading the policy does not, so nothing is saved on open.
   const edit = (update) => {
-    setDraft(update);
+    setDraft((current) => {
+      const next = update(current);
+      if (Object.keys(validate(next)).some((key) => key !== 'total')) return next;
+      const balanced = balanceGradingPolicy(toPolicy(next));
+      return {
+        ...next,
+        ...balanced,
+        weeklyProgram: { ...balanced.weeklyProgram, memorizationThresholds: next.weeklyProgram.memorizationThresholds },
+      };
+    });
     setEditVersion((version) => version + 1);
   };
   const updateField = (path, value) => edit((current) => setAt(current, path, value));
@@ -266,22 +276,6 @@ const GradingSettingsPanel = ({ section = 'program', extraCards = [], onStatusCh
 
   const fieldProps = { draft, errors, onChange: updateField };
   const thresholds = draft.weeklyProgram.memorizationThresholds;
-  const maxima = gradingMaxima(toPolicy(draft));
-  const excess = Number(Math.max(0, maxima.total - 100).toFixed(4));
-  const balancedMargin = Number((maxima.generalMargin - excess).toFixed(4));
-  const formatGrade = (value) => value.toLocaleString('ar-SA', { maximumFractionDigits: 4 });
-  const summary = (
-    <div className="space-y-2 rounded-xl border border-border bg-card p-4 text-sm">
-      <output aria-live="polite" className="block font-bold">إجمالي الدرجات: {formatGrade(maxima.total)} / 100</output>
-      {errors.total && <>
-        <FieldError id="grading-total-error" message={errors.total} />
-        <p className="text-xs leading-5 text-muted-foreground">إضافة الأيام تزيد درجات البرنامج. الزيادة: {formatGrade(excess)}. خفّض الدرجات أو الهامش للحفظ.</p>
-        {balancedMargin >= 0 && <Button type="button" variant="outline" onClick={() => updateField('generalMargin', balancedMargin)}>
-          خفض الهامش إلى {formatGrade(balancedMargin)}
-        </Button>}
-      </>}
-    </div>
-  );
   const sessionSection = section === 'track' ? 'trackSession' : 'weeklySession';
   const sessionDayField = <SettingsGroup>
     <Label htmlFor={`grading-${sessionSection}-day`}>يوم الجلسة</Label>
@@ -294,7 +288,6 @@ const GradingSettingsPanel = ({ section = 'program', extraCards = [], onStatusCh
     return (
       <div className="space-y-4 [font-family:var(--font-ui)]">
         <SettingsCard title="درجات جلسة المسار">
-          {summary}
           {sessionDayField}
           <SettingsGroup>
             <div className="grid grid-cols-1 gap-3 min-[390px]:grid-cols-2 lg:grid-cols-3">
@@ -333,7 +326,6 @@ const GradingSettingsPanel = ({ section = 'program', extraCards = [], onStatusCh
   if (section === 'weekly') {
     return (
       <div className="divide-y divide-border [font-family:var(--font-ui)]">
-        {summary}
         {sessionDayField}
         <SettingsGroup>
           <div className="grid grid-cols-1 gap-3 min-[390px]:grid-cols-2 lg:grid-cols-3">
@@ -346,7 +338,6 @@ const GradingSettingsPanel = ({ section = 'program', extraCards = [], onStatusCh
 
   return (
     <div className="space-y-4 [font-family:var(--font-ui)]">
-      {summary}
       <SettingsCard title="البرنامج الأسبوعي">
         <SettingsGroup>
           <GroupTitle>أيام الحضور</GroupTitle>

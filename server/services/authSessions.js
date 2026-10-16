@@ -21,9 +21,16 @@ async function findAuthSession(req) {
   const tokenHash = hashToken(token);
   const [[session]] = await db().query(
     `
-    SELECT user_role AS role, user_id AS id, user_name AS name
-    FROM auth_sessions
-    WHERE token_hash = ?
+    SELECT session.user_role AS role, session.user_id AS id, session.user_name AS name
+    FROM auth_sessions session
+    LEFT JOIN students student ON session.user_role = 'student' AND student.id = session.user_id
+    LEFT JOIN supervisors staff ON session.user_role IN ('manager', 'admin', 'supervisor') AND staff.id = session.user_id
+    WHERE session.token_hash = ?
+      AND (
+        (student.id IS NOT NULL AND student.password_hash IS NOT NULL AND student.password_hash <> '')
+        OR (staff.id IS NOT NULL AND staff.role = session.user_role AND staff.is_active = 1
+          AND staff.password_hash IS NOT NULL AND staff.password_hash <> '')
+      )
     LIMIT 1
     `,
     [tokenHash]

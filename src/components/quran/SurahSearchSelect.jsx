@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import SearchableQuranSelect from '@/components/quran/SearchableQuranSelect';
 
-const SurahSearchSelect = ({ value, chapters, allChapters = chapters, placeholder = 'السورة', onChange }) => {
+const SurahSearchSelect = ({ value, chapters, allChapters = chapters, placeholder = 'السورة', ariaLabel = placeholder, onChange }) => {
   const selectedChapter = allChapters.find((chapter) => String(chapter.number) === String(value));
   const visibleChapters = useMemo(() => (
     selectedChapter && !chapters.some((chapter) => String(chapter.number) === String(value))
@@ -19,6 +19,7 @@ const SurahSearchSelect = ({ value, chapters, allChapters = chapters, placeholde
       value={value}
       options={options}
       placeholder={placeholder}
+      ariaLabel={ariaLabel}
       title="اختر السورة"
       searchPlaceholder="اكتب اسم السورة أو رقمها"
       searchLabel="البحث في السور"

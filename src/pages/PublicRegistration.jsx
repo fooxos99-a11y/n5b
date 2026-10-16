@@ -3,7 +3,6 @@ import { Helmet } from 'react-helmet';
 import { useSearchParams } from '@/lib/router';
 import { CheckCircle2, LockKeyhole, Plus, Send, X } from 'lucide-react';
 import ThemeToggle from '@/components/ThemeToggle';
-import { applyTheme, getCurrentTheme } from '@/lib/theme';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -85,13 +84,6 @@ const PublicRegistration = () => {
       mounted = false;
     };
   }, [registrationNumber, loadAttempt, toast]);
-
-  useEffect(() => {
-    if (!enabled) return;
-    const previousTheme = getCurrentTheme();
-    applyTheme('light');
-    return () => { applyTheme(previousTheme); };
-  }, [enabled]);
 
   const juzOptions = useMemo(() => (
     availableJuzs.length ? [...new Set(availableJuzs)].sort((first, second) => first - second) : Array.from({ length: 30 }, (_, index) => index + 1)

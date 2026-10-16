@@ -3,10 +3,11 @@ import { ShieldCheck, Trash2 } from 'lucide-react';
 import DashboardLoader from '@/components/dashboard/DashboardLoader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useToast } from '@/components/ui/use-toast';
 import { studentsApi } from '@/services/studentsApi';
 import { formatHijriDateTime as formatDateTime } from '../../../shared/hijri-calendar.js';
+import { accountDeletionDescription } from '../../../shared/legal-content.js';
 
 const statusLabels = {
   pending: 'قيد المراجعة',
@@ -116,7 +117,7 @@ const AccountPrivacySection = ({ compact = false, allowDeletion = true, embedded
       {allowDeletion && embeddedConfirmation && !isPending ? (
         <DialogFooter className="grid grid-cols-2 gap-2 sm:grid-cols-2">
             <Button type="button" variant="outline" className="min-h-11" onClick={onClose}>إلغاء</Button>
-            <Button type="button" variant="destructive" className="min-h-11" onClick={createRequest} loading={isSaving}>تأكيد</Button>
+            <Button type="button" variant="destructive" className="min-h-11" onClick={createRequest} loading={isSaving}>إرسال الطلب</Button>
           </DialogFooter>
       ) : allowDeletion && (_resolveActions())}
     </>
@@ -140,6 +141,7 @@ const AccountPrivacySection = ({ compact = false, allowDeletion = true, embedded
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <DialogContent className="border-primary/25 bg-card" dir="rtl">
           <DialogHeader><DialogTitle>تأكيد طلب حذف الحساب</DialogTitle></DialogHeader>
+          <DialogDescription>{accountDeletionDescription}</DialogDescription>
           <DialogFooter>
             <Button variant="outline" onClick={() => setConfirmOpen(false)}>تراجع</Button>
             <Button variant="destructive" onClick={createRequest} loading={isSaving}>إرسال الطلب</Button>

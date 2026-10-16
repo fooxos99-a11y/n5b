@@ -4,6 +4,19 @@ import { getMushafPagePresentation } from '../src/lib/mushafPagePresentation.js'
 
 const word = (position, line) => ({ location: `3:110:${position}`, verseKey: '3:110', line, charType: 'word' });
 
+test('prefers modern calligraphy and its exact lines while preserving selection indexes', () => {
+  const page = { page: 64, words: [{ ...word(14, 3), codeV2: 'ﱁ' }, { ...word(15, 3), codeV2: 'ﱂ' }], decorations: [], displayLayout: { words: {
+    '3:110:14': { codeV1: 'ﭬ', pageV1: 64, lineV1: 3 },
+    '3:110:15': { codeV1: 'ﭭ', pageV1: 64, lineV1: 4 },
+  } } };
+  const original = structuredClone(page);
+  const presentation = getMushafPagePresentation(page);
+  assert.equal(presentation.hasV1, false);
+  assert.equal(presentation.useV1Lines, false);
+  assert.deepEqual(page.words.map(presentation.lineOf), [3, 3]);
+  assert.deepEqual(page, original);
+});
+
 test('uses the reference line breaks without mutating canonical word locations or mark indexes', () => {
   const page = { page: 64, words: [word(14, 3), word(15, 3)], decorations: [], displayLayout: { words: {
     '3:110:14': { codeV1: 'ﭬ', pageV1: 64, lineV1: 3 },

@@ -6,6 +6,7 @@ import { normalizeDashboardGrants, gradingPermissionForComponent, scopeSessionGr
 import { assertStudentComplex, requireComplex } from '../server/services/complexes.js';
 import { assertAdministratorScope } from '../server/services/administratorScope.js';
 import { hashStudentPassword, verifyStudentPassword } from '../server/services/studentPassword.js';
+import { verifyAccountPassword } from '../server/services/accountPassword.js';
 import { parseStudentRows } from '../src/lib/studentImport.js';
 
 test('legacy session grants expand while separate grants do not authorize the other session', () => {
@@ -63,7 +64,7 @@ for (const role of ['admin', 'supervisor', 'manager']) {
         db: () => ({ query: async sql => sql.includes('FROM supervisors') ? [[{ id: 7, name: 'اختبار', role, passwordHash }]] : [[]] }),
         createLoginAttemptIdentities: () => [], getLoginAttemptBlockForIdentities: async () => ({ blocked: false }),
         clearLoginFailuresForIdentities: async () => {}, recordLoginFailures: async () => { failures++; },
-        verifyStudentPassword, createAuthSession: async () => { sessions++; return 'test-token'; },
+        verifyAccountPassword, createAuthSession: async () => { sessions++; return 'test-token'; },
         isNativeApiRequest: () => false, setSessionCookie: () => {}, TENANT_SESSION_COOKIE: 'session', AUTH_SESSION_DAYS: 1,
         DASHBOARD_PERMISSION_KEYS: [], getSupervisorDashboardPermissions: async () => ['weeklySession'],
       });

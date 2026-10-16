@@ -1,9 +1,10 @@
 export function getMushafPagePresentation(page) {
   const words = page?.words || [];
   const display = page?.displayLayout?.words || {};
-  const hasV1 = words.length > 0 && words.every((word) => Boolean(display[word.location]?.codeV1));
+  const hasModernCalligraphy = words.length > 0 && words.every((word) => Boolean(word.codeV2));
+  const hasV1 = !hasModernCalligraphy && words.length > 0 && words.every((word) => Boolean(display[word.location]?.codeV1));
   // Keep saved word locations and task page boundaries valid when the editions
-  // put a boundary word on different pages. The calligraphy still uses V1.
+  // put a boundary word on different pages in the legacy fallback.
   const useV1Lines = hasV1 && words.every((word) => Number(display[word.location].pageV1) === Number(page.page));
   const lineOf = (word) => useV1Lines ? Number(display[word.location].lineV1) : Number(word.line);
   const decorations = useV1Lines ? [] : (page?.decorations || []);

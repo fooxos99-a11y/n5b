@@ -848,6 +848,7 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
                 ) : (
                   <QuranRefFields
                     surahValue={form.startSurah}
+                    label="بداية الخطة"
                     ayahValue={form.startAyah}
                     chapters={availableChapters}
                     allChapters={chapters}
@@ -875,6 +876,7 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
                 ) : (
                   <QuranRefFields
                     surahValue={form.endSurah}
+                    label="نهاية الخطة"
                     ayahValue={form.endAyah}
                     chapters={availableChapters}
                     allChapters={chapters}
@@ -1021,6 +1023,7 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
                 ) : (
                   <QuranRefFields
                     surahValue={priorForm.startSurah}
+                    label="بداية المحفوظ المجتاز"
                     ayahValue={priorForm.startAyah}
                     chapters={availableChapters}
                     allChapters={chapters}
@@ -1048,6 +1051,7 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
                 ) : (
                   <QuranRefFields
                     surahValue={priorForm.endSurah}
+                    label="نهاية المحفوظ المجتاز"
                     ayahValue={priorForm.endAyah}
                     chapters={availableChapters}
                     allChapters={chapters}
@@ -1208,6 +1212,7 @@ const PageSelect = ({ value, onChange, placeholder, pages = quranPages }) => (
 );
 
 const QuranRefFields = ({
+  label,
   surahValue,
   ayahValue,
   chapters,
@@ -1222,9 +1227,10 @@ const QuranRefFields = ({
       chapters={chapters}
       allChapters={allChapters}
       placeholder="السورة"
+      ariaLabel={`سورة ${label}`}
       onChange={onSurahChange}
     />
-    <AyahSearchSelect value={ayahValue} ayahs={ayahOptions} onChange={onAyahChange} />
+    <AyahSearchSelect value={ayahValue} ayahs={ayahOptions} ariaLabel={`آية ${label}`} onChange={onAyahChange} />
   </div>
 );
 

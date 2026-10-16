@@ -51,7 +51,7 @@ test('entry and navigation use the saved choice and only the toggle saves it', a
   ]);
 
   assert.match(main, /getPreferredThemeForPath\(window\.location\.pathname\)/);
-  assert.match(controller, /getPreferredThemeForPath\(pathname\)/);
+  assert.match(controller, /getPreferredThemeForPath\(pathname, undefined, search\)/);
   assert.match(toggle, /applyTheme\(saveThemePreference\(/);
   assert.doesNotMatch([main, controller].join('\n'), /saveThemePreference/);
 });
@@ -94,10 +94,35 @@ test('initial HTML and route controller agree before React loads', async () => {
         let applied;
         const root = { classList: { add: (theme) => { applied = theme; } }, style: {} };
         const key = getDefaultThemeForPath(pathname, basePath) === 'light' ? 'nukhab_theme_account' : 'nukhab_theme_public';
-        new Function('globalThis', script)({ location: { pathname }, localStorage: { getItem: (requestedKey) => requestedKey === key ? preference : 'invalid' }, document: { documentElement: root, currentScript: { dataset: { base: basePath } } } });
+        new Function('globalThis', script)({ URLSearchParams, location: { pathname }, localStorage: { getItem: (requestedKey) => requestedKey === key ? preference : 'invalid' }, document: { documentElement: root, currentScript: { dataset: { base: basePath } } } });
         assert.equal(applied, route === '/' || route.startsWith('/login') ? 'light' : ['light', 'dark'].includes(preference) ? preference : getDefaultThemeForPath(pathname, basePath), pathname);
         assert.equal(root.style.colorScheme, applied);
       }
     }
+  }
+});
+
+test('registration short links retain public theme independently of a stored student session', async () => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'window');
+  const script = await readFile(new URL('../public/theme-bootstrap.js', import.meta.url), 'utf8');
+  const values = new Map([['wajeh_role', 'student'], ['nukhab_theme_account', 'light'], ['nukhab_theme_public', 'dark']]);
+  const storage = { getItem: key => values.get(key), setItem: (key, value) => values.set(key, value) };
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: { localStorage: storage } });
+  try {
+    for (const basePath of ['/', '/campus/']) {
+      const pathname = basePath;
+      const search = '?registration=1';
+      assert.equal(getPreferredThemeForPath(pathname, basePath, search), 'dark');
+      let applied;
+      new Function('globalThis', script)({ URLSearchParams, location: { pathname, search }, localStorage: storage,
+        document: { currentScript: { dataset: { base: basePath } }, documentElement: { classList: { add: value => { applied = value; } }, style: {} } } });
+      assert.equal(applied, 'dark');
+      assert.equal(getPreferredThemeForPath('/register', '/', search), 'dark');
+    }
+    assert.equal(getPreferredThemeForPath('/', '/', ''), 'light');
+    assert.equal(getPreferredThemeForPath('/login', '/', '?registration=1'), 'light');
+  } finally {
+    if (original) Object.defineProperty(globalThis, 'window', original);
+    else delete globalThis.window;
   }
 });

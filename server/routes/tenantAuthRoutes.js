@@ -1,5 +1,5 @@
 import express from 'express';
-import { verifyStudentPassword } from '../services/studentPassword.js';
+import { verifyAccountPassword } from '../services/accountPassword.js';
 import { trimTrailingCharacter } from '../../shared/string-suffix.js';
 import { db, getDatabaseContext } from '../db.js';
 import {
@@ -65,15 +65,17 @@ router.post('/login', async (req, res, next) => {
     });
     const attempt = await getLoginAttemptBlockForIdentities(db(), loginIdentities);
     if (attempt.blocked) {
+      res.set('X-RateLimit-Scope', 'login-account');
+      res.set('Retry-After', String(Math.max(1, attempt.remainingSeconds)));
       return res.status(429).json({ message: 'محاولات كثيرة. انتظر خمس دقائق ثم حاول مجددًا.' });
     }
 
     const [supervisors] = await db().query(
       // Reciter accounts were removed from the platform and can no longer sign in.
-      "SELECT id, name, role, password_hash AS passwordHash FROM supervisors WHERE login_number = ? AND is_active = 1 AND role <> 'reciter' LIMIT 1",
+      "SELECT id, name, role, login_number AS loginNumber, password_hash AS passwordHash FROM supervisors WHERE login_number = ? AND is_active = 1 AND role <> 'reciter' LIMIT 1",
       [loginNumber],
     );
-    if (supervisors[0]?.passwordHash && !await verifyStudentPassword(req.body.password, supervisors[0].passwordHash)) {
+    if (supervisors[0] && !await verifyAccountPassword(supervisors[0], req.body.password, db())) {
       await recordLoginFailures(db(), loginIdentities);
       return res.status(401).json({ message: 'رقم الدخول أو كلمة المرور غير صحيحة.' });
     }
@@ -98,7 +100,7 @@ router.post('/login', async (req, res, next) => {
       [loginNumber],
     );
     if (students[0]) {
-      if (students[0].passwordHash && !await verifyStudentPassword(req.body.password, students[0].passwordHash)) {
+      if (!await verifyAccountPassword({ ...students[0], role: 'student' }, req.body.password, db())) {
         await recordLoginFailures(db(), loginIdentities);
         return res.status(401).json({ message: 'رقم الدخول أو كلمة المرور غير صحيحة.' });
       }
@@ -115,8 +117,9 @@ router.post('/login', async (req, res, next) => {
       }));
     }
 
+    await verifyAccountPassword(null, req.body.password, db());
     await recordLoginFailures(db(), loginIdentities);
-    return res.status(404).json({ message: 'رقم الحساب غير صحيح.' });
+    return res.status(401).json({ message: 'رقم الدخول أو كلمة المرور غير صحيحة.' });
   } catch (error) {
     return next(error);
   }

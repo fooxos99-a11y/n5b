@@ -45,3 +45,13 @@ test('page boundaries and adjacent positions reuse one reference query without l
   assert.equal(queries, 1);
   assert.deepEqual(await loadQuranPagePositions({ query: async () => [[]] }, 1), []);
 });
+
+test('an account login lockout does not block other accounts or public requests', () => {
+  const cooldown = createRequestCooldown();
+  cooldown.record('/api', { status: 429, headers: new Map([['Retry-After', '300'], ['X-RateLimit-Scope', 'login-account']]) });
+  for (const path of ['/auth/login', '/public-settings', '/registration/public']) {
+    assert.doesNotThrow(() => cooldown.check('/api', path));
+  }
+  cooldown.record('/api', { status: 429, headers: new Map([['Retry-After', '30'], ['X-RateLimit-Scope', 'api']]) });
+  assert.throws(() => cooldown.check('/api', '/auth/login'), { status: 429 });
+});

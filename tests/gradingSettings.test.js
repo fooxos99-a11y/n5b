@@ -29,15 +29,15 @@ test('grading settings live in their own settings category with a dedicated save
   assert.match(panel, /gradingApi\.savePolicy\(toPolicy\(value\)\)/);
   assert.doesNotMatch(panel, /studentsApi\.updateSettings/);
   assert.match(panel, /from '\.\.\/\.\.\/\.\.\/shared\/grading-policy\.js'/);
-  // Autosave and total validation remain, without the removed summary copy.
+  // Valid edits balance automatically before the existing autosave and server validation.
   assert.match(panel, /useQueuedAutosave\(/);
-  assert.match(panel, /message=\{errors.total\}/);
-  assert.doesNotMatch(panel, /تظل الأسابيع|مجموع الدرجات:/);
+  assert.match(panel, /balanceGradingPolicy\(toPolicy\(next\)\)/);
+  assert.doesNotMatch(panel, /إجمالي الدرجات|خفض الهامش|balancedMargin|\{summary\}/);
   assert.match(panel, /title: 'تعذر حفظ إعدادات الدرجات'[^}]*variant: 'destructive'/);
   assert.match(panel, /<ErrorState message=\{loadError\} onRetry=\{loadPolicy\} \/>/);
 });
 
-test('grading settings group every policy field and summarize the maxima', async () => {
+test('grading settings group every policy field without the removed total card', async () => {
   const panel = await read('../src/components/dashboard/GradingSettingsPanel.jsx');
 
   for (const title of ['أيام الحضور', 'درجة الحضور', 'الدرجات اليومية', 'الخصومات والحدود']) {

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Trash2, X } from 'lucide-react';
 import DashboardLoader from '@/components/dashboard/DashboardLoader';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogClose, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { useToast } from '@/components/ui/use-toast';
 import { cn } from '@/lib/utils';
 import { studentsApi } from '@/services/studentsApi';
@@ -111,23 +111,27 @@ const AccountDeletionRequestsDialog = ({ triggerClassName }) => {
   };
   return (
     <>
-      <Button
-        type="button"
-        variant="outline"
-        className={cn('min-h-11 w-full justify-center gap-2', triggerClassName)}
-        onClick={() => handleOpenChange(true)}
-      >
-        <Trash2 className="h-4 w-4" />
-        طلبات الحذف
-      </Button>
-
       <Dialog open={open} onOpenChange={handleOpenChange}>
+        <DialogTrigger asChild>
+          <Button
+            type="button"
+            variant="outline"
+            className={cn('min-h-11 w-full justify-center gap-2', triggerClassName)}
+          >
+            <Trash2 className="h-4 w-4" />
+            طلبات الحذف
+          </Button>
+        </DialogTrigger>
+
         <DialogContent className="max-h-[85dvh] max-w-lg overflow-y-auto border-primary/25 bg-card [font-family:var(--font-ui)]" dir="rtl">
           <DialogHeader>
             <DialogTitle className="text-primary">طلبات الحذف</DialogTitle>
           </DialogHeader>
 
           {_resolveAccountDeletionRequestsDialog()}
+          <DialogFooter>
+            <DialogClose asChild><Button type="button" variant="outline">إغلاق</Button></DialogClose>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
       <ConfirmAccountRemovalDialog request={confirmRequest} busy={Boolean(activeRequestId)} onClose={() => setConfirmRequest(null)} onConfirm={request => updateRequest(request, 'completed')} />

@@ -47,7 +47,6 @@ function applySiteTheme(config) {
   root.style.setProperty('--brand-navigation', config.navigation?.background || '#06332f');
   root.style.setProperty('--brand-navigation-accent', config.navigation?.accent || '#f0bd55');
   root.style.setProperty('--brand-navigation-highlight', config.navigation?.highlight || '#dfa33b');
-  document.title = config.name || 'المنصة';
 }
 
 export function SiteProvider({ children }) {

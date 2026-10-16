@@ -3,7 +3,7 @@ import { History } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import MessageComposer from '@/components/dashboard/MessageComposer';
 import { useSiteConfig } from '@/site/SiteProvider';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogClose, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { useToast } from '@/components/ui/use-toast';
 import DashboardLoader from '@/components/dashboard/DashboardLoader';
 import { ManagementPanel, ManagementToolbar } from '@/components/dashboard/layout/ManagementPanel';
@@ -81,12 +81,12 @@ export default function NotificationsSection() {
     if (error) {
       return <ManagementPanel><div role="alert" className="space-y-3 p-4 sm:p-6"><p>{error}</p><Button onClick={load} className="h-11">إعادة المحاولة</Button></div></ManagementPanel>;
     }
-    return <>
+    return <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
         <ManagementPanel>
           <fieldset disabled={sending} className="min-w-0">
           <ManagementToolbar>
             <MessageRecipientFilters recipientType={recipientType} onRecipientTypeChange={changeRecipientType} roles={Object.entries(recipientRoleLabels).map(([value, label]) => ({ value, label }))} committeeId={committeeId} onCommitteeChange={changeCommittee} committees={audience.committees} showCommittees={recipientType === 'student'}>
-              <Button type="button" variant="outline" size="icon" className="h-11 w-11 shrink-0" title="الإشعارات المرسلة" aria-label="الإشعارات المرسلة" onClick={() => setHistoryOpen(true)}><History className="h-4 w-4" /></Button>
+              <DialogTrigger asChild><Button type="button" variant="outline" size="icon" className="h-11 w-11 shrink-0" title="الإشعارات المرسلة" aria-label="الإشعارات المرسلة"><History className="h-4 w-4" /></Button></DialogTrigger>
             </MessageRecipientFilters>
           </ManagementToolbar>
           <div className="divide-y divide-border">
@@ -99,7 +99,7 @@ export default function NotificationsSection() {
           </div>
           </fieldset>
         </ManagementPanel>
-        <Dialog open={historyOpen} onOpenChange={setHistoryOpen}><DialogContent dir="rtl" className="max-h-[85dvh] overflow-y-auto [font-family:var(--font-ui)]"><DialogHeader><DialogTitle>الإشعارات المرسلة</DialogTitle></DialogHeader><div className="divide-y divide-border">
+        <DialogContent dir="rtl" className="max-h-[85dvh] overflow-y-auto [font-family:var(--font-ui)]"><DialogHeader><DialogTitle>الإشعارات المرسلة</DialogTitle></DialogHeader><div className="divide-y divide-border">
           {!history.length && <p className="text-muted-foreground">لا توجد إشعارات مرسلة.</p>}
           {history.map((item) => <article key={item.id} className="space-y-2 py-3">
             <h3 className="break-words font-bold">{item.title}</h3><p className="whitespace-pre-wrap break-words text-sm">{item.body}</p>
@@ -107,8 +107,8 @@ export default function NotificationsSection() {
             <p className="text-xs text-muted-foreground">إرسال الأجهزة: {item.pushSent || 0} · بانتظار الإرسال: {item.pushPending || 0} · تعذر الإرسال: {item.pushFailed || 0}</p>
             <div className="flex flex-wrap items-center gap-3 text-sm"><span>أُرسل داخل التطبيق: {item.recipientCount}</span><span>قُرئ: {item.readCount}</span><Button variant="outline" className="min-h-11" onClick={() => showRecipients(item.id)}>المستلمون</Button></div>
           </article>)}
-        </div></DialogContent></Dialog>
-      </>;
+        </div><DialogFooter><DialogClose asChild><Button type="button" variant="outline">إغلاق</Button></DialogClose></DialogFooter></DialogContent>
+      </Dialog>;
   };
   return (
     <div className="space-y-4 [font-family:var(--font-ui)]" dir="rtl">

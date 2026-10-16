@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFile, readdir } from 'node:fs/promises';
 import test from 'node:test';
+import { getMushafPagePresentation } from '../src/lib/mushafPagePresentation.js';
 
 const assetUrl = (path) => new URL(`../public/quran/hafs/${path}`, import.meta.url);
 const readJson = async (path) => JSON.parse(await readFile(assetUrl(path), 'utf8'));
@@ -33,6 +34,9 @@ test('traditional display maps every canonical word to a packaged V1 font withou
     assert.ok(fontBytes.length > 1000);
     assert.equal(layout.page, page);
     assert.deepEqual(Object.keys(layout.words), canonical.words.map((word) => word.location));
+    const presentation = getMushafPagePresentation({ ...canonical, displayLayout: layout });
+    assert.equal(presentation.hasV1, false, `Modern font missing on page ${page}`);
+    assert.deepEqual(canonical.words.map(presentation.lineOf), canonical.words.map((word) => word.line));
     for (const word of canonical.words) {
       assert.ok(!locations.has(word.location));
       locations.add(word.location);

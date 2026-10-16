@@ -12,7 +12,7 @@ const SupportPage = () => {
         <p className="text-muted-foreground">أرسل وصفًا مختصرًا للمشكلة، ولا تشارك كلمة المرور.</p>
       </div>
       <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
-        <Button asChild className="min-h-11 gap-2 rounded-xl">
+        <Button asChild className="min-h-11 gap-2 rounded-xl !text-primary-foreground hover:!text-primary-foreground">
           <a href="https://wa.me/966539599222" target="_blank" rel="noopener noreferrer">
             واتساب <span dir="ltr">0539599222</span> <ExternalLink className="h-4 w-4" aria-hidden="true" />
           </a>

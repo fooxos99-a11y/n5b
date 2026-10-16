@@ -18,6 +18,7 @@ const SearchableQuranSelect = ({
   value,
   options,
   placeholder,
+  ariaLabel = placeholder,
   title,
   searchPlaceholder,
   searchLabel,
@@ -43,7 +44,7 @@ const SearchableQuranSelect = ({
     <>
       <div className="hidden sm:block">
         <Select value={String(value || '')} onValueChange={onChange}>
-          <SelectTrigger aria-label={placeholder} className="h-auto min-h-12 min-w-0 [&>span]:whitespace-normal [&>span]:leading-5">
+          <SelectTrigger aria-label={ariaLabel} className="h-auto min-h-12 min-w-0 [&>span]:whitespace-normal [&>span]:leading-5">
             <SelectValue placeholder={placeholder} />
           </SelectTrigger>
           <SelectContent>
@@ -59,6 +60,7 @@ const SearchableQuranSelect = ({
           type="button"
           variant="outline"
           role="combobox"
+          aria-label={ariaLabel}
           aria-expanded={mobileOpen}
           className="h-12 min-w-0 justify-start overflow-hidden px-3 text-right font-normal"
           onClick={() => setMobileOpen(true)}

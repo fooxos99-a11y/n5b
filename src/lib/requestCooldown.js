@@ -21,6 +21,7 @@ export function createRequestCooldown({ storage, now = Date.now } = {}) {
     },
     record(base, response) {
       if (response.status !== 429) return;
+      if (response.headers.get('X-RateLimit-Scope') === 'login-account') return;
       const header = response.headers.get('Retry-After') || '';
       const milliseconds = /^\d+$/.test(header) ? Number(header) * 1000 : Date.parse(header) - now();
       const scope = response.headers.get('X-RateLimit-Scope') === 'recitation-ayahs' ? 'recitation-ayahs' : 'api';

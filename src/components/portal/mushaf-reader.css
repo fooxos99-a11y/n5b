@@ -83,11 +83,12 @@
   align-items: center;
   justify-content: center;
   min-width: 0;
-  gap: 0;
+  gap: .08em;
   white-space: nowrap;
   text-align: center;
   line-height: 1;
-  font-size: min(calc(6.4cqw * var(--mushaf-line-scale, 1)), calc(4.3cqh * var(--mushaf-line-scale, 1)));
+  font-size: min(calc(6.2cqw * var(--mushaf-line-scale, 1)), calc(3.8cqh * var(--mushaf-line-scale, 1)));
+  font-synthesis: none;
 }
 
 .mushaf-word { flex: none; padding-inline: 0; }
@@ -162,7 +163,7 @@ html[data-native-surface="light"] body,
 html[data-native-surface="light"] #root { background: #f9f7f8; }
 
 @media (min-width: 768px) {
-  .mushaf-page { width: min(100%, 46cqh); }
+  .mushaf-page { width: min(100%, 60cqh); }
 }
 
 @media (prefers-reduced-motion: reduce) {

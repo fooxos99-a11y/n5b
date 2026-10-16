@@ -1,3 +1,5 @@
+export const accountDeletionDescription = 'سيُرسل طلبك إلى الإدارة، ولن يُحذف الحساب فورًا. يمكنك إلغاء الطلب قبل معالجته.';
+
 export const privacyContent = {
   "title": "سياسة الخصوصية",
   "updated": "24 يوليو 2026",

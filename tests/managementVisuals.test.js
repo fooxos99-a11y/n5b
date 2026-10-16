@@ -47,11 +47,11 @@ test('the sidebar selection is a borderless translucent fill', async () => {
   assert.doesNotMatch(sidebar, /border-\[#f0bd55\]|shadow-\[0_8px_22px/);
 });
 
-test('gold action buttons keep white labels across shared and custom surfaces', async () => {
+test('shared action buttons use the theme foreground and the calendar retains its colors', async () => {
   const [button, datePicker] = await Promise.all([
     readFile(new URL('../src/components/ui/button.jsx', import.meta.url), 'utf8'),
     readFile(new URL('../src/components/ui/date-picker.jsx', import.meta.url), 'utf8'),
   ]);
-  assert.match(button, /bg-primary !text-white/);
+  assert.match(button, /bg-primary !text-primary-foreground/);
   assert.match(datePicker, /bg-primary !text-white/);
 });

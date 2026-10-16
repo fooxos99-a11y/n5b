@@ -263,8 +263,8 @@ test('Nukhab identity is shared across web and native', async () => {
   assert.match(sidebarText, /bg-\[var\(--brand-navigation\)\]/);
   assert.match(sidebarText, /bg-\[var\(--brand-navigation-highlight\)\]/);
   assert.match(buttonText, /bg-primary/);
-  assert.match(buttonText, /bg-primary !text-white/);
-  assert.match(buttonText, /hover:!text-white/);
+  assert.match(buttonText, /bg-primary !text-primary-foreground/);
+  assert.match(buttonText, /hover:!text-primary-foreground/);
   assert.match(sidebarText, /resolveAssetUrl\(site\.whiteLogo \|\| site\.logo\)/);
   assert.match(sidebarText, /absolute right-4 h-\[4\.25rem\] w-\[4\.6rem\]/);
   assert.doesNotMatch(sidebarText, /brightness-0 invert/);
@@ -390,13 +390,15 @@ test('App Store build number is passed through environment variables, never shel
   const workflow = await readFile(new URL('../.github/workflows/ios-app-store-release.yml', import.meta.url), 'utf8');
   const buildInputLines = workflow.split(/\r?\n/).filter((line) => line.includes('inputs.build_number'));
 
-  assert.equal(buildInputLines.length, 2);
+  const environmentLines = buildInputLines.filter((line) => /^ {10}(?:TARGET_BUILD_NUMBER|BUILD_NUMBER):/.test(line));
+  assert.equal(environmentLines.length, 2);
   for (const line of buildInputLines) {
-    assert.match(line, /^ {10}(?:TARGET_BUILD_NUMBER|BUILD_NUMBER): \$\{\{ inputs\.build_number \}\}$/);
+    assert.match(line, /^ {10}(?:(?:TARGET_BUILD_NUMBER|BUILD_NUMBER): \$\{\{ inputs\.build_number \}\}|name: nukhab-(?:testflight|app-store)-status-\$\{\{ inputs\.build_number \}\})$/);
   }
   const submission = workflow.slice(workflow.indexOf('      - name: Select processed build and submit for review'));
   assert.match(submission, /env:\r?\n {10}BUILD_NUMBER: \$\{\{ inputs\.build_number \}\}\r?\n {8}run:/);
-  assert.doesNotMatch(submission.slice(submission.indexOf('        run:')), /\$\{\{\s*inputs\./);
+  const submissionRun = submission.slice(submission.indexOf('        run:')).split(/\r?\n {6}- name:/)[0];
+  assert.doesNotMatch(submissionRun, /\$\{\{\s*inputs\./);
   assert.match(submission, /build_number\(ENV\.fetch\("BUILD_NUMBER"\)\)/);
 });
 

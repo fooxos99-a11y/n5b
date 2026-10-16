@@ -37,7 +37,8 @@ test('portal account and public rankings match the student experience with notif
   assert.doesNotMatch(wajehDashboard, /const AccountPrivacySection = lazy/);
   assert.match(accountPrivacy, /if \(isLoading && \(!compact \|\| embeddedConfirmation\)\)/);
   assert.match(accountPrivacy, />إلغاء<\/Button>/);
-  assert.match(accountPrivacy, />تأكيد<\/Button>/);
+  assert.match(accountPrivacy, />إرسال الطلب<\/Button>/);
+  assert.match(accountPrivacy, /<DialogDescription>\{accountDeletionDescription\}<\/DialogDescription>/);
   assert.match(accountPrivacy, /طلب حذف الحساب/);
   assert.match(accountPrivacy, /variant="destructive"/);
   assert.match(accountPrivacy, /variant="link"/);

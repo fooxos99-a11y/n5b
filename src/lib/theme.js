@@ -2,10 +2,11 @@ export const THEME_CHANGE_EVENT = 'nukhab-theme-change';
 export const THEME_STORAGE_KEY = 'nukhab_theme';
 const sessionPreferences = {};
 
-export const getThemeScopeForPath = (pathname = '/', basePath = import.meta.env?.BASE_URL || '/') => {
+export const getThemeScopeForPath = (pathname = '/', basePath = import.meta.env?.BASE_URL || '/', search = globalThis.location?.search || '') => {
   const base = basePath.replace(/\/$/, '');
   const route = base && pathname.startsWith(`${base}/`) ? pathname.slice(base.length) : pathname;
   if (route === '/') {
+    if (new URLSearchParams(search).get('registration') === '1') return 'public';
     try { if (window.localStorage.getItem('wajeh_role') === 'student') return 'account'; } catch { /* Default to the public login entry. */ }
     return 'login';
   }
@@ -13,8 +14,8 @@ export const getThemeScopeForPath = (pathname = '/', basePath = import.meta.env?
   return /^\/(dashboard|portal)(\/|$)/.test(route) ? 'account' : 'public';
 };
 
-export const getPreferredThemeForPath = (pathname, basePath) => {
-  const scope = getThemeScopeForPath(pathname, basePath);
+export const getPreferredThemeForPath = (pathname, basePath, search) => {
+  const scope = getThemeScopeForPath(pathname, basePath, search);
   if (scope === 'login') return 'light';
   let preference = sessionPreferences[scope];
   try {
@@ -25,7 +26,7 @@ export const getPreferredThemeForPath = (pathname, basePath) => {
   }
   return preference === 'light' || preference === 'dark'
     ? preference
-    : getDefaultThemeForPath(pathname, basePath);
+    : getDefaultThemeForPath(pathname, basePath, search);
 };
 
 export const saveThemePreference = (theme, pathname = window.location.pathname, basePath = undefined) => {
@@ -41,8 +42,8 @@ export const saveThemePreference = (theme, pathname = window.location.pathname, 
   return preference;
 };
 
-export const getDefaultThemeForPath = (pathname = '/', basePath = import.meta.env?.BASE_URL || '/') => {
-  return getThemeScopeForPath(pathname, basePath) === 'public' ? 'dark' : 'light';
+export const getDefaultThemeForPath = (pathname = '/', basePath = import.meta.env?.BASE_URL || '/', search) => {
+  return getThemeScopeForPath(pathname, basePath, search) === 'public' ? 'dark' : 'light';
 };
 
 export const getCurrentTheme = () => (

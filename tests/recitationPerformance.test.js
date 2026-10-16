@@ -157,7 +157,7 @@ test('external theme bootstrap preserves account, public and path-based themes w
   for (const [base, pathname, expected] of [['/', '/portal', 'light'], ['/n5b/', '/n5b/dashboard', 'light'], ['/', '/', 'light']]) {
     let theme;
     const document = { currentScript: { dataset: { base } }, documentElement: { classList: { add(value) { theme = value; } }, style: {} } };
-    vm.runInNewContext(source, { document, location: { pathname }, localStorage: { getItem: () => null } });
+    vm.runInNewContext(source, { URLSearchParams, document, location: { pathname }, localStorage: { getItem: () => null } });
     assert.equal(theme, expected);
   }
   const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');

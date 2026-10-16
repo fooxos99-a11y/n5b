@@ -11,7 +11,7 @@ const buttonVariants = cva(
 			variant: {
 				purchase: 'bg-gradient-to-l from-[#d09225] to-[#edbd57] text-white [&_svg]:text-white shadow-[0_8px_20px_rgba(208,146,37,0.25)] hover:from-[#dba238] hover:to-[#f0c66b] disabled:from-[#d09225]/50 disabled:to-[#edbd57]/50 disabled:opacity-100 disabled:shadow-none disabled:text-white',
 				gradient: 'bg-[linear-gradient(105deg,#08746b,#07a194)] text-white hover:brightness-105',
-				default: 'bg-primary !text-white shadow-[0_6px_16px_hsl(var(--primary)/.2)] hover:bg-primary-dark hover:!text-white hover:shadow-[0_8px_20px_hsl(var(--primary)/.27)]',
+				default: 'bg-primary !text-primary-foreground shadow-[0_6px_16px_hsl(var(--primary)/.2)] hover:bg-primary-dark hover:!text-primary-foreground hover:shadow-[0_8px_20px_hsl(var(--primary)/.27)]',
 				destructive:
           'bg-destructive text-destructive-foreground shadow-[0_6px_16px_hsl(var(--destructive)/0.16)] hover:bg-destructive/90',
 				outline:
