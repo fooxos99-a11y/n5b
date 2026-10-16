@@ -78,6 +78,8 @@ for (const [engineName, engine] of [['chromium', chromium], ['webkit', webkit]])
       await group.waitFor();
       assert.equal(state.requests.length, 0, 'Opening settings must never save');
       await openDays();
+      assert.equal(await page.locator('.select-content-solid').evaluate((node) => globalThis.getComputedStyle(node).backgroundColor), 'rgb(255, 255, 255)', 'The day menu must not reveal the fields behind it');
+      assert.equal(await page.locator('.dashboard-header').evaluate((node) => globalThis.getComputedStyle(node).backgroundColor), 'rgb(255, 255, 255)', 'The native status area uses an opaque header surface');
       await day('الأحد').tap();
       assert.equal(await day('الأحد').getAttribute('aria-pressed'), 'false');
       await page.waitForFunction((node) => globalThis.getComputedStyle(node).backgroundColor === 'rgba(0, 0, 0, 0)', await day('الأحد').elementHandle());
@@ -220,6 +222,9 @@ for (const [engineName, engine] of [['chromium', chromium], ['webkit', webkit]])
             await page.getByRole('combobox', { name: /^تحضير/ }).click();
             await page.getByRole('option', { name: 'حاضر', exact: true }).click();
             await page.getByRole('button', { name: 'حفظ', exact: true }).waitFor();
+            await page.waitForFunction((node) => !node.disabled, await page.getByRole('combobox', { name: /^تحضير/ }).elementHandle());
+            const attendanceActions = await page.evaluate(() => globalThis.capacitorPolishFixture.store.getActions('default:supervisor:990'));
+            assert.equal(attendanceActions.filter((action) => action.actionType === 'student_attendance' && action.status === 'failed').length, 1);
             await page.reload();
             await page.getByRole('button', { name: 'حفظ', exact: true }).waitFor();
           }

@@ -39,7 +39,8 @@ html.native-app .dashboard-header {
   padding-top: var(--app-safe-top);
   padding-left: max(0.75rem, var(--app-safe-left));
   padding-right: max(0.75rem, var(--app-safe-right));
-  background-color: hsl(var(--card));
+  /* The light theme intentionally makes cards translucent; system edges must be opaque. */
+  background-color: hsl(var(--card)) !important;
 }
 
 html.native-app .dashboard-main {
