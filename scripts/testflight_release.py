@@ -44,7 +44,7 @@ def prepare_build(app_id, version, number, group_id, request, sleep=time.sleep, 
     if not group or group["attributes"].get("isInternalGroup") is not True:
         raise RuntimeError("The configured existing internal group does not belong to this app")
     membership = query("/betaGroups", **{
-        "filter[app]": app_id, "filter[builds]": build["id"],
+        "filter[builds]": build["id"],
         "filter[isInternalGroup]": "true", "limit": 200,
     })
     if not any(item["id"] == group_id for item in request(membership).get("data", [])):

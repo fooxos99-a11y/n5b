@@ -32,7 +32,11 @@ class TestFlightReleaseTests(unittest.TestCase):
             return None
         if path.endswith("/buildBetaDetail"):
             return {"data": {"attributes": {"internalBuildState": "IN_BETA_TESTING"}}}
-        self.assertEqual(filters["filter[app]"], ["original-app"])
+        if "filter[builds]" in filters:
+            self.assertNotIn("filter[app]", filters, "Apple permits only one relationship filter")
+            self.assertEqual(filters["filter[builds]"], ["build-23"])
+        else:
+            self.assertEqual(filters["filter[app]"], ["original-app"])
         self.assertEqual(filters["filter[isInternalGroup]"], ["true"])
         return {"data": [self.group] if "filter[builds]" not in filters or self.assigned else []}
 
