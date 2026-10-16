@@ -34,7 +34,9 @@ test('router dependency and PWA cache contract stay consistent', async () => {
   assert.equal(packageJson.dependencies['react-router-dom'], undefined);
   assert.equal(packageJson.dependencies.wouter, '^3.10.0');
   assert.match(mainText, /const pwaVersion = `\$\{initialSite\.key\}-pwa-v38`/);
-  assert.match(serviceWorkerText, /const CACHE_VERSION = 44/);
+  assert.match(serviceWorkerText, /const CACHE_VERSION = 45/);
+  assert.match(serviceWorkerText, /withBase\('startup-bootstrap.js'\)/);
+  assert.match(serviceWorkerText, /BRAND.whiteLogo/);
   assert.match(serviceWorkerText, /\.slice\(0, 3\)/);
   assert.match(serviceWorkerText, /withBase\('index\.html'\)/);
   assert.doesNotMatch(mainText, /addEventListener\('controllerchange'/);
@@ -150,7 +152,7 @@ test('settings use touch-friendly nested sidebar navigation instead of in-page d
   assert.match(sidebar, /ChevronDown/);
 });
 
-test('native launch screens use a loading indicator without flashing the brand logo', async () => {
+test('native launch screens match the animation background without a separate loading indicator', async () => {
   const splashDirectory = new URL('../ios/App/App/Assets.xcassets/Splash.imageset/', import.meta.url);
   const [contentsText, files, storyboard, androidTheme, androidLoader, capacitorConfig] = await Promise.all([
     readFile(new URL('Contents.json', splashDirectory), 'utf8'),
@@ -166,10 +168,12 @@ test('native launch screens use a loading indicator without flashing the brand l
 
   assert.deepEqual(imageFiles, referencedImages);
   assert.doesNotMatch(imageFiles.join('\n'), /splash-2732|capacitor/i);
-  assert.match(storyboard, /activityIndicatorView[\s\S]*animating="YES"/);
+  assert.doesNotMatch(storyboard, /activityIndicatorView/);
   assert.doesNotMatch(storyboard, /image="Splash"/);
   assert.match(androidTheme, /windowSplashScreenAnimatedIcon">@drawable\/splash_loading/);
-  assert.match(androidLoader, /strokeColor="#046E65"/);
+  assert.doesNotMatch(androidLoader, /strokeColor/);
+  assert.match(androidLoader, /fillColor="@android:color\/transparent"/);
+  assert.match(androidTheme, /windowSplashScreenBackground">#04433D/);
   assert.match(capacitorConfig, /"launchShowDuration": 0/);
   assert.match(capacitorConfig, /"showSpinner": false/);
 });
@@ -519,14 +523,15 @@ test('loading surfaces share one indicator and startup does not wait for every f
   assert.match(mainText, /requestIdleCallback\(runServiceWorkerSetup/);
   assert.doesNotMatch(mainText, /hardBootTimeout|loadPublicSettingsCached|preloadSiteBrandAssets/);
   assert.match(mainText, /document\.getElementById\('app-root'\)/);
-  assert.match(mainText, /new MutationObserver\(revealWhenScreenIsReady\)/);
-  assert.match(mainText, /querySelector\('\[data-loading-indicator="screen"\]'\)/);
+  assert.doesNotMatch(mainText, /revealTimeout|revealWhenScreenIsReady/);
   assert.match(brandPreloaderText, /image\.fetchPriority = 'high'/);
   assert.match(serviceWorkerText, /isCacheFirstAsset/);
   assert.match(serviceWorkerText, /branding\/\$\{BRAND\.directory\}\//);
-  assert.equal((indexCssText.match(/font-display: swap/g) || []).length, 2);
+  assert.match(indexCssText, /@import "\.\/styles\/ui-fonts.css"/);
+  const fonts = await readFile(new URL('../src/styles/ui-fonts.css', import.meta.url), 'utf8');
+  assert.equal((fonts.match(/font-display: swap/g) || []).length, 2);
   assert.equal((indexHtmlText.match(/rel="preload" href="%BASE_URL%fonts\/cairo\//g) || []).length, 1);
-  assert.match(indexHtmlText, /<div id="app-root"><\/div>/);
+  assert.match(indexHtmlText, /<div id="app-root" inert aria-hidden="true"><\/div>/);
   assert.doesNotMatch(indexHtmlText, /boot-loader__text|>جاري التحميل</);
 });
 

@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
+import process from 'node:process';
+import { URL } from 'node:url';
+const base = process.env.PORTAL_TEST_URL || 'http://127.0.0.1:3017';
+assert.ok(['localhost', '127.0.0.1'].includes(new URL(base).hostname));
 const browser = await chromium.launch({ headless: true });
 try {
  for (const width of [360, 768, 1440]) {
   const page = await browser.newPage({ viewport: { width, height: 900 } });
-  await page.goto('http://127.0.0.1:3017/tests/fixtures/loading-continuity.html');
+  await page.goto(`${base}/tests/fixtures/loading-continuity.html`);
   const spinner = page.locator('[data-loading-indicator="screen"] .loading-logo');
   await spinner.waitFor();
   // Headless browsers use overlay scrollbars; reserve the classic scrollbar

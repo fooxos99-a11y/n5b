@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { resolveAssetUrl } from '@/lib/assetUrl';
 import { useStartup } from '@/components/startup/StartupProvider';
-import { StartupSplash } from '@/components/startup/StartupVisual';
 import AccountLoginForm from './AccountLoginForm';
 import { getStartupTiming } from '@/lib/startupTiming';
 import LoadingIndicator from '@/components/ui/loading-indicator';
@@ -10,12 +9,11 @@ import './account-login.css';
 
 export default function AccountLoginPage({ site, onLogin, loading }) {
   const startup = useStartup();
-  const finishStartup = startup?.finish;
   const [timing] = useState(() => {
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    return getStartupTiming({ active: startup?.active, reducedMotion: reduced });
+    return getStartupTiming({ active: startup?.active, startedAt: startup?.startedAt, now: performance.now(), reducedMotion: reduced });
   });
-  const [entering, setEntering] = useState(timing.duration > 0);
+  const entering = Boolean(startup?.active);
   const contentRef = useRef(null);
   useEffect(() => {
     const root = document.documentElement;
@@ -26,13 +24,8 @@ export default function AccountLoginPage({ site, onLogin, loading }) {
       root.classList.remove('account-login-active');
     };
   }, []);
-  useEffect(() => {
-    const timer = window.setTimeout(() => { setEntering(false); finishStartup?.(); }, timing.duration);
-    return () => window.clearTimeout(timer);
-  }, [finishStartup, timing.duration]);
   return <>{loading && <LoadingIndicator mode="screen" delayMs={0} />}
   <main hidden={loading} className={`${loading ? '!hidden' : ''} account-login-page ${entering ? 'account-login-enter' : ''}`} style={{ '--startup-delay': `-${timing.elapsed}ms` }} dir="rtl">
-    {entering && <StartupSplash site={site} />}
     <section ref={contentRef} className="account-login-content" aria-labelledby="login-title" aria-busy={entering}>
       <header className="account-login-header">
         {site.logo && <img src={resolveAssetUrl(site.logo)} alt={site.name} className="account-login-logo" />}

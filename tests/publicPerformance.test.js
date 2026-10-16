@@ -13,7 +13,7 @@ test('initial public load defers non-critical work and uses compact responsive a
     read('../src/components/public/nukhab/NukhabPublicHero.jsx'),
     read('../public/sw.js'),
     read('../index.html'),
-    read('../src/index.css'),
+    read('../src/styles/ui-fonts.css'),
   ]);
 
   assert.match(app, /lazy\(\(\) => import\('@\/components\/native\/OfflineRecitationSyncBridge'\)\)/);

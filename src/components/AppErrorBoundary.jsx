@@ -13,7 +13,8 @@ class AppErrorBoundary extends React.Component {
   }
 
   componentDidCatch(error) {
-    document.documentElement.classList.add('app-ready');
+    window.nukhabStartup?.dismiss();
+    if (!window.nukhabStartup) document.documentElement.classList.add('app-ready');
     recoverFromStaleAppAsset(error);
   }
 

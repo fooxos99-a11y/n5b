@@ -111,22 +111,6 @@ const mountApp = () => {
   const appRoot = document.getElementById('app-root');
   if (!appRoot || appRoot.dataset.mounted === 'true') return;
   appRoot.dataset.mounted = 'true';
-  let observer;
-  const revealTimeout = window.setTimeout(() => {
-    document.documentElement.classList.add('app-ready');
-    observer?.disconnect();
-  }, 6000);
-
-  const revealWhenScreenIsReady = () => {
-    if (!appRoot.firstElementChild) return;
-    if (appRoot.querySelector('[data-loading-indicator="screen"]')) return;
-    window.requestAnimationFrame(() => document.documentElement.classList.add('app-ready'));
-    window.clearTimeout(revealTimeout);
-    observer?.disconnect();
-  };
-
-  observer = new MutationObserver(revealWhenScreenIsReady);
-  observer.observe(appRoot, { childList: true, subtree: true });
 
   ReactDOM.createRoot(appRoot).render(
     <BrowserRouter
@@ -141,7 +125,6 @@ const mountApp = () => {
         </SiteProvider>
       </BrowserRouter>
   );
-  window.requestAnimationFrame(revealWhenScreenIsReady);
 };
 
 mountApp();

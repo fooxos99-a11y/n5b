@@ -2,7 +2,7 @@ const BRAND_KEY = new URL(self.location.href).searchParams.get('brand') === 'rab
 const BRAND = BRAND_KEY === 'rabwa'
   ? { name: 'ربوة', directory: 'rabwa', logo: 'rabwa-logo-color.svg', whiteLogo: 'rabwa-logo-white.svg', iconVersion: 1 }
   : { name: 'نخب', directory: 'nukhab', logo: 'nukhab-color-640.webp', whiteLogo: 'nukhab-white-640.webp', iconVersion: 29 };
-const CACHE_VERSION = 44;
+const CACHE_VERSION = 45;
 const CACHE_PREFIX = `${BRAND_KEY}-pwa-v`;
 const CACHE_SUFFIX = `-${self.location.host}`;
 const CACHE_NAME = `${CACHE_PREFIX}${CACHE_VERSION}${CACHE_SUFFIX}`;
@@ -15,8 +15,10 @@ const withBase = (path) => `${BASE_PATH}${path}`.replace(/\/{2,}/g, '/');
 const CORE_ASSETS = [
   withBase('index.html'),
   withBase('theme-bootstrap.js'),
+  withBase('startup-bootstrap.js'),
   withBase('manifest.webmanifest'),
   withBase(`branding/${BRAND.directory}/${BRAND.logo}`),
+  withBase(`branding/${BRAND.directory}/${BRAND.whiteLogo}`),
   withBase(`branding/${BRAND.directory}/icon-192.png?v=${BRAND.iconVersion}`),
   withBase('fonts/cairo/cairo-arabic.woff2'),
 ];

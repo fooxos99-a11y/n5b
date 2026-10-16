@@ -40,7 +40,7 @@ jobs:
           case "${{ inputs.app }}" in
             nukhab)
               echo "APP_IDENTIFIER=sa.nukhab.app" >> "$GITHUB_ENV"
-              echo "APP_VERSION=1.0.17" >> "$GITHUB_ENV"
+              echo "APP_VERSION=1.0.19" >> "$GITHUB_ENV"
               echo "APP_NAME=نخب" >> "$GITHUB_ENV"
               echo "APP_COPYRIGHT=2026 نخب" >> "$GITHUB_ENV"
               echo "APP_DESCRIPTION_AR=برنامج نخب التعليمي" >> "$GITHUB_ENV"
@@ -98,8 +98,8 @@ jobs:
           REOPEN_FOR_METADATA: "true"
           CREATE_VERSION_IF_MISSING: "true"
           TARGET_BUILD_NUMBER: ${{ inputs.build_number }}
-          APP_RELEASE_NOTES_AR: "تحسين التمرير وتسجيل الخروج وزر الشراء، وتحديث احتساب أخطاء المراجعة."
-          APP_RELEASE_NOTES_EN: "Improved scrolling, sign-out, purchase button appearance, and review mistake scoring."
+          APP_RELEASE_NOTES_AR: "توحيد بداية التشغيل وتحسين الانتقال إلى الحساب ومعالجة تعثر التحميل وإعادة المحاولة."
+          APP_RELEASE_NOTES_EN: "Unified app startup, smoother account entry, and improved loading recovery and retry."
         run: |
           python3 -m venv "$RUNNER_TEMP/app-store-status-venv"
           "$RUNNER_TEMP/app-store-status-venv/bin/pip" install --quiet PyJWT cryptography

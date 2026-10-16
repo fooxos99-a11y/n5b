@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-test('boot and subsequent loading share one opacity-only logo', async () => {
+test('startup owns one early animation while later actions retain the shared loading logo', async () => {
   const [html, react, style, native] = await Promise.all([
     readFile(new URL('../index.html', import.meta.url), 'utf8'),
     readFile(new URL('../src/components/ui/loading-spinner.jsx', import.meta.url), 'utf8'),
@@ -10,7 +10,10 @@ test('boot and subsequent loading share one opacity-only logo', async () => {
     readFile(new URL('../capacitor.config.json', import.meta.url), 'utf8'),
   ]);
   assert.match(html, /rel="stylesheet" href="\/src\/styles\/loading-spinner.css"/);
-  assert.match(html, /class="loading-logo loading-spinner--screen"/);
+  assert.match(html, /id="startup-splash" class="boot-loader startup-splash"/);
+  assert.match(html, /startup-brand-logo/);
+  assert.doesNotMatch(html, /class="loading-logo loading-spinner--screen"/);
+  assert.ok(html.indexOf('startup-bootstrap.js') < html.indexOf('/src/main.jsx'));
   assert.doesNotMatch(html, /startup-hexagon|startup-lines/);
   assert.doesNotMatch(html, /boot-loader__panel|boot-panel|backdrop-filter|box-shadow|boot-primary/);
   assert.match(react, /lg: 'loading-spinner--screen'/);

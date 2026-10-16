@@ -1,4 +1,4 @@
-export function getStartupTiming({ active, reducedMotion }) {
-  // Play the full visible animation even when the initial bundle loads slowly.
-  return { elapsed: 0, duration: !active || reducedMotion ? 0 : 2000 };
+export function getStartupTiming({ active, reducedMotion, startedAt = 0, now = startedAt }) {
+  const elapsed = Math.min(2000, Math.max(0, now - startedAt));
+  return { elapsed, duration: !active || reducedMotion ? 0 : 2000 - elapsed };
 }
