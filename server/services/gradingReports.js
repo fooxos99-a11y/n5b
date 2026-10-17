@@ -5,6 +5,7 @@ import { facesReadStatistics } from '../../shared/grading-engine.js';
 import { loadExpectedGrades, includeUnrecordedGrades } from './expectedGrades.js';
 import { studyDateSql, studyWeekSql } from './seasonalHolidays.js';
 import { sessionAttendanceCountsSql } from './sessionAttendanceSql.js';
+import { planScheduleDates } from './planScheduleDates.js';
 
 const SESSION_COMPONENTS = new Set(['track', 'weekly']);
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
@@ -218,7 +219,7 @@ export async function buildGradingOverview(reportDb, { from, to, quranFaces = {}
     },
     // Self reading is expected on the reading days (every day by default), attendance only on work days.
     reading: {
-      expectedDays: countWeekDays(from, to, policy.weeklyProgram.readingDays),
+      expectedDays: (await planScheduleDates(reportDb, from, to, policy.weeklyProgram.readingDays, 'readingDays')).length,
       expectedByStudent: Object.fromEntries(expected.map(row => [String(row.id), row.readingDays])),
       days: readingStudentRows.reduce((total, row) => total + number(row.days), 0),
       hizbs: readingStudentRows.reduce((total, row) => total + number(row.hizbs), 0),
@@ -232,17 +233,6 @@ export async function buildGradingOverview(reportDb, { from, to, quranFaces = {}
   };
 }
 
-/** Number of dates from `from` to `to` (inclusive) falling on the given week days (0 = Sunday). */
-function countWeekDays(from, to, weekDays = []) {
-  const days = new Set((weekDays || []).map(Number));
-  let count = 0;
-  const end = Date.parse(`${to}T00:00:00Z`);
-  for (let timestamp = Date.parse(`${from}T00:00:00Z`); timestamp <= end; timestamp += 86400000) {
-    const date = new Date(timestamp);
-    if (days.has(date.getUTCDay())) count += 1;
-  }
-  return count;
-}
 
 const emptySegments = () => ({ tested: 0, total: 0, mistakes: 0, warnings: 0, hesitations: 0, grade: 0, max: 0, compensated: 0 });
 

@@ -1,6 +1,6 @@
 import { loadSeasonalHolidays } from './seasonalHolidays.js';
 import { isSeasonalHoliday } from '../../shared/seasonal-holidays.js';
-import { parseGradingPolicy } from '../../shared/grading-policy.js';
+import { gradingPolicyForDate, parseGradingPolicy } from '../../shared/grading-policy.js';
 import { addDays, weekStartOf } from './grading.js';
 
 /** Historic weeks keep their recorded policy; unsnapshotted weeks use current work days. */
@@ -14,10 +14,11 @@ export async function planScheduleDates(connection, from, to, fallbackDays, comp
     FROM student_quran_tasks WHERE student_id=? AND task_type='memorization' AND passing_rehifz_id IS NOT NULL
       AND task_date BETWEEN ? AND ?`, [studentId, from, to]) : [[]];
   const excludedDates = new Set(rehifzDays.map(row => row.date));
-  const daysByWeek = new Map(rows.map(row => [row.weekStart, parseGradingPolicy(row.policy).weeklyProgram[component]]));
+  const policiesByWeek = new Map(rows.map(row => [row.weekStart, parseGradingPolicy(row.policy)]));
   const dates = [];
   for (let date = from; date <= to; date = addDays(date, 1)) {
-    const days = daysByWeek.get(weekStartOf(date)) || fallbackDays;
+    const policy = policiesByWeek.get(weekStartOf(date));
+    const days = policy ? gradingPolicyForDate(policy, date).weeklyProgram[component] : fallbackDays;
     if (!excludedDates.has(date) && !isSeasonalHoliday(date, holidays) && days.includes(new Date(`${date}T00:00:00Z`).getUTCDay())) dates.push(date);
   }
   return dates;

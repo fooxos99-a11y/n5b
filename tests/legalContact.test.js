@@ -18,7 +18,7 @@ test('legal pages hide the site name and carry no contact channel', async () => 
   assert.doesNotMatch(privacy, /wa\.me|whatsappUrl/);
   assert.match(privacy, /privacyContent.sections.map/);
   const privacyText = JSON.stringify(privacyContent);
-  assert.match(privacyText, /من قائمة حساب الطالب داخل التطبيق أو رابط «طلب حذف الحساب» في تذييل الصفحة الرئيسية/);
+  assert.match(privacyText, /بعد تسجيل الدخول، من «المساعدة والخصوصية» داخل قائمة حساب الطالب أو الشريط الجانبي، ثم اختيار «طلب حذف الحساب»/);
   assert.doesNotMatch(privacyText, /فتح أيقونة الحساب وتقديم طلب حذف|wa\.me|whatsappUrl|تواصل معنا/);
   assert.doesNotMatch(privacyText, /عزل بيانات المجمعات|حسابات القاصرين/);
   assert.doesNotMatch(privacy, /to="\/support"|>الدعم<\/Link>/);

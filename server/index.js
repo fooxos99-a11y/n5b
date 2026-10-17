@@ -80,7 +80,7 @@ import { loadReviewCompensationState, isReviewAmountComplete } from './services/
 import { pickReviewPagesByHizbs, splitPageRangesByHizb } from '../shared/quran-hizbs.js';
 import { DEFAULT_PLAN_READING_FACES, MAX_PLAN_READING_FACES, PLAN_SAVE_MODES } from '../shared/quran-plan-options.js';
 import { createGradingRouter } from './routes/gradingRoutes.js';
-import { GRADING_POLICY_SETTING_KEY, parseGradingPolicy, scheduleDaysFromGradingPolicy } from '../shared/grading-policy.js';
+import { GRADING_POLICY_SETTING_KEY, parseGradingPolicy, scheduleDaysFromGradingPolicy, workDateOverridesFromPolicies } from '../shared/grading-policy.js';
 import { canMarkRecitationFailed, RECITATION_FAILED_LABEL } from '../shared/recitation-fail.js';
 import { notifyTeacherPointAdjustment } from './services/teacherPointNotification.js';
 import { loadAdjacentQuranPosition, loadQuranPagePositions } from './services/quranTraversalIndex.js';
@@ -1599,18 +1599,19 @@ function addUtcDays(date, days) {
   return parsed.toISOString().slice(0, 10);
 }
 
-function getPreviousConfiguredSessionDate(date, days) {
+function getPreviousConfiguredSessionDate(date, days, settings = null) {
   const baseDate = isValidDateOnly(date) ? date : getSaudiDateTimeParts().date;
   const normalizedDays = [...new Set((Array.isArray(days) ? days : DEFAULT_RECITATION_SESSION_DAYS).map(Number))]
     .filter((day) => WEEK_DAYS.includes(day));
-  const sessionDays = normalizedDays.length ? normalizedDays : DEFAULT_RECITATION_SESSION_DAYS;
+  const sessionDays = settings?.defaultWorkDays || (normalizedDays.length ? normalizedDays : DEFAULT_RECITATION_SESSION_DAYS);
   let offset = 0;
-  while (!sessionDays.includes(getWeekDayFromDate(addUtcDays(baseDate, -offset))) && offset <= 7) offset += 1;
+  const scheduled = value => settings?.workDateOverrides?.[value] ?? sessionDays.includes(getWeekDayFromDate(value));
+  while (!scheduled(addUtcDays(baseDate, -offset)) && offset < 14) offset += 1;
   return addUtcDays(baseDate, -offset);
 }
 
 function getAttendanceSessionDate(date, settings = null) {
-  return getPreviousConfiguredSessionDate(date, settings?.recitationSessionDays || DEFAULT_RECITATION_SESSION_DAYS);
+  return getPreviousConfiguredSessionDate(date, settings?.recitationSessionDays || DEFAULT_RECITATION_SESSION_DAYS, settings);
 }
 
 function isAttendanceDay(date, settings) {
@@ -1627,6 +1628,8 @@ function isValidDateOnly(value) {
 }
 
 function isWeeklyHoliday(date, settings) {
+  if (Object.hasOwn(settings.workDateOverrides || {}, date)) return !settings.workDateOverrides[date];
+  if (settings.defaultWorkDays) return !settings.defaultWorkDays.includes(getWeekDayFromDate(date));
   const days = Array.isArray(settings.weeklyHolidayDays) ? settings.weeklyHolidayDays.map(Number) : DEFAULT_WEEKLY_HOLIDAY_DAYS;
   return days.includes(getWeekDayFromDate(date));
 }
@@ -1643,18 +1646,15 @@ function getRecitationSessionDays(settings) {
 
 function isRecitationSessionDay(date, settings) {
   if (isStudentStudyHoliday(date, settings)) return false;
-  return getRecitationSessionDays(settings).includes(getWeekDayFromDate(date));
+  return settings.workDateOverrides?.[date] ?? (settings.defaultWorkDays || getRecitationSessionDays(settings)).includes(getWeekDayFromDate(date));
 }
 
 function getPreviousRecitationSessionDate(sessionDate, settings) {
-  const days = getRecitationSessionDays(settings);
-  let offset = 1;
-  while (!days.includes(getWeekDayFromDate(addUtcDays(sessionDate, -offset))) && offset <= 7) offset += 1;
-  return addUtcDays(sessionDate, -offset);
+  return getPreviousConfiguredSessionDate(addUtcDays(sessionDate, -1), getRecitationSessionDays(settings), settings);
 }
 
 function getEvaluationSessionDate(date, settings) {
-  return getPreviousConfiguredSessionDate(date, getRecitationSessionDays(settings));
+  return getPreviousConfiguredSessionDate(date, getRecitationSessionDays(settings), settings);
 }
 
 function getRecitationEvaluationWindow(requestedDate, settings, today = getSaudiDateTimeParts().date) {
@@ -1706,13 +1706,16 @@ function getWeekDaysBetween(startDay, endDay) {
   return days;
 }
 
-function getPlanReviewDays(plan, settings) {
+function getPlanReviewDays(plan, settings, date = null) {
+  if (date) return getWeekDaysBetween(plan.reviewWeekStartDay, plan.reviewWeekEndDay)
+    .filter(day => settings.holidayTaskTypes?.includes('review') || !isWeeklyHoliday(addUtcDays(weekStartOf(date), day), settings));
   const reviewAllowedOnHoliday = Array.isArray(settings.holidayTaskTypes) && settings.holidayTaskTypes.includes('review');
   const _resolveHolidayDays = () => {
     if (reviewAllowedOnHoliday) {
       return [];
     }
-    return (Array.isArray(settings.weeklyHolidayDays) ? settings.weeklyHolidayDays : DEFAULT_WEEKLY_HOLIDAY_DAYS).map(Number);
+    return settings.defaultWorkDays ? WEEK_DAYS.filter(day => !settings.defaultWorkDays.includes(day))
+      : (Array.isArray(settings.weeklyHolidayDays) ? settings.weeklyHolidayDays : DEFAULT_WEEKLY_HOLIDAY_DAYS).map(Number);
   };
   const holidayDays = new Set(_resolveHolidayDays());
   return getWeekDaysBetween(plan.reviewWeekStartDay, plan.reviewWeekEndDay)
@@ -2720,6 +2723,7 @@ async function getFallbackPageBoundary(cursorPage, start, startBoundary, connect
 }
 
 function getMemorizationScheduleDays(settings = {}) {
+  if (settings.defaultWorkDays && !settings.holidayTaskTypes?.includes('memorization')) return settings.defaultWorkDays;
   const holidays = new Set((Array.isArray(settings.weeklyHolidayDays) ? settings.weeklyHolidayDays : DEFAULT_WEEKLY_HOLIDAY_DAYS).map(Number));
   const allowedOnHoliday = Array.isArray(settings.holidayTaskTypes) && settings.holidayTaskTypes.includes('memorization');
   return WEEK_DAYS.filter((day) => allowedOnHoliday || !holidays.has(day));
@@ -3536,7 +3540,7 @@ async function ensureStudentPlanTasks(connection, plan, date, settings) {
   )))];
   const exactLinkPageSet = new Set(exactLinkPages);
   const revisionPages = buildRevisionPageSets(exactLinkPages, availablePages, exactLinkPageSet, direction);
-  const reviewDays = getPlanReviewDays(plan, settings);
+  const reviewDays = getPlanReviewDays(plan, settings, date);
   const splitReview = Boolean(Number(plan.reviewSplitWeekly || 0));
   const canReviewToday = !splitReview || reviewDays.includes(getWeekDayFromDate(date));
   const reviewEnabledToday = canReviewToday && canCreateQuranTaskOnDate(settings, date, 'review');
@@ -3580,7 +3584,7 @@ async function getRevisionCompensationDueDates(connection, plan, date, settings,
   if (!first?.firstDate || fromDate > endDate) return [];
   const scheduleDates = new Set(await planScheduleDates(connection, fromDate, endDate, getStoredPlanScheduleDays(plan, settings), 'workDays', plan.studentId));
   const reviewDays = taskType === 'review' && Number(plan.reviewSplitWeekly || 0)
-    ? new Set(getPlanReviewDays(plan, settings))
+    ? new Set(getWeekDaysBetween(plan.reviewWeekStartDay, plan.reviewWeekEndDay))
     : null;
   const dueDates = new Set();
   for (let day = fromDate; day <= endDate; day = addUtcDays(day, 1)) {
@@ -3987,7 +3991,7 @@ async function previewStudentPlanDay(connection, plan, date, settings, { rebuild
       { page: range.endPage, surah: range.endSurah, ayah: range.endAyah }, range.faces);
   }
   const split = Boolean(Number(plan.reviewSplitWeekly || 0));
-  const reviewDays = getPlanReviewDays(plan, settings);
+  const reviewDays = getPlanReviewDays(plan, settings, date);
   await appendPreviewReviewRanges({ settings, date, split, reviewDays, connection, memorized, linkPages, plan, addRange });
   const preservedTypes = new Set(saved.filter((row) => !(rebuildReview && row.taskType === 'review') && (row.studentStatus === 'done'
     || row.teacherCompleted != null || row.executedAt || row.evaluatedAt || row.actualToPage || Number(row.hasAttempt)))
@@ -6066,11 +6070,14 @@ async function loadSettings(queryExecutor = db()) {
   const gradingPolicyRow = rows.find((row) => row.setting_key === GRADING_POLICY_SETTING_KEY);
   const [[weekPolicy]] = await queryExecutor.query('SELECT policy_json AS policy FROM grading_week_policies WHERE week_start = ?', [weekStartOf(getSaudiDateTimeParts().date)]);
   const scheduleDays = scheduleDaysFromGradingPolicy(parseGradingPolicy(weekPolicy?.policy || gradingPolicyRow?.setting_value));
+  const [weekPolicies] = await queryExecutor.query("SELECT DATE_FORMAT(week_start, '%Y-%m-%d') AS weekStart, policy_json AS policy FROM grading_week_policies");
   const settings = enforcePointsFeatureDependencies(
     applyPlatformPolicies({ ...normalizeSettings(rows), ...scheduleDays }, policies),
   );
   return {
     ...settings,
+    workDateOverrides: workDateOverridesFromPolicies(weekPolicies),
+    defaultWorkDays: parseGradingPolicy(gradingPolicyRow?.setting_value).weeklyProgram.workDays,
     platformPolicies: policies,
     studentPlanPauses: await loadIndividualStudentPlanPauses(queryExecutor),
   };
@@ -8796,7 +8803,7 @@ app.get('/api/students/:id/quran-today', async (req, res, next) => {
     await markExpiredPendingQuranTasks(connection, date);
     await ensureStudentPlanTasks(connection, plan, date, settings);
     await ensureRepeatTasksForMemorizationDate(connection, plan, date);
-    const [rows] = await connection.query(
+    const [storedRows] = await connection.query(
       `
       SELECT
         t.id,
@@ -8850,6 +8857,8 @@ app.get('/api/students/:id/quran-today', async (req, res, next) => {
       `,
       [studentId, date, plan.id]
     );
+    const rows = storedRows.filter(row => row.teacherCompleted != null || row.studentStatus === 'done' || row.executionState === 'partial'
+      || canCreateQuranTaskOnDate(settings, date, row.taskType === 'repeat' ? 'memorization' : row.taskType));
     const memorizationRow = rows.find((row) => row.taskType === 'memorization');
     const memorizationContext = memorizationRow && !memorizationRow.passingRehifzId
       ? await getPlanProgressContext(connection, plan, date, settings, {
@@ -10275,8 +10284,11 @@ async function buildSupervisorTeacherModeTasks(
   const dates = fromDate <= toDate ? getDatesInRange(fromDate, toDate) : [];
   for (const student of students) {
     const plan = await getActivePlanForStudent(connection, student.id);
-    if (!plan) continue;
-    if (effectiveStudentPlanPaused(withStudentPlanPause(settings, student.id))) continue;
+    if (!plan) { student.taskUnavailableReason = 'لا توجد خطة قرآن نشطة للطالب'; continue; }
+    const studentSettings = withStudentPlanPause(settings, student.id);
+    if (effectiveStudentPlanPaused(studentSettings)) { student.taskUnavailableReason = 'خطة الطالب متوقفة مؤقتًا'; continue; }
+    if ((plan.startDate || plan.createdDate) > toDate) student.taskUnavailableReason = 'لم يبدأ موعد خطة الطالب بعد';
+    else if (isStudentStudyHoliday(toDate, studentSettings)) student.taskUnavailableReason = 'اليوم إجازة للطالب';
     for (const date of dates) {
       await ensureStudentPlanTasks(connection, plan, date, settings);
       await ensureRepeatTasksForMemorizationDate(connection, plan, date);
@@ -10668,6 +10680,7 @@ app.get('/api/supervisors/:id/quran-evaluation', async (req, res, next) => {
           attendanceStatus: attendanceByStudent.get(Number(student.id)) || '',
           canSetAttendance: teacherAttendanceMode,
           hasCompensation: Boolean(student.hasCompensation),
+          taskUnavailableReason: student.taskUnavailableReason || '',
           recitationFinished: attemptedStudentIds.has(Number(student.id))
             && !activeTaskStudentIds.has(Number(student.id)),
         })),
@@ -16323,7 +16336,7 @@ if (!isValidDateOnly(requestedStartDate)) {
       const reviewDays = getPlanReviewDays({
         reviewWeekStartDay,
         reviewWeekEndDay,
-      }, planSettings);
+      }, planSettings, requestedStartDate);
       if (reviewDays.length === 0) {
         return res.status(422).json({ message: 'اختر أيام مراجعة لا تكون كلها ضمن الإجازة الأسبوعية.' });
       }

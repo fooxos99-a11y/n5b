@@ -11,8 +11,8 @@ const put = (path, body) => request(path, { method: 'PUT', body: JSON.stringify(
 /** API of the weekly grading model (policy and weekly sessions). */
 export const gradingApi = {
   getPolicy: () => request('/grading/policy'),
-  savePolicy: async (policy) => {
-    const result = await put('/grading/policy', { policy });
+  savePolicy: async (policy, { applyFrom, revision } = {}) => {
+    const result = await put('/grading/policy', { policy, applyFrom, revision });
     if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('nukhab-grading-policy-updated'));
     return result;
   },

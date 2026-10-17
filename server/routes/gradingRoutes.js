@@ -4,6 +4,7 @@ import { loadEligibleCompensationDays } from '../services/compensationEligibilit
 import { recordDayCompensation, approveCompensationExcuse, cancelDayCompensation } from '../services/dayCompensations.js';
 import { gradingPermissionForComponent, scopeSessionGrade } from '../../shared/dashboard-permissions.js';
 import express from 'express';
+import { loadGradingPolicyChange, saveGradingPolicyChange } from '../services/gradingPolicyChanges.js';
 import { loadSeasonalHolidays } from '../services/seasonalHolidays.js';
 import { isSeasonalHoliday } from '../../shared/seasonal-holidays.js';
 import { assertGradeDate } from '../services/gradeDateBoundary.js';
@@ -21,7 +22,6 @@ import {
   loadRecordedSessionDays,
   loadSessionDay,
   recordWeeklyComponent,
-  saveGradingPolicy,
   weekDates,
   weekStartOf,
 } from '../services/grading.js';
@@ -132,17 +132,17 @@ export function createGradingRouter({ db, today }) {
 
   router.get('/policy', requireStaff, async (_req, res, next) => {
     try {
-      const policy = await loadGradingPolicy(db());
-      res.json({ policy, maxima: gradingMaxima(policy) });
+      const { currentWeekPolicy: _currentWeek, ...result } = await loadGradingPolicyChange(db(), today());
+      res.json(result);
     } catch (error) { next(error); }
   });
 
   router.put('/policy', async (req, res, next) => {
     try {
       if (!await canManagePolicy(req)) return permissionDenied(res);
-      if (!req.body?.policy || typeof req.body.policy !== 'object') return invalid(res, 'بيانات إعدادات الدرجات غير صحيحة.');
-      const policy = await saveGradingPolicy(db(), req.body.policy);
-      return res.json({ policy, maxima: gradingMaxima(policy) });
+      if (!req.body?.policy || typeof req.body.policy !== 'object' || Array.isArray(req.body.policy)) return invalid(res, 'بيانات إعدادات الدرجات غير صحيحة.');
+      const { currentWeekPolicy: _currentWeek, ...result } = await saveGradingPolicyChange(db(), { ...req.body, today: today() });
+      return res.json(result);
     } catch (error) { return next(error); }
   });
 

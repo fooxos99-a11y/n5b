@@ -66,7 +66,7 @@ test('portal account and public rankings match the student experience with notif
   assert.match(terms, /<PublicInfoLayout title=\{termsContent.title\} showSiteName=\{false\}>/);
   assert.equal(termsContent.title, 'شروط الاستخدام');
   assert.match(terms, /termsContent.sections.map/);
-  assert.match(JSON.stringify(termsContent), /من قائمة حساب الطالب أو أسفل الصفحة الرئيسية/);
+  assert.match(JSON.stringify(termsContent), /بعد تسجيل الدخول، من «المساعدة والخصوصية» داخل قائمة حساب الطالب أو الشريط الجانبي/);
   assert.doesNotMatch(shell, /accountContent/);
   assert.match(sidebar, /section\.badge/);
   assert.doesNotMatch(sidebar, /إدارة المجمعات القرآنية/);

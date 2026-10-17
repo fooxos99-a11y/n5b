@@ -3,7 +3,7 @@ import { loadIndividualStudentPlanPauses } from './studentPlanPause.js';
 import { isStudentPlanPausedOn } from '../../shared/student-plan-pause.js';
 import { isSeasonalHoliday } from '../../shared/seasonal-holidays.js';
 import { getBusinessDate } from '../../shared/business-date.js';
-import { gradingMaxima, parseGradingPolicy } from '../../shared/grading-policy.js';
+import { gradingPolicyForDate, gradingMaxima, parseGradingPolicy } from '../../shared/grading-policy.js';
 import { addDays, weekStartOf } from './grading.js';
 
 /** All enrolled students contribute the possible grades, including unrecorded days/sessions. */
@@ -26,7 +26,7 @@ export async function loadExpectedGrades(connection, { from, to, policy, today =
       if (isSeasonalHoliday(date, holidays) || isStudentPlanPausedOn(date, individualPauses[student.id])) continue;
       const week = weekStartOf(date);
       const current = policies.get(week) || policy;
-      const program = current.weeklyProgram;
+      const program = gradingPolicyForDate(current, date).weeklyProgram;
       const day = new Date(`${date}T00:00:00Z`).getUTCDay();
       if (program.workDays.includes(day)) {
         result.programMax += program.attendance.present + program.memorizationDaily + program.linkDaily + program.reviewDaily;

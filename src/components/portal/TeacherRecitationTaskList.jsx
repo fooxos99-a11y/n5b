@@ -182,6 +182,7 @@ const TeacherRecitationTaskList = ({
         const _resolveTeacherRecitationTaskList = () => {
           if (student.readingOnly) return 'لا توجد جلسة تسميع اليوم';
           if (student.offlineSequenceBlocked) return 'بانتظار مزامنة التسميع السابق';
+          if (student.taskUnavailableReason && !student.tasks.length) return student.taskUnavailableReason;
           if (!attendanceAllowsActions) {
             if (['absent', 'excused'].includes(student.attendanceStatus)) return 'التسميع متاح للحاضر والمتأخر';
             return attendanceEditable ? 'حدد الحضور لبدء التسميع' : 'بانتظار تحضير الطالب';
@@ -284,6 +285,10 @@ const TeacherRecitationTaskList = ({
 
               {showAmounts && onRecite && hasRecitationTasks && canRecite && (
                 <TeacherRecitationPractice repeatControl={memorizationView?.repeatControl} listeningControl={memorizationView?.listeningControl} />
+              )}
+
+              {onRecite && canRecord && !hasRecitationTasks && (student.readingOnly || student.taskUnavailableReason) && (
+                <p className="text-xs leading-5 text-muted-foreground">{student.readingOnly ? 'لا توجد جلسة تسميع اليوم' : student.taskUnavailableReason}</p>
               )}
 
               {onRecite && !canRecord && (!canRecite || !hasRecitationTasks) && (

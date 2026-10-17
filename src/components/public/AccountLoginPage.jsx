@@ -2,7 +2,6 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { resolveAssetUrl } from '@/lib/assetUrl';
 import { useStartup } from '@/components/startup/StartupProvider';
 import AccountLoginForm from './AccountLoginForm';
-import PublicLegalFooter from './PublicLegalFooter';
 import { getStartupTiming } from '@/lib/startupTiming';
 import LoadingIndicator from '@/components/ui/loading-indicator';
 import { trackLoginViewport } from '@/lib/loginViewport';
@@ -41,7 +40,6 @@ export default function AccountLoginPage({ site, onLogin, loading }) {
       </header>
       <div className="account-login-fields" inert={entering ? '' : undefined} aria-hidden={entering || undefined}>
         <fieldset disabled={entering} className="m-0 min-w-0 border-0 p-0"><AccountLoginForm onLogin={onLogin} loading={loading} autoFocus={false} /></fieldset>
-        <PublicLegalFooter compact />
       </div>
     </section>
   </main></>;

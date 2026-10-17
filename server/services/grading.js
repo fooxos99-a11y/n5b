@@ -3,6 +3,7 @@ import { assertDailyGradeNotCompensated, activeTrackCompensation } from './compe
 import {
   GRADING_POLICY_SETTING_KEY,
   normalizeGradingPolicy,
+  gradingPolicyForDate,
   gradingPolicyErrors,
   parseGradingPolicy,
 } from '../../shared/grading-policy.js';
@@ -59,8 +60,8 @@ export function weekDates(weekStart) {
   return Array.from({ length: 7 }, (_, index) => addDays(weekStart, index));
 }
 
-export async function loadGradingPolicy(queryExecutor) {
-  const [[row]] = await queryExecutor.query('SELECT setting_value AS value FROM app_settings WHERE setting_key = ? LIMIT 1', [GRADING_POLICY_SETTING_KEY]);
+export async function loadGradingPolicy(queryExecutor, { lock = false } = {}) {
+  const [[row]] = await queryExecutor.query('SELECT setting_value AS value FROM app_settings WHERE setting_key = ? LIMIT 1' + (lock ? ' FOR UPDATE' : ''), [GRADING_POLICY_SETTING_KEY]);
   return parseGradingPolicy(row?.value);
 }
 
@@ -88,7 +89,7 @@ export async function loadSessionDay(queryExecutor, { studentId, weekStart, comp
 export async function saveGradingPolicy(queryExecutor, rawPolicy) {
   const errors = gradingPolicyErrors(rawPolicy);
   if (Object.keys(errors).length) throw Object.assign(new Error(Object.values(errors)[0]), { status: 422, statusCode: 422 });
-  const policy = normalizeGradingPolicy(rawPolicy);
+  const policy = normalizeGradingPolicy(rawPolicy, { includeDayPolicies: false });
   await queryExecutor.query(
     `INSERT INTO app_settings (setting_key, setting_value) VALUES (?, ?)
      ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)`,
@@ -119,10 +120,10 @@ async function readWeekPolicies(queryExecutor, weekStarts, currentPolicy) {
 }
 
 export async function loadGradingPolicyForDate(queryExecutor, date, { freeze = true } = {}) {
-  const current = await loadGradingPolicy(queryExecutor);
+  const current = await loadGradingPolicy(queryExecutor, { lock: freeze });
   const weekStart = weekStartOf(date);
   if (freeze) await freezeWeekPolicy(queryExecutor, weekStart, current);
-  return (await readWeekPolicies(queryExecutor, [weekStart], current)).get(weekStart);
+  return gradingPolicyForDate((await readWeekPolicies(queryExecutor, [weekStart], current)).get(weekStart), date);
 }
 
 const actorOf = (actor = {}) => [actor.role || null, Number(actor.id) || null];
@@ -198,26 +199,32 @@ export async function deleteDailyGrade(queryExecutor, { studentId, date, compone
 }
 
 export async function recordAttendanceGrade(queryExecutor, { studentId, date, status, actor }) {
-  const policy = await loadGradingPolicyForDate(queryExecutor, date);
-  if (!status) {
-    await deleteDailyGrade(queryExecutor, { studentId, date, component: 'attendance', actor });
-    return null;
-  }
-  const result = evaluateAttendance(policy, status);
-  await upsertDailyGrade(queryExecutor, { studentId, date, result, policy, actor });
-  return result;
+  return withGradeTransaction(queryExecutor, async connection => {
+    await connection.query('SELECT id FROM students WHERE id = ? FOR UPDATE', [studentId]);
+    const policy = await loadGradingPolicyForDate(connection, date);
+    if (!status) {
+      await deleteDailyGrade(connection, { studentId, date, component: 'attendance', actor });
+      return null;
+    }
+    const result = evaluateAttendance(policy, status);
+    await upsertDailyGrade(connection, { studentId, date, result, policy, actor });
+    return result;
+  });
 }
 
 export async function recordReadingGrade(queryExecutor, { studentId, date, completed, requiredFaces, expectedFaces, expectedHizbs, readingRange, actor }) {
-  const policy = await loadGradingPolicyForDate(queryExecutor, date);
-  const result = evaluateReading(policy, { completed, requiredFaces, expectedFaces, requiredHizbs: readingRange?.hizbCount, expectedHizbs });
-  if (readingRange) {
-    const { fromHizb, toHizb, hizbCount, range } = readingRange;
-    Object.assign(result, { fromHizb, toHizb, hizbCount, range,
-      ...(readingRange.ranges ? { ranges: readingRange.ranges, readingCursor: readingRange.cursor } : {}) });
-  }
-  await upsertDailyGrade(queryExecutor, { studentId, date, result, policy, actor });
-  return result;
+  return withGradeTransaction(queryExecutor, async connection => {
+    await connection.query('SELECT id FROM students WHERE id = ? FOR UPDATE', [studentId]);
+    const policy = await loadGradingPolicyForDate(connection, date);
+    const result = evaluateReading(policy, { completed, requiredFaces, expectedFaces, requiredHizbs: readingRange?.hizbCount, expectedHizbs });
+    if (readingRange) {
+      const { fromHizb, toHizb, hizbCount, range } = readingRange;
+      Object.assign(result, { fromHizb, toHizb, hizbCount, range,
+        ...(readingRange.ranges ? { ranges: readingRange.ranges, readingCursor: readingRange.cursor } : {}) });
+    }
+    await upsertDailyGrade(connection, { studentId, date, result, policy, actor });
+    return result;
+  });
 }
 
 const syncWeeklyGradePoints = (connection, { studentId, weekStart, component, grade, actor }) => syncGradePoints(connection, {

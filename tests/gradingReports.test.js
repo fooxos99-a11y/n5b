@@ -49,6 +49,7 @@ test('statistics sum the weekly program, both sessions and narration', async () 
       { id: 2, name: 'بدر', committeeId: 2, committeeName: 'العصر', joined: '2026-01-01' },
     ]],
     [[]],
+    [[]], // Effective reading dates are loaded independently of the per-student maxima.
   ];
   const reportDb = { student: () => '1=1', query: async sql => sql.includes('AS holidays') || sql.includes('AS pause') || sql.includes('FROM student_day_compensations') ? [[]] : answers.shift() };
   const grades = await buildGradingOverview(reportDb, { from: '2026-09-20', to: '2026-09-26', quranFaces: { memorization: 2, review: 5, link: 3 } });

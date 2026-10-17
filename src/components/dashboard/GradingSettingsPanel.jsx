@@ -192,15 +192,25 @@ const GradingSettingsPanel = ({ section = 'program', extraCards = [], onStatusCh
   const [draft, setDraft] = useState(null);
   const [loadError, setLoadError] = useState('');
   const [editVersion, setEditVersion] = useState(0);
+  const [applyFrom, setApplyFrom] = useState('nextWeek');
+  const [effectiveFrom, setEffectiveFrom] = useState(null);
+  const [saveError, setSaveError] = useState('');
+  const revisionRef = useRef(null);
+  const conflictedRef = useRef(false);
   const rowSequence = useRef(0);
   const statusRef = useRef(onStatusChange);
   statusRef.current = onStatusChange;
 
   const loadPolicy = useCallback(async () => {
     setLoadError('');
+    setSaveError('');
+    setEditVersion(0);
+    conflictedRef.current = false;
     setDraft(null);
     try {
       const result = await gradingApi.getPolicy();
+      revisionRef.current = result.revision;
+      setEffectiveFrom(result.effectiveFrom);
       setDraft(toDraft(result?.policy));
     } catch (error) {
       setLoadError(error.message || 'تعذر تحميل إعدادات الدرجات.');
@@ -263,9 +273,25 @@ const GradingSettingsPanel = ({ section = 'program', extraCards = [], onStatusCh
   const updateSegments = update => edit(current => ({ ...current, trackSession: { ...current.trackSession, segments: update(current.trackSession.segments) } }));
 
   useEffect(() => { if (editVersion && hasErrors) statusRef.current?.('error'); }, [editVersion, hasErrors]);
-  useQueuedAutosave({ channel: 'grading-policy', value: draft, enabled: Boolean(editVersion && draft && !hasErrors),
-    save: (value) => gradingApi.savePolicy(toPolicy(value)), onStatus: (status) => statusRef.current?.(status),
-    onError: (error) => toast({ title: 'تعذر حفظ إعدادات الدرجات', description: error.message, variant: 'destructive' }),
+  const saveValue = useMemo(() => ({ draft, applyFrom }), [draft, applyFrom]);
+  useQueuedAutosave({ channel: 'grading-policy', value: saveValue, enabled: Boolean(editVersion && draft && !hasErrors),
+    save: async (value) => {
+      if (conflictedRef.current) throw new Error('أعد تحميل الإعدادات قبل الحفظ.');
+      try {
+        const result = await gradingApi.savePolicy(toPolicy(value.draft), { applyFrom: value.applyFrom, revision: revisionRef.current });
+        revisionRef.current = result.revision;
+        setEffectiveFrom(result.effectiveFrom);
+        setSaveError('');
+        return result;
+      } catch (error) {
+        if (error.status === 409) conflictedRef.current = true;
+        throw error;
+      }
+    }, onStatus: (status) => statusRef.current?.(status),
+    onError: (error) => {
+      setSaveError(error.message);
+      toast({ title: 'تعذر حفظ إعدادات الدرجات', description: error.message, variant: 'destructive' });
+    },
   });
 
   if (loadError) {
@@ -277,6 +303,10 @@ const GradingSettingsPanel = ({ section = 'program', extraCards = [], onStatusCh
   const fieldProps = { draft, errors, onChange: updateField };
   const thresholds = draft.weeklyProgram.memorizationThresholds;
   const sessionSection = section === 'track' ? 'trackSession' : 'weeklySession';
+  const saveFeedback = saveError && <div role="alert" className="space-y-2 rounded-xl border border-destructive/30 p-3 text-sm text-destructive">
+    <p>{saveError}</p>
+    <Button type="button" variant="outline" onClick={loadPolicy}>إعادة تحميل الإعدادات</Button>
+  </div>;
   const sessionDayField = <SettingsGroup>
     <Label htmlFor={`grading-${sessionSection}-day`}>يوم الجلسة</Label>
     <Select value={draft[sessionSection].sessionDay == null ? '' : String(draft[sessionSection].sessionDay)} onValueChange={value => updateField(`${sessionSection}.sessionDay`, Number(value))}>
@@ -287,6 +317,7 @@ const GradingSettingsPanel = ({ section = 'program', extraCards = [], onStatusCh
   if (section === 'track') {
     return (
       <div className="space-y-4 [font-family:var(--font-ui)]">
+        {saveFeedback}
         <SettingsCard title="درجات جلسة المسار">
           {sessionDayField}
           <SettingsGroup>
@@ -326,6 +357,7 @@ const GradingSettingsPanel = ({ section = 'program', extraCards = [], onStatusCh
   if (section === 'weekly') {
     return (
       <div className="divide-y divide-border [font-family:var(--font-ui)]">
+        {saveFeedback}
         {sessionDayField}
         <SettingsGroup>
           <div className="grid grid-cols-1 gap-3 min-[390px]:grid-cols-2 lg:grid-cols-3">
@@ -338,7 +370,17 @@ const GradingSettingsPanel = ({ section = 'program', extraCards = [], onStatusCh
 
   return (
     <div className="space-y-4 [font-family:var(--font-ui)]">
+      {saveFeedback}
       <SettingsCard title="البرنامج الأسبوعي">
+        <SettingsGroup>
+          <Label htmlFor="grading-apply-from">تطبيق تعديلات البرنامج</Label>
+          <Select value={applyFrom} onValueChange={value => { setApplyFrom(value); setEditVersion(version => version + 1); }}>
+            <SelectTrigger id="grading-apply-from" className="sm:max-w-xs"><SelectValue /></SelectTrigger>
+            <SelectContent><SelectItem value="nextWeek">من الأسبوع القادم</SelectItem><SelectItem value="today">من اليوم</SelectItem></SelectContent>
+          </Select>
+          <p className="text-xs leading-5 text-muted-foreground">تبقى الأيام السابقة والدرجات المسجلة محفوظة. تتولد المقادير من خطة الطالب النشطة عند فتح التسميع.</p>
+          {effectiveFrom && <p role="status" className="text-xs leading-5 text-muted-foreground">موعد السريان المحفوظ: {effectiveFrom}</p>}
+        </SettingsGroup>
         <SettingsGroup>
           <GroupTitle>أيام الحضور</GroupTitle>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

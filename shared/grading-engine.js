@@ -1,5 +1,6 @@
 import {
   gradingMaxima,
+  gradingPolicyForDate,
   memorizationThresholdFor,
   normalizeGradingPolicy,
   reviewAmountThreshold,
@@ -207,10 +208,12 @@ export function computeWeeklyGrade(rawPolicy, { days = [], track = null, weekly 
   const policy = normalizeGradingPolicy(rawPolicy);
   const maxima = gradingMaxima(policy);
   const program = policy.weeklyProgram;
-  const workDays = new Set(program.workDays);
-  const readingDays = new Set(program.readingDays);
   const parts = { attendance: 0, memorization: 0, link: 0, review: 0, reading: 0 };
   const dayRows = days.map(day => {
+    const dailyPolicy = gradingPolicyForDate(policy, day.date);
+    const program = dailyPolicy.weeklyProgram;
+    const workDays = new Set(program.workDays);
+    const readingDays = new Set(program.readingDays);
     const row = { date: day.date, weekday: day.weekday, components: {} };
     if (day.date > today || day.seasonalHoliday) {
       if (workDays.has(day.weekday)) {
@@ -231,7 +234,7 @@ export function computeWeeklyGrade(rawPolicy, { days = [], track = null, weekly 
         const max = program[COMPONENT_MAX_KEY[component]];
         const notApplicable = Boolean(day.planActive) && !entry.scheduled && entry.grade === undefined;
         const grade = notApplicable
-          ? (policy.notApplicableCredit === 'full' ? max : 0)
+          ? (dailyPolicy.notApplicableCredit === 'full' ? max : 0)
           : Math.min(max, Number(entry.grade) || 0);
         parts[component] += grade;
         row.components[component] = { grade, max, notApplicable };

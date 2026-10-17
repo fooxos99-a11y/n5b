@@ -3,7 +3,7 @@ import { loadSeasonalHolidays } from './seasonalHolidays.js';
 import { loadIndividualStudentPlanPauses } from './studentPlanPause.js';
 import { studentPlanPauseHolidays } from '../../shared/student-plan-pause.js';
 import { isSeasonalHoliday } from '../../shared/seasonal-holidays.js';
-import { parseGradingPolicy, trackSegmentDefinitions } from '../../shared/grading-policy.js';
+import { gradingPolicyForDate, parseGradingPolicy, trackSegmentDefinitions } from '../../shared/grading-policy.js';
 
 /** Session dates come from settings; only approved excuses after the first plan are candidates. */
 export function eligibleCompensationDays({ firstPlanDate, lowerBound, today, sessionDay, candidates, compensatedPeriods, holidays, scope, policyForDate }) {
@@ -14,7 +14,7 @@ export function eligibleCompensationDays({ firstPlanDate, lowerBound, today, ses
     if (compensatedPeriods.has(scope === 'track' ? weekStartOf(date) : date)) return false;
     const policy = policyForDate(date);
     if (scope === 'track') return trackSegmentDefinitions(policy).some(segment => segment.max > 0);
-    const program = policy.weeklyProgram, day = weekdayOf(date);
+    const program = gradingPolicyForDate(policy, date).weeklyProgram, day = weekdayOf(date);
     return (program.workDays.includes(day) && [program.memorizationDaily, program.linkDaily, program.reviewDaily].some(max => max > 0))
       || (program.readingDays.includes(day) && program.readingDaily > 0);
   }).map(date => ({ date, dayNumber: Math.floor((Date.parse(date) - Date.parse(firstPlanDate)) / 86400000) + 1 }));

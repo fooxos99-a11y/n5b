@@ -1,3 +1,5 @@
+import { getBusinessDate, shiftDateOnly } from './business-date.js';
+
 // Grading policy: every value that decides a student's grade lives here as data, never in the calculation code.
 export const GRADING_POLICY_SETTING_KEY = 'gradingPolicy';
 
@@ -77,7 +79,7 @@ function normalizeThresholds(value, fallback) {
 }
 
 /** Returns a complete, validated policy. Unknown or invalid values fall back to the defaults. */
-export function normalizeGradingPolicy(raw = {}) {
+export function normalizeGradingPolicy(raw = {}, { includeDayPolicies = true } = {}) {
   const source = raw && typeof raw === 'object' ? raw : {};
   const defaults = DEFAULT_GRADING_POLICY;
   const program = source.weeklyProgram && typeof source.weeklyProgram === 'object' ? source.weeklyProgram : {};
@@ -135,12 +137,34 @@ export function normalizeGradingPolicy(raw = {}) {
     statistics: {
       repetitionsPerFace: integer(statistics.repetitionsPerFace, defaults.statistics.repetitionsPerFace, { min: 0, max: 10000 }),
     },
+    ...(includeDayPolicies && /^\d{4}-\d{2}-\d{2}$/.test(source.weekStart || '')
+      && shiftDateOnly(source.weekStart, 0) === source.weekStart && new Date(`${source.weekStart}T12:00:00Z`).getUTCDay() === 0 && source.dayPolicies
+      ? { weekStart: source.weekStart, dayPolicies: Object.fromEntries(
+        Array.from({ length: 7 }, (_, day) => shiftDateOnly(source.weekStart, day))
+          .filter(date => date && source.dayPolicies[date] && typeof source.dayPolicies[date] === 'object')
+          .map(date => [date, normalizeGradingPolicy(source.dayPolicies[date], { includeDayPolicies: false })]),
+      ) } : {}),
   };
 }
 
+/** A changed week retains the policy for each calendar date, including dates already graded. */
+export function gradingPolicyForDate(rawPolicy, date) {
+  return normalizeGradingPolicy(rawPolicy?.dayPolicies?.[date] || rawPolicy, { includeDayPolicies: false });
+}
+
+export function workDateOverridesFromPolicies(rows) {
+  return Object.fromEntries(rows.flatMap(row => {
+    const policy = parseGradingPolicy(row.policy);
+    return Array.from({ length: 7 }, (_, day) => {
+      const date = shiftDateOnly(row.weekStart, day);
+      return [date, gradingPolicyForDate(policy, date).weeklyProgram.workDays.includes(day)];
+    });
+  }));
+}
+
 /** Recitation sessions run on the weekly program work days; every other day is a weekly holiday. */
-export function scheduleDaysFromGradingPolicy(rawPolicy) {
-  const { workDays } = normalizeGradingPolicy(rawPolicy).weeklyProgram;
+export function scheduleDaysFromGradingPolicy(rawPolicy, date = getBusinessDate()) {
+  const { workDays } = gradingPolicyForDate(rawPolicy, date).weeklyProgram;
   return {
     recitationSessionDays: [...workDays],
     weeklyHolidayDays: [0, 1, 2, 3, 4, 5, 6].filter(day => !workDays.includes(day)),
@@ -170,6 +194,18 @@ export function gradingMaxima(rawPolicy) {
     reading: round(program.readingDays.length * program.readingDaily),
     margin: program.margin,
   };
+  if (policy.dayPolicies) {
+    for (const component of DAILY_GRADE_COMPONENTS) programParts[component] = 0;
+    for (let day = 0; day < 7; day++) {
+      const daily = gradingPolicyForDate(policy, shiftDateOnly(policy.weekStart, day)).weeklyProgram;
+      if (daily.workDays.includes(day)) {
+        programParts.attendance += daily.attendance.present;
+        for (const component of ['memorization', 'link', 'review']) programParts[component] += daily[`${component}Daily`];
+      }
+      if (daily.readingDays.includes(day)) programParts.reading += daily.readingDaily;
+    }
+    for (const component of DAILY_GRADE_COMPONENTS) programParts[component] = round(programParts[component]);
+  }
   const weeklyProgram = round(Object.values(programParts).reduce((sum, value) => sum + value, 0));
   const trackSession = round(policy.trackSession.attendance + trackSegmentDefinitions(policy).reduce((sum, segment) => sum + segment.max, 0));
   const weeklySession = policy.weeklySession.attendance;
