@@ -5,6 +5,7 @@ import { useToast } from '@/components/ui/use-toast';
 import { useNavigate } from '@/lib/router';
 import { clearAuthSession, hasAuthSession, persistAuthSession } from '@/lib/authSession';
 import { readStoredDashboardPermissions, storeDashboardPermissions } from '@/lib/dashboardPermissions';
+import { hasExtendedReciterPermissions } from '../../shared/dashboard-permissions.js';
 import { studentsApi } from '@/services/studentsApi';
 import { useSiteConfig } from '@/site/SiteProvider';
 import { useAccountLogout } from '@/hooks/useAccountLogout';
@@ -20,11 +21,12 @@ const redirectForUser = (user, navigate, studentHome) => {
     navigate(studentHome ? '/' : '/portal', { replace: true });
     return;
   }
-  if (user.role === 'manager' || (['supervisor', 'admin'].includes(user.role) && permissions.length > 0)) {
+  if (user.role === 'manager' || (['supervisor', 'admin', 'teacher'].includes(user.role) && permissions.length > 0)
+    || (user.role === 'reciter' && hasExtendedReciterPermissions(permissions))) {
     navigate('/dashboard', { replace: true });
     return;
   }
-  navigate('/portal', { replace: true });
+  navigate(user.role === 'reciter' ? '/portal/calls' : '/portal', { replace: true });
 };
 
 const LoginGateway = ({ loginPage = false, deletionPage = false }) => {
@@ -92,7 +94,7 @@ const LoginGateway = ({ loginPage = false, deletionPage = false }) => {
       localStorage.removeItem('wajeh_supervisor_id');
       storeDashboardPermissions(user.dashboardPermissions || []);
       if (user.role === 'student') localStorage.setItem('wajeh_student_id', String(user.id));
-      if (['supervisor', 'admin'].includes(user.role)) localStorage.setItem('wajeh_supervisor_id', String(user.id));
+      if (['supervisor', 'admin', 'reciter', 'teacher'].includes(user.role)) localStorage.setItem('wajeh_supervisor_id', String(user.id));
       window.dispatchEvent(new Event('nukhab-authenticated'));
       setStoredUser({ role: user.role, id: user.role === 'student' ? String(user.id) : '', name: user.name || '', dashboardPermissions: user.dashboardPermissions || [] });
       if (!deletionPage) redirectForUser(user, navigate, site.features?.studentHome);

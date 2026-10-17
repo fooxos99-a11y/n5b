@@ -8,6 +8,7 @@ const PopoverTrigger = PopoverPrimitive.Trigger;
 const PopoverContent = React.forwardRef(({ className, align = 'center', sideOffset = 6, ...props }, ref) => (
   <PopoverPrimitive.Portal>
     <PopoverPrimitive.Content
+      data-app-popover-content=""
       ref={ref}
       align={align}
       sideOffset={sideOffset}

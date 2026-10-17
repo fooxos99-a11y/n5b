@@ -2,6 +2,7 @@ import { getSaudiCalendarDate } from '../../shared/business-date.js';
 import { dateOnly, hijriMonthStart, hijriParts, parseDateOnly, shiftHijriMonth } from '../../shared/hijri-calendar.js';
 
 export const REPORT_PERIOD_LABELS = Object.freeze({
+  today: 'هذا اليوم',
   week: 'هذا الأسبوع',
   month: 'هذا الشهر',
   quarter: 'هذا الربع',
@@ -15,6 +16,7 @@ export const DEFAULT_REPORT_PERIOD = 'month';
 export function reportPeriodStart(period, today = getSaudiCalendarDate()) {
   const date = parseDateOnly(today);
   if (!date) return '';
+  if (period === 'today') return today;
   const { month } = hijriParts(date);
   if (period === 'year') return dateOnly(shiftHijriMonth(date, 1 - month));
   if (period === 'quarter') return dateOnly(shiftHijriMonth(date, -((month - 1) % 3)));

@@ -18,9 +18,13 @@ export async function loadExpectedGrades(connection, { from, to, policy, today =
   const [stored] = await connection.query(`SELECT DATE_FORMAT(week_start, '%Y-%m-%d') AS weekStart, policy_json AS policy
     FROM grading_week_policies WHERE week_start BETWEEN ? AND ?`, [weekStartOf(from), end]);
   const policies = new Map(stored.map(row => [row.weekStart, parseGradingPolicy(row.policy)]));
+  const [recordedSessions] = from === to && from <= end ? await connection.query(`SELECT student_id AS studentId, component, policy_json AS policy
+    FROM student_weekly_components WHERE week_start = ? AND ${connection.student('student_id')}`, [weekStartOf(from)]) : [[]];
+  const recordedPolicies = new Map(recordedSessions.map(row => [`${row.studentId}:${row.component}`, parseGradingPolicy(row.policy)]));
   return students.map(student => {
     const start = student.joined > from ? student.joined : from;
     const result = { ...student, programMax: 0, trackMax: 0, weeklyMax: 0, weeks: 0, readingDays: 0, attendanceDays: 0 };
+    if (from === to) { result.trackWeeks = 0; result.weeklyWeeks = 0; }
     const seen = new Set();
     for (let date = start; date <= end; date = addDays(date, 1)) {
       if (isSeasonalHoliday(date, holidays) || isStudentPlanPausedOn(date, individualPauses[student.id])) continue;
@@ -39,8 +43,18 @@ export async function loadExpectedGrades(connection, { from, to, policy, today =
       if (!seen.has(week)) {
         seen.add(week);
         const maxima = gradingMaxima(current);
-        result.trackMax += maxima.trackSession;
-        result.weeklyMax += maxima.weeklySession;
+        const trackPolicy = recordedPolicies.get(`${student.id}:track`) || current;
+        const weeklyPolicy = recordedPolicies.get(`${student.id}:weekly`) || current;
+        const trackDay = (recordedPolicies.get(`${student.id}:track`) || policy).trackSession.sessionDay ?? 0;
+        const weeklyDay = (recordedPolicies.get(`${student.id}:weekly`) || policy).weeklySession.sessionDay ?? 0;
+        if (from !== to || day === trackDay) {
+          result.trackMax += from === to ? gradingMaxima(trackPolicy).trackSession : maxima.trackSession;
+          if (from === to) result.trackWeeks++;
+        }
+        if (from !== to || day === weeklyDay) {
+          result.weeklyMax += from === to ? gradingMaxima(weeklyPolicy).weeklySession : maxima.weeklySession;
+          if (from === to) result.weeklyWeeks++;
+        }
         result.weeks++;
       }
     }
@@ -54,5 +68,7 @@ export function includeUnrecordedGrades(students, recorded, component) {
   return students.map(student => ({
     ...student, grade: 0, ...(component === 'program' ? {} : { attended: 0, absent: 0 }),
     ...byId.get(String(student.id)), max: student[key],
+    ...(component === 'track' && student.trackWeeks !== undefined ? { weeks: student.trackWeeks } : {}),
+    ...(component === 'weekly' && student.weeklyWeeks !== undefined ? { weeks: student.weeklyWeeks } : {}),
   }));
 }

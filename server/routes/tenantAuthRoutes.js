@@ -71,8 +71,7 @@ router.post('/login', async (req, res, next) => {
     }
 
     const [supervisors] = await db().query(
-      // Reciter accounts were removed from the platform and can no longer sign in.
-      "SELECT id, name, role, login_number AS loginNumber, password_hash AS passwordHash FROM supervisors WHERE login_number = ? AND is_active = 1 AND role <> 'reciter' LIMIT 1",
+      "SELECT id, name, role, login_number AS loginNumber, password_hash AS passwordHash FROM supervisors WHERE login_number = ? AND is_active = 1 AND role IN ('manager', 'admin', 'supervisor', 'reciter', 'teacher') LIMIT 1",
       [loginNumber],
     );
     if (supervisors[0] && !await verifyAccountPassword(supervisors[0], req.body.password, db())) {
@@ -86,10 +85,10 @@ router.post('/login', async (req, res, next) => {
         ...tenantPayload,
       }));
     }
-    if (supervisors[0]?.role === 'admin') {
+    if (['admin', 'reciter', 'teacher'].includes(supervisors[0]?.role)) {
       await clearLoginFailuresForIdentities(db(), loginIdentities);
       const dashboardPermissions = await getSupervisorDashboardPermissions(supervisors[0].id);
-      return res.json(await createLoginPayload(req, res, 'admin', supervisors[0], {
+      return res.json(await createLoginPayload(req, res, supervisors[0].role, supervisors[0], {
         dashboardPermissions,
         ...tenantPayload,
       }));

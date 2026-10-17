@@ -23,12 +23,13 @@ const DialogContent = React.forwardRef(({
   children,
   onPointerDownOutside,
   onInteractOutside,
+  onEscapeKeyDown,
   ...props
 }, ref) => {
   const keepDialogOpenForSelect = (event, handler) => {
     const originalEvent = event.detail?.originalEvent
     const target = originalEvent?.target
-    if (originalEvent?.detail > 1 || target?.closest?.("[data-app-select-content], [data-dashboard-undo]")) {
+    if (originalEvent?.detail > 1 || target?.closest?.("[data-app-select-content], [data-app-popover-content], [data-dashboard-undo]")) {
       event.preventDefault()
     }
     handler?.(event)
@@ -42,6 +43,10 @@ const DialogContent = React.forwardRef(({
         className={cn("app-dialog fixed left-1/2 top-1/2 z-50 grid max-h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] max-w-lg min-w-0 -translate-x-1/2 -translate-y-1/2 touch-pan-y gap-3 overflow-x-hidden overflow-y-auto overscroll-contain rounded-2xl border border-border bg-card p-3 shadow-[0_24px_70px_hsl(210_55%_10%/0.24)] duration-200 animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-3 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=closed]:slide-out-to-bottom-3 sm:max-h-[calc(100dvh-2rem)] sm:w-[calc(100%-2rem)] sm:gap-4 sm:p-6", className)}
         onPointerDownOutside={(event) => keepDialogOpenForSelect(event, onPointerDownOutside)}
         onInteractOutside={(event) => keepDialogOpenForSelect(event, onInteractOutside)}
+        onEscapeKeyDown={(event) => {
+          if (event.target?.closest?.('[data-app-popover-content]') || document.querySelector('[data-app-popover-content][data-state="open"]')) event.preventDefault()
+          onEscapeKeyDown?.(event)
+        }}
         {...props}
       >
         {children}

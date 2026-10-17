@@ -8,6 +8,8 @@ import { useNavigate, useParams } from '@/lib/router';
 import DashboardLoader from '@/components/dashboard/DashboardLoader';
 import DashboardShell from '@/components/dashboard/DashboardShell';
 import LazyCallsSection from '@/components/calls/LazyCallsSection';
+import LazyAudioCallRoom from '@/components/calls/LazyAudioCallRoom';
+import { hasExtendedReciterPermissions } from '../../shared/dashboard-permissions.js';
 import OfflineConnectionRequired from '@/components/network/OfflineConnectionRequired';
 import PointsValue from '@/components/points/PointsValue';
 import { Card, CardContent } from '@/components/ui/card';
@@ -61,10 +63,12 @@ const AccountPortal = () => {
   const [storeBalance, setStoreBalance] = useState(0);
   const [planPoints, setPlanPoints] = useState(null);
   const [readerTarget, setReaderTarget] = useState(null);
+  const [activeCallRoom, setActiveCallRoom] = useState(null);
 
   const hasDashboard = session.role === 'manager'
-    || (['supervisor', 'admin'].includes(session.role) && session.dashboardPermissions.length > 0);
-  const [permissionsReady, setPermissionsReady] = useState(!['supervisor', 'admin'].includes(session.role) || !session.supervisorId || hasDashboard);
+    || (['supervisor', 'admin', 'teacher'].includes(session.role) && session.dashboardPermissions.length > 0)
+    || (session.role === 'reciter' && hasExtendedReciterPermissions(session.dashboardPermissions));
+  const [permissionsReady, setPermissionsReady] = useState(!['supervisor', 'admin', 'reciter'].includes(session.role) || !session.supervisorId || hasDashboard);
   useEffect(() => {
     if (!session.token || !session.role) {
       navigate('/', { replace: true });
@@ -95,12 +99,12 @@ const AccountPortal = () => {
 
   useEffect(() => {
     if (!isOnline) { setPermissionsReady(true); return; }
-    if (!['supervisor', 'admin'].includes(session.role) || !session.supervisorId || hasDashboard) return;
+    if (!['supervisor', 'admin', 'reciter'].includes(session.role) || !session.supervisorId || hasDashboard) return;
     studentsApi.getMyDashboardPermissions()
       .then((data) => {
         const permissions = data.permissions || [];
         storeDashboardPermissions(permissions);
-        if (permissions.length > 0) navigate('/dashboard', { replace: true });
+        if (session.role === 'reciter' ? hasExtendedReciterPermissions(permissions) : permissions.length > 0) navigate('/dashboard', { replace: true });
       })
       .catch(() => undefined)
       .finally(() => setPermissionsReady(true));
@@ -115,12 +119,15 @@ const AccountPortal = () => {
     const list = [];
     if (session.role === 'student') return studentPortalSections({ isOnline, site, settings });
     if (session.role === 'supervisor') return supervisorPortalSections({ settings, alreadyPresentToday });
+    if (session.role === 'reciter') return [{ key: 'calls', label: 'المكالمات', icon: PhoneCall }];
     return list;
   }, [alreadyPresentToday, isOnline, session.role, settings.staffAttendanceSource, settings.storeEnabled, settings.teacherManualPointsEnabled, site.features]);
 
   const requestedSection = ['quran-sessions', 'quran-saved'].includes(sectionSlug) && session.role === 'student'
     ? 'quranSessions' : portalSectionRoutes.getKey(sectionSlug);
   const _resolveActiveSection = () => {
+    const params = new URLSearchParams(window.location.search);
+    if ((params.has('callArchiveRoom') || params.has('callSession')) && sections.some(section => section.key === 'calls')) return 'calls';
     if (requestedSection === 'mushaf' && session.role === 'student') {
       return 'mushaf';
     }
@@ -135,7 +142,7 @@ const AccountPortal = () => {
     if (!session.token || hasDashboard || isLoading || waitingForAttendance || !activeSection || !permissionsReady) return;
     const canonicalSlug = portalSectionRoutes.getSlug(activeSection);
     if (sectionSlug !== canonicalSlug) {
-      navigate(`/portal/${canonicalSlug}`, { replace: true });
+      navigate(`/portal/${canonicalSlug}${window.location.search}`, { replace: true });
     }
   }, [activeSection, hasDashboard, isLoading, waitingForAttendance, permissionsReady, navigate, sectionSlug, session.token]);
 
@@ -194,7 +201,7 @@ const AccountPortal = () => {
             canViewTeacherPoints={settings.teacherManualPointsEnabled}
           />
       );
-      case 'calls': return <LazyCallsSection />;
+      case 'calls': return activeCallRoom ? null : <LazyCallsSection onJoinRoom={setActiveCallRoom} />;
     }
     return (
       <Card className="border-primary/30 bg-card">
@@ -225,6 +232,7 @@ const AccountPortal = () => {
   }
 
   const _resolveHeaderContent = () => {
+    if (session.role === 'reciter') return null;
     if (session.role === 'student') {
       return <div className="flex items-center gap-2" dir="rtl">
       <StudentNotificationButton />
@@ -252,6 +260,9 @@ const AccountPortal = () => {
       headerContent={headerContent}
       replaceHeaderTitle={session.role === 'student' && activeSection === 'quranSessions'}
       showSectionTitle={session.role !== 'student' || activeSection !== 'quranSessions'}
+      persistentContent={activeCallRoom ? <LazyAudioCallRoom roomInfo={activeCallRoom} isOwner={activeCallRoom.isOwner}
+        minimized={activeSection !== 'calls'} onRestore={() => changeSection('calls')}
+        onLeave={() => setActiveCallRoom(null)} onClosed={() => setActiveCallRoom(null)} /> : null}
     >
       <Suspense fallback={<DashboardLoader className="min-h-[420px]" />}>
         {renderSection()}

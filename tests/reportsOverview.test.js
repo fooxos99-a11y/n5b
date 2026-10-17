@@ -7,6 +7,8 @@ import { getBusinessDate, getSaudiCalendarDate } from '../shared/business-date.j
 const read = (path) => readFile(new URL(path, import.meta.url), 'utf8');
 
 test('report periods start on Sunday and the current Hijri month, quarter or year', () => {
+  assert.equal(reportPeriodStart('today', '2026-09-24'), '2026-09-24');
+  assert.deepEqual(reportRange('today', {}, '2026-09-24'), { from: '2026-09-24', to: '2026-09-24' });
   assert.equal(reportPeriodStart('week', '2026-09-24'), '2026-09-20');
   assert.equal(reportPeriodStart('month', '2026-09-24'), '2026-09-12');
   assert.equal(reportPeriodStart('quarter', '2026-09-24'), '2026-09-12');
@@ -20,6 +22,9 @@ test('current month and quarter use Riyadh midnight even before the execution da
   assert.equal(getBusinessDate(instant), '2026-09-11');
   const today = getSaudiCalendarDate(instant);
   assert.equal(today, '2026-09-12');
+  assert.deepEqual(reportRange('today', {}, today), { from: today, to: today });
+  const beforeMidnight = getSaudiCalendarDate(new Date('2026-09-11T20:59:59Z'));
+  assert.deepEqual(reportRange('today', {}, beforeMidnight), { from: '2026-09-11', to: '2026-09-11' });
   assert.deepEqual(reportRange('month', {}, today), { from: '2026-09-12', to: '2026-09-12' });
   assert.deepEqual(reportRange('quarter', {}, today), { from: '2026-09-12', to: '2026-09-12' });
   for (const [date, from] of [['2026-01-01', '2025-12-21'], ['2026-04-01', '2026-03-20'], ['2026-07-01', '2026-06-16'], ['2026-12-31', '2026-12-10']]) {

@@ -2,10 +2,22 @@
 export const DASHBOARD_PERMISSION_KEYS = Object.freeze([
   'manualAttendance', 'staffAttendance', 'registrationRequests', 'students', 'studentPlans',
   'narrationDay', 'quranPassing', 'calls', 'quranEvaluation', 'grades', 'weeklySession', 'trackSession',
-  'families', 'supervisors', 'administrators', 'notifications', 'reports', 'whatsappSend', 'settings', 'store',
+  'families', 'supervisors', 'administrators', 'reciters', 'teachers', 'notifications', 'reports', 'whatsappSend', 'settings', 'store',
 ]);
 
 export const SUPERVISOR_BASE_PERMISSIONS = Object.freeze(['quranEvaluation', 'studentPlans', 'calls', 'reports']);
+export const RECITER_BASE_PERMISSIONS = Object.freeze(['calls']);
+export const TEACHER_BASE_PERMISSIONS = Object.freeze(['reports']);
+
+export function effectiveStaffPermissions(role, grants = []) {
+  const permissions = normalizeDashboardGrants(grants);
+  if (role === 'teacher') return [...TEACHER_BASE_PERMISSIONS];
+  if (role === 'reciter') return normalizeDashboardGrants([...RECITER_BASE_PERMISSIONS, ...permissions]);
+  if (role === 'supervisor') return normalizeDashboardGrants([...SUPERVISOR_BASE_PERMISSIONS, ...permissions]);
+  return role === 'admin' ? permissions.filter(key => key !== 'quranEvaluation') : [];
+}
+
+export const hasExtendedReciterPermissions = permissions => normalizeDashboardGrants(permissions).some(key => !RECITER_BASE_PERMISSIONS.includes(key));
 
 export function normalizeDashboardGrants(permissions = []) {
   const allowed = new Set(DASHBOARD_PERMISSION_KEYS);

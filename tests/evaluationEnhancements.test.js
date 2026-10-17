@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile, readdir } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { normalizeGradingPolicy, gradingPolicyErrors } from '../shared/grading-policy.js';
 import { evaluateMemorization, evaluateReview, evaluateLink, evaluateTrackSession } from '../shared/grading-engine.js';
 import { normalizeSelectedWordMarks, normalizeSelectedAyahMarks } from '../server/services/recitationMarks.js';
@@ -80,14 +80,17 @@ test('self reading clips to actual memorization, keeps gaps apart, deduplicates 
   assert.equal(hizb.ranges.at(-1).endAyah, 74);
 });
 
-test('the former teacher display name is absent from runtime sources while internal supervisor and teacher IDs remain', async () => {
-  for (const dir of ['src', 'shared', 'server']) {
-    const files = await readdir(new URL(`../${dir}/`, import.meta.url), { recursive: true });
-    for (const file of files.filter(file => /\.(jsx?|json)$/.test(file) && !file.startsWith('migrations') && !file.startsWith('data'))) {
-      const source = await readFile(new URL(`../${dir}/${file.replaceAll('\\', '/')}`, import.meta.url), 'utf8');
-      assert.doesNotMatch(source, /معلم|معلّم/, `${dir}/${file}`);
-    }
-  }
+test('track supervisors retain their label while report-only teachers are a separate account type', async () => {
+  const [supervisors, teachers, dashboard] = await Promise.all([
+    readFile(new URL('../src/components/dashboard/SupervisorsSection.jsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/dashboard/TeachersSection.jsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/pages/WajehDashboard.jsx', import.meta.url), 'utf8'),
+  ]);
+  assert.match(supervisors, /singularLabel="مشرف المسار"/);
+  assert.doesNotMatch(supervisors, /معلم|معلّم/);
+  assert.match(teachers, /singularLabel="المعلم"/);
+  assert.match(teachers, /singleCommittee/);
+  assert.match(dashboard, /key: 'teachers', label: 'المعلمون'/);
   const source = await readFile(new URL('../server/index.js', import.meta.url), 'utf8');
   assert.match(source, /teacher_completed/);
   assert.match(source, /supervisor_committees/);

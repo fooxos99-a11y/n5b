@@ -30,6 +30,8 @@ const CommitteeStaffSection = ({
   deleteStaff,
   setStaffActive,
   editablePermissions = false,
+  fixedPermissions = SUPERVISOR_BASE_PERMISSIONS,
+  singleCommittee = false,
 }) => {
   const { toast } = useToast();
   const [rows, setRows] = useState([]);
@@ -86,7 +88,7 @@ const CommitteeStaffSection = ({
       const committeeIds = current.committeeIds.map(String);
       return {
         ...current,
-        committeeIds: committeeIds.includes(id)
+        committeeIds: singleCommittee ? [id] : committeeIds.includes(id)
           ? committeeIds.filter((item) => item !== id)
           : [...committeeIds, id],
       };
@@ -237,15 +239,15 @@ const CommitteeStaffSection = ({
               </FormField>
             </FormGrid>
             {editablePermissions && <FormField label="الصلاحيات" htmlFor="staff-permissions" wide>
-              <PermissionChecklist id="staff-permissions" value={form.permissions} fixedPermissions={SUPERVISOR_BASE_PERMISSIONS}
+              <PermissionChecklist id="staff-permissions" value={form.permissions} fixedPermissions={fixedPermissions}
                 onToggle={permission => setForm(current => ({ ...current, permissions: current.permissions.includes(permission) ? current.permissions.filter(key => key !== permission) : [...current.permissions, permission] }))} />
             </FormField>}
             <div className="space-y-2">
-              <Label htmlFor="staff-committees">الحلقات المرتبطة بـ{singularLabel}</Label>
+              <Label htmlFor="staff-committees">{singleCommittee ? 'الحلقة' : `الحلقات المرتبطة بـ${singularLabel}`}</Label>
               <Select value="" onValueChange={toggleCommittee} disabled={committees.length === 0}>
                 <SelectTrigger id="staff-committees" className="min-h-11 border-primary/30 bg-background">
                   <span className={`truncate ${committeeLabels.length ? 'text-foreground' : 'text-muted-foreground'}`}>
-                    {committeeLabels.length ? committeeLabels.join('، ') : 'اختر الحلقات'}
+                    {committeeLabels.length ? committeeLabels.join('، ') : singleCommittee ? 'اختر الحلقة' : 'اختر الحلقات'}
                   </span>
                 </SelectTrigger>
                 <SelectContent>

@@ -7,7 +7,10 @@ const readView = () => {
 };
 
 export default function useStudentHomeNavigation() {
-  const [view, setView] = useState(readView);
+  const [view, setView] = useState(() => {
+    const query = new URLSearchParams(window.location.search);
+    return readView() || (query.has('callSession') || query.has('callArchiveRoom') ? 'calls' : null);
+  });
   const open = useCallback((next) => {
     if (next === readView()) return;
     const url = new URL(window.location.href);

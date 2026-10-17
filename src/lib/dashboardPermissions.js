@@ -15,6 +15,8 @@ const allDashboardPermissionOptions = [
   { key: 'families', label: 'المجمعات والحلقات' },
   { key: 'supervisors', label: 'مشرفو المسارات', group: 'المستخدمون' },
   { key: 'administrators', label: 'الإداريون', group: 'المستخدمون' },
+  { key: 'reciters', label: 'المقرئون', group: 'المستخدمون' },
+  { key: 'teachers', label: 'المعلمون', group: 'المستخدمون' },
   { key: 'notifications', label: 'الإشعارات' },
   { key: 'reports', label: 'الإحصائيات' },
   { key: 'whatsappSend', label: 'الإرسال عبر الواتس' },

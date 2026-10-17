@@ -1251,7 +1251,7 @@ async function initializeDatabase(databaseName, { seedDefaultData } = {}) {
     CREATE TABLE IF NOT EXISTS auth_sessions (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
       token_hash CHAR(64) NOT NULL UNIQUE,
-      user_role ENUM('manager', 'admin', 'supervisor', 'reciter', 'student') NOT NULL,
+      user_role ENUM('manager', 'admin', 'supervisor', 'reciter', 'student', 'teacher') NOT NULL,
       user_id BIGINT UNSIGNED NULL,
       user_name VARCHAR(180) NOT NULL,
       expires_at DATETIME NULL,
@@ -1259,7 +1259,7 @@ async function initializeDatabase(databaseName, { seedDefaultData } = {}) {
       INDEX auth_sessions_expiry_lookup (expires_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
-  await modifyColumn('auth_sessions', 'user_role', "ENUM('manager', 'admin', 'supervisor', 'reciter', 'student') NOT NULL");
+  await modifyColumn('auth_sessions', 'user_role', "ENUM('manager', 'admin', 'supervisor', 'reciter', 'student', 'teacher') NOT NULL");
   await pool.query(`
     UPDATE students s
     JOIN (

@@ -23,6 +23,8 @@ export const dashboardSectionRoutes = createSectionRoutes([
   ['families', 'families'],
   ['supervisors', 'supervisors'],
   ['administrators', 'administrators'],
+  ['reciters', 'reciters'],
+  ['teachers', 'teachers'],
   ['narrationDay', 'narration-day'],
   ['quranPassing', 'passing'],
   ['calls', 'calls'],

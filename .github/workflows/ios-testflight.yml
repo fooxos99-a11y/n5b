@@ -222,12 +222,42 @@ jobs:
             --apiKey "$APPSTORE_API_KEY_ID" \
             --apiIssuer "$APPSTORE_ISSUER_ID"
 
+      - name: Read signed application identity
+        if: ${{ inputs.publish }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import plistlib
+          import zipfile
+          with zipfile.ZipFile(os.environ['IPA_PATH']) as archive:
+              infos = [name for name in archive.namelist() if name.startswith('Payload/') and name.count('/') == 2 and name.endswith('.app/Info.plist')]
+              if len(infos) != 1:
+                  raise RuntimeError('Expected one signed application')
+              info = plistlib.loads(archive.read(infos[0]))
+          if info['CFBundleIdentifier'] != 'sa.nukhab.app':
+              raise RuntimeError('Unexpected signed application')
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as handle:
+              handle.write('APP_IDENTIFIER=' + info['CFBundleIdentifier'] + '\n')
+              handle.write('APP_VERSION=' + info['CFBundleShortVersionString'] + '\n')
+          PY
+
+      - name: Verify internal TestFlight availability
+        if: ${{ inputs.publish }}
+        env:
+          APPSTORE_API_PRIVATE_KEY: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
+          TESTFLIGHT_GROUP_ID: ${{ vars.TESTFLIGHT_GROUP_ID }}
+          TARGET_BUILD_NUMBER: ${{ github.run_number }}
+        run: |
+          "$RUNNER_TEMP/push-profile-venv/bin/python" scripts/testflight_release.py
+
       - name: Store signed IPA artifact
         if: ${{ inputs.publish }}
         continue-on-error: true
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: nukhab-ios-${{ github.run_number }}
-          path: ${{ env.IPA_PATH }}
+          path: |
+            ${{ env.IPA_PATH }}
+            testflight-release-status.json
           if-no-files-found: error
           retention-days: 7

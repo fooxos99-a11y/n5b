@@ -1,14 +1,26 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Check, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { dashboardPermissionOptions } from '@/lib/dashboardPermissions';
 
 export default function PermissionChecklist({ id, value = [], onToggle, fixedPermissions = [] }) {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!open) return undefined;
+    const closeOnEscape = event => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      setOpen(false);
+    };
+    document.addEventListener('keydown', closeOnEscape, true);
+    return () => document.removeEventListener('keydown', closeOnEscape, true);
+  }, [open]);
   const options = dashboardPermissionOptions.filter(option => option.key !== 'quranEvaluation' || fixedPermissions.includes(option.key));
   const groups = ['المستخدمون', 'التحضير', 'الجلسات', 'الإدارة'];
   const selectedLabels = options.filter(option => fixedPermissions.includes(option.key) || value.includes(option.key)).map(option => option.label).join('، ');
-  return <Popover modal>
+  return <Popover modal open={open} onOpenChange={setOpen}>
     <PopoverTrigger asChild>
       <Button id={id} type="button" variant="outline" aria-label="الصلاحيات" dir="rtl"
         className="select-trigger-solid relative h-12 w-full min-w-0 justify-between border-primary/30 bg-background pl-10 pr-4 text-right shadow-none hover:translate-y-0 [font-family:var(--font-ui)]">
@@ -19,6 +31,7 @@ export default function PermissionChecklist({ id, value = [], onToggle, fixedPer
       </Button>
     </PopoverTrigger>
     <PopoverContent align="end" collisionPadding={12} dir="rtl" aria-label="اختيار الصلاحيات"
+      onEscapeKeyDown={event => { event.preventDefault(); event.stopPropagation(); event.stopImmediatePropagation(); setOpen(false); }}
       className="max-h-[min(20rem,var(--radix-popover-content-available-height))] w-[var(--radix-popover-trigger-width)] max-w-[calc(100vw-1.5rem)] overflow-y-auto overscroll-contain p-2 touch-pan-y [font-family:var(--font-ui)]">
       <div role="group" aria-label="الصلاحيات" className="space-y-3">
         {groups.map(group => <div key={group} role="group" aria-label={group}>

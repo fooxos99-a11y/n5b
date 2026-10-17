@@ -1,6 +1,7 @@
 import { studentVisibleSessionGrades } from '../shared/student-amount-visibility.js';
 import { computeStudentSessionGrades } from './services/grading.js';
-import livekitWebhookRouter from './routes/livekitWebhookRoutes.js';
+import { createLivekitWebhookRouter } from './routes/livekitWebhookRoutes.js';
+import { createCallArchiveWebhookDispatcher } from './services/callArchiveWebhookDispatch.js';
 import { loadCompensatedPlanRanges, uncompensatedTaskSql } from './services/compensationPlanCredit.js';
 import { assertSupervisorStudentScope } from './services/supervisorStudentScope.js';
 import { validatePlanReadingHizbs } from '../shared/quran-plan-options.js';
@@ -64,6 +65,10 @@ import { updateContinuedQuranPlan } from './services/continuedQuranPlan.js';
 import { assertGradeDate } from './services/gradeDateBoundary.js';
 import { sendWhatsAppOnce } from './services/whatsAppOnce.js';
 import { assertAdministratorScope } from './services/administratorScope.js';
+import { createReciterRouter } from './routes/reciterRoutes.js';
+import { createTeacherRouter } from './routes/teacherRoutes.js';
+import { isTeacherApiRequest } from './services/teacherAccess.js';
+import { isReciterBaseApiRequest } from './services/reciterAccess.js';
 import { selectExactQuranLinkRanges } from './services/quranLinkRanges.js';
 import { measureQuranFaces, quranRangeFacesSql, acceptedQuranExecutionSql } from './services/quranFaceMeasurement.js';
 import { readQuranChapters, readQuranAyah, readQuranRange, readDescendingNextAyah } from './services/quranReferenceCache.js';
@@ -114,6 +119,8 @@ import { findComplexByRegistration, initPlatformDatabase, platformDb } from './p
 import platformRouter from './platformRoutes.js';
 import accountDeletionRouter from './routes/accountDeletionRoutes.js';
 import callRouter from './routes/callRoutes.js';
+import callArchiveRouter from './routes/callArchiveRoutes.js';
+import { startCallArchiveWorker } from './services/callArchiveWorker.js';
 import { createBackupRouter } from './routes/backupRoutes.js';
 import { createStoreRouter } from './routes/storeRoutes.js';
 import { createStudentNewsRouter } from './routes/studentNewsRoutes.js';
@@ -410,7 +417,9 @@ app.use(
   express.json({ limit: '20mb' }),
 );
 app.use('/api/student-news/manage', enforceContentLength(16 * 1024 * 1024), express.json({ limit: '16mb' }));
-app.use('/api/livekit/webhook', livekitWebhookRouter);
+app.use('/api/livekit/webhook', createLivekitWebhookRouter({
+  dispatchArchiveEvent: createCallArchiveWebhookDispatcher({ forEachTenant: callback => forEachActiveTenant(callback, { throwOnError: true }) }),
+}));
 app.use(express.json({ limit: '1mb' }));
 app.use((req, _res, next) => {
   req.body = req.body || {};
@@ -466,7 +475,7 @@ async function hasSupervisorStudentPlanAccess(req, studentId = null) {
 
 function requireStudentPlanAccess(req, res, next) {
   if (req.auth?.role === 'manager') return next();
-  if (req.auth?.role === 'admin') {
+  if (['admin', 'reciter'].includes(req.auth?.role)) {
     return hasSupervisorDashboardPermission(req.auth.id, 'studentPlans')
       .then((allowed) => allowed ? next() : permissionDenied(res))
       .catch(next);
@@ -478,7 +487,7 @@ function requireStudentPlanAccess(req, res, next) {
 
 /** Quran reference data is also needed to record track-session segments in the grades section. */
 function requireQuranReferenceAccess(req, res, next) {
-  if (req.auth?.role === 'admin') {
+  if (['admin', 'reciter'].includes(req.auth?.role)) {
     return hasSupervisorDashboardPermission(req.auth.id, ['studentPlans', 'trackSession'])
       .then((allowed) => allowed ? next() : permissionDenied(res))
       .catch(next);
@@ -499,7 +508,7 @@ function requireManagementReportAccess(req, res, next) {
 
 function requireNarrationAccess(req, res, next) {
   if (req.auth?.role === 'manager') return next();
-  if (['admin', 'supervisor'].includes(req.auth?.role)) {
+  if (['admin', 'supervisor', 'reciter'].includes(req.auth?.role)) {
     return hasSupervisorDashboardPermission(req.auth.id, 'narrationDay')
       .then((allowed) => allowed ? next() : permissionDenied(res))
       .catch(next);
@@ -510,7 +519,7 @@ function requireNarrationAccess(req, res, next) {
 async function canReadStudentQuranToday(req, studentId) {
   if (req.auth?.role === 'student') return Number(req.auth.id) === Number(studentId);
   if (req.auth?.role === 'manager') return true;
-  if (req.auth?.role === 'admin') {
+  if (['admin', 'reciter'].includes(req.auth?.role)) {
     return hasSupervisorDashboardPermission(req.auth.id, ['studentPlans', 'students']);
   }
   if (req.auth?.role === 'supervisor') return hasSupervisorStudentPlanAccess(req, studentId);
@@ -528,6 +537,8 @@ const publicApiRules = [
   ['GET', /^\/homepage-stats$/],
   ['GET', /^\/committees$/],
   ['GET', /^\/rankings\/(?:families|students|complexes)$/],
+  ['GET', /^\/calls\/archive\/playback\/[a-f0-9]{64}$/],
+  ['HEAD', /^\/calls\/archive\/playback\/[a-f0-9]{64}$/],
 ];
 
 function isPublicApiRequest(req) {
@@ -579,6 +590,8 @@ function getDashboardPermissionKeysForRequest(req) {
     [path === '/supervisors' && method === 'GET', ['supervisors', 'whatsappSend']],
     [path.startsWith('/supervisors'), ['supervisors']],
     [path.startsWith('/administrators'), ['administrators']],
+    [path.startsWith('/reciters'), ['reciters']],
+    [path.startsWith('/teachers'), ['teachers']],
     [path.startsWith('/complexes') && method === 'GET', ['families', 'students', 'reports', 'narrationDay']],
     [path.startsWith('/complexes'), ['families']],
     [path.startsWith('/families'), ['families']]
@@ -593,10 +606,13 @@ async function canAccessDashboardApi(req) {
 }
 
 async function authorizeApiRequest(req, res, next) {
-  // Reciter accounts were removed: an old reciter session has no access.
-  if (req.auth?.role === 'reciter') return res.status(401).json({ message: 'سجل الدخول أولاً.' });
   if (!req.auth || req.auth.role === 'manager') return next();
   try {
+    if (req.auth.role === 'teacher') return isTeacherApiRequest(req) ? next() : permissionDenied(res);
+    if (req.auth.role === 'reciter') {
+      if (isReciterBaseApiRequest(req) || await canAccessDashboardApi(req)) return next();
+      return permissionDenied(res);
+    }
     const path = req.path.replace(/^\/api/, '');
     if (req.auth.role === 'student' && req.method === 'GET' && path === '/student-news') return next();
     const targetStudent = /^\/students\/(\d+)(?:\/|$)/.exec(path);
@@ -954,9 +970,13 @@ app.use('/api/platform', platformRouter);
 app.use('/api', async (req, res, next) => {
   try {
     if (req.path === '/health') return next();
+    const isArchivePlayback = ['GET', 'HEAD'].includes(req.method) && /^\/calls\/archive\/playback\/[a-f0-9]{64}$/.test(req.path);
+    const playbackRegistration = isArchivePlayback ? String(req.query?.registrationNumber || '').trim() : '';
+    if (playbackRegistration && !/^\d{2,12}$/.test(playbackRegistration)) return res.status(422).json({ message: 'رقم المجمع غير صالح.' });
     const requestedRegistrationNumber = String(
       req.body?.registrationNumber
       || req.get('x-registration-number')
+      || playbackRegistration
       || req.query?.registrationNumber
       || '',
     ).trim();
@@ -971,7 +991,7 @@ app.use('/api', async (req, res, next) => {
           name: siteConfig.name,
           databaseName: standaloneDatabaseName,
         },
-      }, () => next());
+      }, () => { startCallArchiveWorker(); return next(); });
     }
     const complex = await findComplexByRegistration(registrationNumber);
     if (complex?.status !== 'active' || !complex.databaseName) {
@@ -984,7 +1004,7 @@ app.use('/api', async (req, res, next) => {
         name: complex.name,
         databaseName: complex.databaseName,
       },
-    }, () => next());
+    }, () => { startCallArchiveWorker(); return next(); });
   } catch (error) {
     return next(error);
   }
@@ -5109,7 +5129,7 @@ function buildActiveTenantScope(rows, defaultDatabase) {
   });
 }
 
-async function forEachActiveTenant(callback) {
+async function forEachActiveTenant(callback, { throwOnError = false } = {}) {
   let complexes = [];
   try {
     [complexes] = await platformDb().query(
@@ -5124,6 +5144,7 @@ async function forEachActiveTenant(callback) {
       `,
     );
   } catch (error) {
+    if (throwOnError) throw error;
     console.warn('Platform tenant lookup failed; continuing with the primary database:', error.message);
   }
   const defaultDatabase = process.env.MYSQL_DATABASE || `wajeh_${siteConfig.key}`;
@@ -5132,6 +5153,7 @@ async function forEachActiveTenant(callback) {
       await initDatabase(complex.databaseName);
       await runWithDatabase(complex.databaseName, { tenant: complex }, () => callback(complex));
     } catch (error) {
+      if (throwOnError) throw error;
       console.error(`Tenant task failed for ${complex.registrationNumber}:`, error);
     }
   }
@@ -6120,10 +6142,12 @@ async function reconcileAllTenantStartupState() {
     await limitActiveAuthSessionLifetimes();
     await reconcilePointSettingsOnStartup();
     await reconcileCurrentQuranPlanTasks();
+    startCallArchiveWorker();
   });
 }
 
 app.use('/api/complexes', createComplexRouter());
+app.use('/api/calls/archive', callArchiveRouter);
 app.use('/api/calls', callRouter);
 
 function getNarrationRating(score, maxScore = 100) {
@@ -6726,13 +6750,17 @@ app.get('/api/site-config', (_req, res) => {
 });
 
 app.use('/api/auth', tenantAuthRouter);
+const reciterRouter = createReciterRouter({ db, normalizeStaffAccount, ensureLoginNumberIsAvailable, ensureCommitteeIdsExist });
+app.use('/api/reciters', reciterRouter);
+const teacherRouter = createTeacherRouter({ db, normalizeStaffAccount, ensureLoginNumberIsAvailable, ensureCommitteeIdsExist });
+app.use('/api/teachers', teacherRouter);
 
 app.get('/api/dashboard-permissions/me', async (req, res, next) => {
   try {
     let permissions;
     if (req.auth?.role === 'manager') {
       permissions = DASHBOARD_PERMISSION_KEYS;
-    } else if (['supervisor', 'admin', 'reciter'].includes(req.auth?.role)) {
+    } else if (['supervisor', 'admin', 'reciter', 'teacher'].includes(req.auth?.role)) {
         permissions = await getSupervisorDashboardPermissions(req.auth?.id);
       } else {
         permissions = [];
@@ -6811,14 +6839,14 @@ app.put('/api/dashboard-permissions/:supervisorId', requirePermission, async (re
 
 app.get('/api/dashboard-bootstrap', async (req, res, next) => {
   try {
-    if (!['manager', 'supervisor', 'admin', 'reciter'].includes(req.auth?.role)) {
+    if (!['manager', 'supervisor', 'admin', 'reciter', 'teacher'].includes(req.auth?.role)) {
       return res.status(403).json({ message: 'غير مصرح بالدخول إلى لوحة التحكم.' });
     }
     const _resolveConditional6 = () => {
       if (req.auth?.role === 'manager') {
         return Promise.resolve(DASHBOARD_PERMISSION_KEYS);
       }
-      if (['supervisor', 'admin', 'reciter'].includes(req.auth?.role)) {
+      if (['supervisor', 'admin', 'reciter', 'teacher'].includes(req.auth?.role)) {
         return getSupervisorDashboardPermissions(req.auth?.id);
       }
       return Promise.resolve([]);

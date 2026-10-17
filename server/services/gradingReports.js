@@ -13,6 +13,23 @@ const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const number = (value) => Number(value || 0);
 const percentage = (grade, max) => (max > 0 ? Math.round((grade / max) * 1000) / 10 : 0);
 
+/** A daily report uses the frozen scheduled day, rather than all records stored under that Sunday. */
+export function gradingSessionDateSql(alias = '') {
+  const prefix = alias ? `${alias}.` : '';
+  return `DATE_ADD(${prefix}week_start, INTERVAL COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(${prefix}policy_json,
+    IF(${prefix}component = 'track', '$.trackSession.sessionDay', '$.weeklySession.sessionDay'))) AS UNSIGNED), 0) DAY)`;
+}
+
+const sessionRangeColumn = (from, to, alias = '') => from === to ? gradingSessionDateSql(alias) : `${alias ? `${alias}.` : ''}week_start`;
+const sessionRangeStart = (from, to) => from === to ? from : weekStartOf(from);
+const sessionStudySql = (from, to, alias = '') => {
+  const column = `${alias ? `${alias}.` : ''}week_start`;
+  const student = alias ? `${alias}.student_id` : 'student_weekly_components.student_id';
+  return from === to
+    ? studyDateSql(column, student).replaceAll(`${column} BETWEEN`, `${gradingSessionDateSql(alias)} BETWEEN`)
+    : studyWeekSql(column, student);
+};
+
 function assertPeriod(from, to) {
   if (!DATE_PATTERN.test(from) || !DATE_PATTERN.test(to) || from > to) {
     throw Object.assign(new Error('الفترة غير صحيحة.'), { status: 422 });
@@ -33,18 +50,18 @@ export async function buildGradingSessionReport(connection, { component, from, t
      FROM students s
      LEFT JOIN committees c ON c.id = s.committee_id
      LEFT JOIN student_weekly_components w
-       ON w.student_id = s.id AND w.component = ? AND ${studyWeekSql('w.week_start', 'w.student_id')} AND w.week_start BETWEEN ? AND ?
+       ON w.student_id = s.id AND w.component = ? AND ${sessionStudySql(from, to, 'w')} AND ${sessionRangeColumn(from, to, 'w')} BETWEEN ? AND ?
      WHERE ${scope.student('s.id')}
      GROUP BY s.id, s.name, c.name
      ORDER BY c.name, s.name`,
-    [component, weekStartOf(from), to],
+    [component, sessionRangeStart(from, to), to],
   );
   const policy = await loadGradingPolicy(scope);
   const expected = await loadExpectedGrades(scope, { from, to, policy });
   const completeRows = includeUnrecordedGrades(expected, rows, component);
   const compensations = await loadCompensationAudit(scope, from, to);
   const [details] = component === 'track' ? await scope.query(`SELECT student_id AS studentId, detail_json AS detail
-    FROM student_weekly_components WHERE component = 'track' AND week_start BETWEEN ? AND ? AND ${scope.student('student_id')}`, [weekStartOf(from), to]) : [[]];
+    FROM student_weekly_components WHERE component = 'track' AND ${sessionStudySql(from, to)} AND ${sessionRangeColumn(from, to)} BETWEEN ? AND ? AND ${scope.student('student_id')}`, [sessionRangeStart(from, to), to]) : [[]];
   const segmentResults = trackSegments(details);
   return {
     period: { from, to },
@@ -114,9 +131,9 @@ export async function buildGradingOverview(reportDb, { from, to, quranFaces = {}
     `SELECT component, COUNT(*) AS recorded, ${sessionAttendanceCountsSql()},
        COALESCE(SUM(grade), 0) AS grade, COALESCE(SUM(max_grade), 0) AS max
      FROM student_weekly_components
-     WHERE ${studyWeekSql('week_start', 'student_weekly_components.student_id')} AND week_start BETWEEN ? AND ? AND ${reportDb.student('student_id')}
+     WHERE ${sessionStudySql(from, to)} AND ${sessionRangeColumn(from, to)} BETWEEN ? AND ? AND ${reportDb.student('student_id')}
      GROUP BY component`,
-    [weekStartOf(from), to],
+    [sessionRangeStart(from, to), to],
   );
   const [[narration]] = await reportDb.query(
     `SELECT COALESCE(SUM(points), 0) AS grade, COUNT(DISTINCT student_id) AS students
@@ -162,16 +179,16 @@ export async function buildGradingOverview(reportDb, { from, to, quranFaces = {}
      FROM student_weekly_components w
      JOIN students s ON s.id = w.student_id
      LEFT JOIN committees c ON c.id = s.committee_id
-     WHERE ${studyWeekSql('w.week_start', 'w.student_id')} AND w.week_start BETWEEN ? AND ? AND ${reportDb.student('w.student_id')}
+     WHERE ${sessionStudySql(from, to, 'w')} AND ${sessionRangeColumn(from, to, 'w')} BETWEEN ? AND ? AND ${reportDb.student('w.student_id')}
      GROUP BY w.component, s.id, s.name, c.id, c.name`,
-    [weekStartOf(from), to],
+    [sessionRangeStart(from, to), to],
   );
   // Tested segments of each track session: how many were recited and their mistakes and warnings.
   const [trackDetailRows] = await reportDb.query(
     `SELECT student_id AS studentId, detail_json AS detail
      FROM student_weekly_components
-     WHERE component = 'track' AND ${studyWeekSql('week_start', 'student_weekly_components.student_id')} AND week_start BETWEEN ? AND ? AND ${reportDb.student('student_id')}`,
-    [weekStartOf(from), to],
+     WHERE component = 'track' AND ${sessionStudySql(from, to)} AND ${sessionRangeColumn(from, to)} BETWEEN ? AND ? AND ${reportDb.student('student_id')}`,
+    [sessionRangeStart(from, to), to],
   );
   const [readingStudentRows] = await reportDb.query(
     `SELECT student_id AS studentId, COUNT(*) AS days,

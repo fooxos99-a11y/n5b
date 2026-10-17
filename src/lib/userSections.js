@@ -1,4 +1,4 @@
-export const userSectionKeys = ['students', 'supervisors', 'administrators'];
+export const userSectionKeys = ['students', 'supervisors', 'administrators', 'reciters', 'teachers'];
 
 // Group only sections that have already passed permission, feature and offline checks.
 export function groupUserSections(sections) {

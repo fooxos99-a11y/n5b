@@ -10,6 +10,7 @@ import {
 import { hasSupervisorDashboardPermission, permissionDenied } from '../services/dashboardPermissions.js';
 import { siteKey } from '../siteConfig.js';
 import { subscribeLiveKitPresence } from '../services/livekitPresenceEvents.js';
+import { assertCallArchiveConsent, finishCallArchiveRoom, getCallArchiveRoomStates } from '../services/callArchive.js';
 
 const router = express.Router();
 
@@ -18,7 +19,7 @@ async function getCommitteeOptions(auth) {
     const [rows] = await db().query('SELECT id, name FROM committees ORDER BY name ASC');
     return rows.map((row) => ({ id: String(row.id), name: row.name }));
   }
-  if (auth?.role === 'supervisor') {
+  if (['supervisor', 'reciter'].includes(auth?.role)) {
     const [rows] = await db().query(
       `
       SELECT c.id, c.name
@@ -48,10 +49,10 @@ async function canAccessCommittee(auth, committeeId) {
   return committees.some((committee) => Number(committee.id) === Number(committeeId));
 }
 
-const canCreateRoom = (auth) => ['manager', 'admin', 'supervisor'].includes(auth?.role);
+const canCreateRoom = (auth) => ['manager', 'admin', 'supervisor', 'reciter'].includes(auth?.role);
 
 async function hasCallAccess(auth) {
-  if (['manager', 'supervisor', 'student'].includes(auth?.role)) return true;
+  if (['manager', 'supervisor', 'reciter', 'student'].includes(auth?.role)) return true;
   return auth?.role === 'admin' && await hasSupervisorDashboardPermission(auth.id, 'calls');
 }
 
@@ -99,17 +100,26 @@ async function loadCallDirectory(req) {
     // Bound media requests instead of issuing one unbounded request per room.
     for (let offset = 0; offset < rooms.length; offset += 8) {
       visible.push(...await Promise.all(rooms.slice(offset, offset + 8).map(async room => {
-        const participants = isLiveKitConfigured() ? await listLiveKitParticipants(room.livekitRoomName) : [];
+        let participants = [], presenceAvailable = true;
+        try {
+          if (isLiveKitConfigured()) participants = await listLiveKitParticipants(room.livekitRoomName);
+        } catch (error) {
+          if (error.statusCode !== 503) throw error;
+          // A media outage cannot remove the persistent room from its directory.
+          presenceAvailable = false;
+        }
         const { livekitRoomName: _privateName, ...publicRoom } = room;
         return { ...publicRoom, id: String(room.id), committeeId: room.committeeId == null ? null : String(room.committeeId),
-          participants, studentPresent: participants.some(person => person.role === 'student'),
+          participants, presenceAvailable, studentPresent: participants.some(person => person.role === 'student'),
           isOwner: room.createdByRole === req.auth.role && Number(room.createdById || 0) === creatorId,
           canClose: req.auth.role === 'manager' || (room.createdByRole === req.auth.role && Number(room.createdById || 0) === creatorId) };
       })));
     }
-    return { rooms: visible, committees, canCreate: canCreateRoom(req.auth),
+    const recording = await getCallArchiveRoomStates(visible.map(room => Number(room.id)));
+    return { rooms: visible.map(room => ({ ...room, recording: recording[room.id] })), committees, canCreate: canCreateRoom(req.auth),
       committeeSelectionLocked: req.auth.role === 'supervisor' && committees.length <= 1,
-      canCreateGeneral: ['manager', 'admin'].includes(req.auth.role), livekitConfigured: isLiveKitConfigured() };
+      canCreateGeneral: ['manager', 'admin', 'reciter'].includes(req.auth.role), livekitConfigured: isLiveKitConfigured(),
+      presenceUnavailable: visible.some(room => !room.presenceAvailable) };
 }
 
 router.get('/', async (req, res, next) => {
@@ -156,7 +166,7 @@ router.get('/events', async (req, res, next) => {
 router.post('/', async (req, res, next) => {
   try {
     if (!canCreateRoom(req.auth)) {
-      return res.status(403).json({ message: 'إنشاء الغرف متاح لمشرفي المسارات والإدارة فقط.' });
+      return res.status(403).json({ message: 'لا يملك حسابك صلاحية إنشاء الغرف.' });
     }
     if (!isLiveKitConfigured()) {
       return res.status(503).json({ message: 'خدمة المكالمات غير مهيأة حالياً.' });
@@ -209,6 +219,12 @@ router.post('/:id/token', async (req, res, next) => {
     if (!await canAccessCommittee(req.auth, room.committeeId)) {
       return res.status(403).json({ message: 'هذه الغرفة غير متاحة لحسابك.' });
     }
+    let recording;
+    try { recording = await assertCallArchiveConsent(req.auth, roomId, req.body.recordingConsent === true); }
+    catch (error) {
+      if (error.code === 'recording_consent_required') return res.status(422).json({ message: error.message, code: error.code, recordingConsentRequired: true });
+      throw error;
+    }
     const userId = Number(req.auth.id || 0);
     const credentials = await createLiveKitCallToken({
       roomName: room.livekitRoomName,
@@ -229,7 +245,7 @@ router.post('/:id/token', async (req, res, next) => {
       `,
       [roomId, req.auth.role, userId, req.auth.name || 'مستخدم']
     );
-    res.json({ ...credentials, room: { id: String(room.id), name: room.name } });
+    res.json({ ...credentials, recording, room: { id: String(room.id), name: room.name } });
   } catch (error) {
     next(error);
   }
@@ -270,6 +286,7 @@ router.post('/:id/close', async (req, res, next) => {
         "UPDATE call_rooms SET status = 'closed', closed_at = CURRENT_TIMESTAMP WHERE id = ?",
         [roomId]
       );
+      await finishCallArchiveRoom(room.livekitRoomName);
     }
     res.json({ ok: true });
   } catch (error) {

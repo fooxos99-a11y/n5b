@@ -5,19 +5,27 @@ import { TextDecoder } from 'node:util';
 import { setTimeout, clearTimeout } from 'node:timers';
 import assert from 'node:assert/strict';
 import { randomUUID, createHash } from 'node:crypto';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import express from 'express';
 import mysql from 'mysql2/promise';
 import { TokenVerifier, AccessToken } from 'livekit-server-sdk';
 import { initDatabase, runWithDatabase } from '../server/db.js';
 import callRouter from '../server/routes/callRoutes.js';
+import { invalidateLiveKitPresence } from '../server/services/livekitCalls.js';
+import { CALL_ARCHIVE_CONSENT_VERSION } from '../server/services/callArchiveConfig.js';
 
 assert.ok(['localhost', '127.0.0.1'].includes(process.env.MYSQL_HOST));
 assert.equal(process.env.MYSQL_DATABASE, 'nukhab_local');
+assert.notEqual(Number(process.env.MYSQL_PORT), 3312, 'protected database must never be used');
 const database = `nukhab_calls_${randomUUID().replaceAll('-', '').slice(0, 16)}`;
-const saved = Object.fromEntries(['LIVEKIT_URL', 'LIVEKIT_API_KEY', 'LIVEKIT_API_SECRET'].map(key => [key, process.env[key]]));
-let pool, server, mediaServer, rejectClose = false, closedRoom, activePeople = new Map(), streamController;
+const temporary = await mkdtemp(path.join(tmpdir(), 'nukhab-call-consent-'));
+const saved = Object.fromEntries(['LIVEKIT_URL', 'LIVEKIT_API_KEY', 'LIVEKIT_API_SECRET', 'CALL_ARCHIVE_ENABLED', 'CALL_ARCHIVE_STORAGE_PATH'].map(key => [key, process.env[key]]));
+let pool, server, mediaServer, rejectClose = false, rejectPresence = false, closedRoom, activePeople = new Map(), streamController;
 const listen = app => new Promise(resolve => { const listener = app.listen(0, '127.0.0.1', () => resolve(listener)); });
 try {
+  process.env.CALL_ARCHIVE_ENABLED = 'false';
   pool = await initDatabase(database, { seedDefaultData: false });
   await pool.query("INSERT INTO committees (id,name) VALUES (1,'Calls one'),(2,'Calls two')");
   await pool.query("INSERT INTO supervisors (id,name,login_number,national_id,phone,job_title,role) VALUES (7,'Test','calls-teacher','','','','admin')");
@@ -30,6 +38,7 @@ try {
   media.post('/twirp/livekit.RoomService/ListRooms', async (req, res) => {
     const claims = await verifier.verify(req.get('authorization').replace(/^Bearer /, ''));
     assert.equal(claims.video.roomList, true);
+    if (rejectPresence) return res.status(503).json({ code: 'unavailable', msg: 'Presence unavailable' });
     return res.json({ rooms: [...activePeople.keys()].map(name => ({ name })) });
   });
   media.post('/twirp/livekit.RoomService/ListParticipants', async (req, res) => {
@@ -83,6 +92,24 @@ try {
   assert.equal(claims.video.roomJoin, true);
   assert.equal(claims.video.roomAdmin, undefined);
   const roomName = claims.video.room;
+  assert.equal((await request(`/${roomId}/close`, { role: 'student', id: 3 })).status, 403);
+  assert.equal((await request(`/${roomId}/leave`, { role: 'student', id: 3 })).status, 200);
+  const [[afterLeave]] = await pool.query('SELECT status FROM call_rooms WHERE id=?', [roomId]);
+  assert.equal(afterLeave.status, 'open', 'leaving must never close the permanent room');
+  const afterLeaveDirectory = await request('', { role: 'student', id: 3, method: 'GET' });
+  assert.deepEqual(afterLeaveDirectory.body.rooms.map(room => room.id), [roomId]);
+  const rejoined = await request(`/${roomId}/token`, { role: 'student', id: 3 });
+  assert.equal(rejoined.status, 200);
+  assert.equal((await verifier.verify(rejoined.body.token)).video.room, roomName);
+  rejectPresence = true;
+  invalidateLiveKitPresence(roomName);
+  const unavailablePresence = await request('', { role: 'student', id: 3, method: 'GET' });
+  assert.equal(unavailablePresence.status, 200, 'media outage must not hide persistent rooms');
+  assert.deepEqual(unavailablePresence.body.rooms.map(room => room.id), [roomId]);
+  assert.equal(unavailablePresence.body.rooms[0].presenceAvailable, false);
+  assert.equal(unavailablePresence.body.presenceUnavailable, true);
+  rejectPresence = false;
+  invalidateLiveKitPresence(roomName);
   assert.equal((await request(`/${roomId}/close`, { role: 'supervisor', id: 7 })).status, 403);
   process.env.LIVEKIT_URL = '';
   assert.equal((await request(`/${roomId}/token`, { role: 'supervisor', id: 7 })).status, 503);
@@ -110,7 +137,9 @@ try {
   assert.equal(directory.body.rooms[0].studentPresent, false);
   assert.equal(Object.hasOwn(directory.body.rooms[0], 'participantCount'), false);
   const [[mediaRoom]] = await pool.query('SELECT livekit_room_name AS name FROM call_rooms WHERE id=?', [general.body.id]);
-  activePeople.set(mediaRoom.name, [{ identity: 'supervisor:7', name: 'مشرف اختبار' }]);
+  activePeople.set(mediaRoom.name, [{ identity: 'supervisor:7', name: 'مشرف اختبار', kind: 0 },
+    { identity: 'egress-recorder', name: 'Recorder bot', kind: 1 },
+    { identity: 'guest:99', name: 'Unknown identity', kind: 0 }]);
   streamController = new globalThis.AbortController();
   const stream = await globalThis.fetch(`http://127.0.0.1:${server.address().port}/calls/events`, {
     headers: { 'x-test-role': 'supervisor', 'x-test-id': '7' }, signal: streamController.signal,
@@ -167,7 +196,28 @@ try {
   assert.equal(everyoneLeft.rooms[0].studentPresent, false);
   assert.deepEqual(everyoneLeft.rooms[0].participants, []);
   streamController.abort(); await reader.cancel().catch(() => {});
+  activePeople.delete(mediaRoom.name);
+  invalidateLiveKitPresence(mediaRoom.name);
+  const afterMediaEnded = await request('', { role: 'student', id: 3, method: 'GET' });
+  assert.deepEqual(afterMediaEnded.body.rooms.map(room => room.id), [general.body.id]);
+  assert.equal(afterMediaEnded.body.rooms[0].presenceAvailable, true);
+  assert.deepEqual(afterMediaEnded.body.rooms[0].participants, []);
+  const freshAdmission = await request(`/${general.body.id}/token`, { role: 'student', id: 3 });
+  assert.equal(freshAdmission.status, 200, 'a room without a media session must accept a fresh admission');
+  assert.equal((await verifier.verify(freshAdmission.body.token)).video.room, mediaRoom.name);
   assert.equal((await request('', { role: 'admin', id: 7, method: 'GET' })).status, 403);
+  await pool.query("INSERT INTO supervisors (id,name,login_number,national_id,phone,job_title,role) VALUES (8,'Reciter','calls-reciter','','','','reciter')");
+  await pool.query('INSERT INTO supervisor_committees (supervisor_id,committee_id) VALUES (8,1)');
+  assert.equal((await request('', { role: 'reciter', id: 8, method: 'GET' })).status, 200);
+  const reciterGeneral = await request('', { role: 'reciter', id: 8, body: { name: 'Reciter general' } });
+  assert.equal(reciterGeneral.status, 201);
+  const reciterScoped = await request('', { role: 'reciter', id: 8, body: { name: 'Reciter scope', committeeId: 1 } });
+  assert.equal(reciterScoped.status, 201);
+  assert.equal((await request('', { role: 'reciter', id: 8, body: { name: 'Forbidden scope', committeeId: 2 } })).status, 403);
+  assert.equal((await request(`/${other.body.id}/token`, { role: 'reciter', id: 8 })).status, 403);
+  assert.equal((await request(`/${general.body.id}/close`, { role: 'reciter', id: 8 })).status, 403);
+  assert.equal((await request(`/${reciterGeneral.body.id}/token`, { role: 'reciter', id: 8 })).status, 200);
+  assert.equal((await request(`/${reciterGeneral.body.id}/close`, { role: 'reciter', id: 8 })).status, 200);
   assert.equal((await request(`/${general.body.id}/token`, { role: 'admin', id: 7 })).status, 403);
   await pool.query("INSERT INTO supervisor_dashboard_permissions(supervisor_id,permission_key) VALUES(7,'calls')");
   assert.equal((await request('', { role: 'admin', id: 7, method: 'GET' })).status, 200);
@@ -195,13 +245,38 @@ try {
   await pool.query("DELETE FROM auth_sessions WHERE token_hash='test-live-session'");
   await expectClosed(revokedSessionReader);
   assert.equal((await request('', { role: 'admin', id: 7, method: 'GET' })).status, 403);
-  globalThis.console.log('Isolated MySQL/HTTP passed: room scope, signed admission, failed configuration without phantom participants, remote close failure recovery, closed-room rejection, general-room access, live media join/leave snapshots, no historical participants, grant denial/revocation and session revocation.');
+  Object.assign(process.env, { CALL_ARCHIVE_ENABLED: 'true', CALL_ARCHIVE_STORAGE_PATH: temporary });
+  const [[beforeConsent]] = await pool.query("SELECT join_count AS joins FROM call_room_participants WHERE room_id=? AND user_role='student' AND user_id=3", [general.body.id]);
+  const consentDenied = await request(`/${general.body.id}/token`, { role: 'student', id: 3 });
+  assert.equal(consentDenied.status, 422);
+  assert.equal(consentDenied.body.code, 'recording_consent_required');
+  assert.equal(consentDenied.body.recordingConsentRequired, true);
+  assert.equal(Object.hasOwn(consentDenied.body, 'token'), false);
+  const [[afterConsentDenied]] = await pool.query("SELECT join_count AS joins FROM call_room_participants WHERE room_id=? AND user_role='student' AND user_id=3", [general.body.id]);
+  assert.equal(afterConsentDenied.joins, beforeConsent.joins, 'denied consent cannot mutate admission history');
+  assert.equal(Number((await pool.query('SELECT COUNT(*) AS count FROM call_archive_consents'))[0][0].count), 0);
+  const consentAccepted = await request(`/${general.body.id}/token`, { role: 'student', id: 3, body: { recordingConsent: true } });
+  assert.equal(consentAccepted.status, 200);
+  assert.equal((await verifier.verify(consentAccepted.body.token)).sub, 'student:3');
+  assert.equal(consentAccepted.body.recording.consentRequired, true);
+  const [[storedConsent]] = await pool.query("SELECT consent_version AS version FROM call_archive_consents WHERE room_id=? AND identity='student:3'", [general.body.id]);
+  assert.equal(storedConsent.version, CALL_ARCHIVE_CONSENT_VERSION);
+  assert.equal((await request('/999999/token', { role: 'student', id: 3, body: { recordingConsent: true } })).status, 404);
+  assert.equal((await request(`/${other.body.id}/token`, { role: 'student', id: 3, body: { recordingConsent: true } })).status, 403);
+  assert.equal(Number((await pool.query('SELECT COUNT(*) AS count FROM call_archive_consents'))[0][0].count), 1, 'missing or unauthorized rooms cannot receive consent records');
+  globalThis.console.log('Isolated MySQL/HTTP passed: durable empty rooms after leave/media expiry and fresh admission, presence outage fallback, student close denial, reciter scope/ownership, signed admission, explicit close recovery, live snapshots and grant/session revocation; integrated consent POST rejects before token/history, accepts and stores version, rejects missing/unauthorized rooms without consent writes.');
 } finally {
   streamController?.abort();
   for (const listener of [server, mediaServer]) await new Promise(resolve => listener ? listener.close(resolve) : resolve());
   await pool?.end();
   for (const [key, value] of Object.entries(saved)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
-  const connection = await mysql.createConnection({ host: process.env.MYSQL_HOST, port: Number(process.env.MYSQL_PORT), user: process.env.MYSQL_USER, password: process.env.MYSQL_PASSWORD });
-  try { assert.match(database, /^nukhab_calls_[a-f0-9]{16}$/); await connection.query(`DROP DATABASE IF EXISTS \`${database}\``); }
-  finally { await connection.end(); }
+  try {
+    const connection = await mysql.createConnection({ host: process.env.MYSQL_HOST, port: Number(process.env.MYSQL_PORT), user: process.env.MYSQL_USER, password: process.env.MYSQL_PASSWORD });
+    try { assert.match(database, /^nukhab_calls_[a-f0-9]{16}$/); await connection.query(`DROP DATABASE IF EXISTS \`${database}\``); }
+    finally { await connection.end(); }
+  } finally {
+    assert.ok(path.resolve(temporary).startsWith(path.resolve(tmpdir()) + path.sep));
+    assert.ok(path.basename(temporary).startsWith('nukhab-call-consent-'));
+    await rm(temporary, { recursive: true, force: true });
+  }
 }

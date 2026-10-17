@@ -1,9 +1,11 @@
 export const AudioPresets = { speech: { maxBitrate: 24000 } };
 export const Track = { Kind: { Audio: 'audio' }, Source: { ScreenShare: 'screen_share', Camera: 'camera' } };
-export const RoomEvent = Object.fromEntries(['ParticipantConnected', 'ParticipantDisconnected', 'ActiveSpeakersChanged', 'TrackMuted', 'TrackUnmuted', 'TrackPublished', 'TrackUnpublished', 'LocalTrackPublished', 'LocalTrackUnpublished', 'TrackSubscribed', 'TrackUnsubscribed'].map(key => [key, key]));
+export const DisconnectReason = { ROOM_DELETED: 'room-deleted', DUPLICATE_IDENTITY: 'duplicate-identity' };
+export const RoomEvent = Object.fromEntries(['Reconnecting', 'Reconnected', 'Disconnected', 'ParticipantConnected', 'ParticipantDisconnected', 'ActiveSpeakersChanged', 'TrackMuted', 'TrackUnmuted', 'TrackPublished', 'TrackUnpublished', 'LocalTrackPublished', 'LocalTrackUnpublished', 'TrackSubscribed', 'TrackUnsubscribed'].map(key => [key, key]));
 
 export class Room {
   static instances = [];
+  static failNextConnection = false;
   constructor(options) {
     this.options = options;
     this.events = new Map();
@@ -20,8 +22,9 @@ export class Room {
     Room.instances.push(this);
   }
   on(event, listener) { this.events.set(event, listener); return this; }
-  async connect() { this.connections++; }
+  async connect() { this.connections++; if (Room.failNextConnection) { Room.failNextConnection = false; throw new Error('Synthetic connection failure'); } }
   async disconnect() { this.disconnections++; }
   subscribe() { this.events.get(RoomEvent.TrackSubscribed)?.(this.audioTrack, { source: 'microphone' }, { identity: 'remote-test' }); }
   unsubscribe() { this.events.get(RoomEvent.TrackUnsubscribed)?.(this.audioTrack, { source: 'microphone' }, { identity: 'remote-test' }); }
+  emit(event, reason) { this.events.get(event)?.(reason); }
 }

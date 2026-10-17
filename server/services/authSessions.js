@@ -24,7 +24,7 @@ async function findAuthSession(req) {
     SELECT session.user_role AS role, session.user_id AS id, session.user_name AS name
     FROM auth_sessions session
     LEFT JOIN students student ON session.user_role = 'student' AND student.id = session.user_id
-    LEFT JOIN supervisors staff ON session.user_role IN ('manager', 'admin', 'supervisor') AND staff.id = session.user_id
+    LEFT JOIN supervisors staff ON session.user_role IN ('manager', 'admin', 'supervisor', 'reciter', 'teacher') AND staff.id = session.user_id
     WHERE session.token_hash = ?
       AND (
         (student.id IS NOT NULL AND student.password_hash IS NOT NULL AND student.password_hash <> '')

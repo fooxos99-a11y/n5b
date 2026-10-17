@@ -14,7 +14,7 @@ test('student points report is shown only for enabled teacher adjustments', asyn
 
   assert.match(reports, /if \(canViewTeacherPoints\) loadList\('teacherPoints', listLoaders\.teacherPoints\)/);
   assert.match(reports, /showTeacherPoints: canViewTeacherPoints && !archiveId/);
-  assert.match(dashboard, /canViewTeacherPoints=\{settings\.teacherManualPointsEnabled\}/);
+  assert.match(dashboard, /canViewTeacherPoints=\{!isTeacher && settings\.teacherManualPointsEnabled\}/);
   assert.match(api, /\/reports\/student-points/);
   assert.match(server, /app\.get\('\/api\/reports\/student-points'/);
   assert.doesNotMatch(server, /pointsSystemEnabled\)/);

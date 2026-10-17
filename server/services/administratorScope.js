@@ -4,7 +4,7 @@ import { normalizeDashboardGrants } from '../../shared/dashboard-permissions.js'
 export async function assertAdministratorScope(connection, actor, { targetId = null, permissions = [], managementPermission = 'administrators' } = {}) {
   if (actor?.role === 'manager') return;
   const denied = () => Object.assign(new Error('لا يمكنك إدارة حساب بصلاحيات تتجاوز صلاحياتك.'), { status: 403, statusCode: 403 });
-  if (!['admin', 'supervisor'].includes(actor?.role)) throw denied();
+  if (!['admin', 'supervisor', 'reciter'].includes(actor?.role)) throw denied();
   const [rows] = await connection.query(
     'SELECT permission_key AS permissionKey FROM supervisor_dashboard_permissions WHERE supervisor_id = ? FOR UPDATE',
     [actor.id],

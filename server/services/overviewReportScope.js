@@ -1,6 +1,6 @@
 // Only the report builder supplies SQL. Scope values remain bound parameters.
 export function createOverviewReportScope(connection, { auth = null, committeeId = 'all', complexId = 'all' } = {}) {
-  const teacherId = auth?.role === 'supervisor' ? Number(auth.id) : null;
+  const teacherId = ['supervisor', 'teacher'].includes(auth?.role) ? Number(auth.id) : null;
   const selectedCommitteeId = committeeId === 'all' || committeeId == null ? null : Number(committeeId);
   const selectedComplexId = complexId === 'all' || complexId == null ? null : Number(complexId);
   if ((teacherId !== null && (!Number.isSafeInteger(teacherId) || teacherId <= 0))

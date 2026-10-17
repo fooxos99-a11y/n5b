@@ -1,4 +1,4 @@
-import { DASHBOARD_PERMISSION_KEYS, SUPERVISOR_BASE_PERMISSIONS, normalizeDashboardGrants } from '../../shared/dashboard-permissions.js';
+import { DASHBOARD_PERMISSION_KEYS, effectiveStaffPermissions, normalizeDashboardGrants } from '../../shared/dashboard-permissions.js';
 import { db } from '../db.js';
 import { requireUndoPermission } from './undoJournal.js';
 
@@ -26,9 +26,7 @@ export async function getSupervisorDashboardPermissions(supervisorId) {
   );
   const role = rows[0]?.role || '';
   const permissions = cleanDashboardPermissions(rows.map((row) => row.permissionKey));
-  if (role === 'reciter') return ['quranEvaluation'];
-  if (role === 'supervisor') return cleanDashboardPermissions([...SUPERVISOR_BASE_PERMISSIONS, ...permissions]);
-  return role === 'admin' ? cleanAdministratorDashboardPermissions(permissions) : [];
+  return effectiveStaffPermissions(role, permissions);
 }
 
 export async function hasSupervisorDashboardPermission(supervisorId, permissionKeys) {
@@ -59,7 +57,7 @@ export function requirePermission(permissionKeys, res, next) {
   return async (req, routeRes, routeNext) => {
     try {
       if (req.auth?.role === 'manager') { requireUndoPermission(keys); return routeNext(); }
-      if (['supervisor', 'admin', 'reciter'].includes(req.auth?.role) && await hasSupervisorDashboardPermission(req.auth.id, keys)) {
+      if (['supervisor', 'admin', 'reciter', 'teacher'].includes(req.auth?.role) && await hasSupervisorDashboardPermission(req.auth.id, keys)) {
         requireUndoPermission(keys);
         return routeNext();
       }

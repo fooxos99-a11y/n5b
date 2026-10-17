@@ -8,7 +8,7 @@ export default function CallRoomCards({ rooms, onJoinRoom }) {
     <article key={room.id} className="flex min-w-0 flex-col gap-4 rounded-2xl border border-border bg-card p-4 shadow-sm">
       <div className="flex items-center justify-between gap-3">
         <h2 className="min-w-0 break-words text-base font-bold">{room.name}</h2>
-        <span role="img" aria-label={room.studentPresent ? 'الطالب موجود' : 'لا يوجد طالب'} className={`h-3 w-3 shrink-0 rounded-full ${room.studentPresent ? 'bg-red-500' : 'bg-emerald-500'}`} />
+        <span role="img" aria-label={room.presenceAvailable === false ? 'تعذر تحديث الموجودين' : room.studentPresent ? 'الطالب موجود' : 'لا يوجد طالب'} className={`h-3 w-3 shrink-0 rounded-full ${room.presenceAvailable === false ? 'bg-muted-foreground/40' : room.studentPresent ? 'bg-red-500' : 'bg-emerald-500'}`} />
       </div>
       <Button onClick={() => onJoinRoom?.(room)} className="mt-auto min-h-11 w-full">دخول المكالمة</Button>
     </article>

@@ -1,11 +1,12 @@
 import CallRoomList from './CallRoomList';
 import CallRoomCards from './CallRoomCards';
+import CallArchiveSection from './CallArchiveSection';
 import { subscribeCallDirectory } from '@/services/callDirectory';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Plus } from 'lucide-react';
 import DashboardLoader from '@/components/dashboard/DashboardLoader';
 import ErrorState from '@/components/ui/error-state';
-import { FormField, FormGrid, ManagementEmpty, ManagementPanel, ManagementToolbar } from '@/components/dashboard/layout/ManagementPanel';
+import { FormField, FormGrid, ManagementEmpty, ManagementPanel, ManagementTabs, ManagementToolbar } from '@/components/dashboard/layout/ManagementPanel';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -15,6 +16,7 @@ import { studentsApi } from '@/services/studentsApi';
 
 const CallsSection = ({ onJoinRoom, embedded = false }) => {
   const { toast } = useToast();
+  const [tab, setTab] = useState(() => new URLSearchParams(window.location.search).has('callSession') || new URLSearchParams(window.location.search).has('callArchiveRoom') ? 'archive' : 'open');
   const [rooms, setRooms] = useState([]);
   const [search, setSearch] = useState('');
   const [committees, setCommittees] = useState([]);
@@ -28,8 +30,12 @@ const CallsSection = ({ onJoinRoom, embedded = false }) => {
   const [createOpen, setCreateOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [form, setForm] = useState({ name: '', committeeId: '' });
+  const snapshotVersion = useRef(0);
+  const hasDirectory = useRef(false);
 
   const applyDirectory = useCallback(data => {
+    snapshotVersion.current += 1;
+    hasDirectory.current = true;
     setLoadError('');
     setRooms((data.rooms || []).filter((room) => room.status === 'open'));
     setCommittees(data.committees || []);
@@ -38,25 +44,29 @@ const CallsSection = ({ onJoinRoom, embedded = false }) => {
     setCommitteeSelectionLocked(Boolean(data.committeeSelectionLocked));
     setLivekitConfigured(data.livekitConfigured === true);
     setForm((current) => ({ ...current, committeeId: current.committeeId || String(data.committees?.[0]?.id || '') }));
-    setLiveError('');
+    setLiveError(data.presenceUnavailable ? 'تعذر تحديث الموجودين. تبقى الغرف متاحة للدخول.' : '');
   }, []);
 
-  const load = useCallback(async ({ quiet = false } = {}) => {
-    if (!quiet) setIsLoading(true);
+  const load = useCallback(async ({ quiet = false, isCurrent = () => true } = {}) => {
+    const requestedVersion = snapshotVersion.current;
+    if (!quiet && !hasDirectory.current) setIsLoading(true);
     try {
       const data = await studentsApi.getCallRooms();
-      applyDirectory(data);
+      if (isCurrent() && requestedVersion === snapshotVersion.current) applyDirectory(data);
     } catch (error) {
-      if (!quiet) setLoadError(error.message || 'تعذر تحميل الغرف.');
+      if (!isCurrent() || requestedVersion !== snapshotVersion.current) return;
+      if ([401, 403].includes(error.status)) { setRooms([]); setLoadError(error.message || 'المكالمات غير متاحة لحسابك.'); }
+      else if (hasDirectory.current) setLiveError(error.message || 'تعذر تحديث الغرف.');
+      else if (!quiet) setLoadError(error.message || 'تعذر تحميل الغرف.');
       if (!quiet) toast({ title: 'تعذر تحميل الغرف', description: error.message, variant: 'destructive' });
     } finally {
-      if (!quiet) setIsLoading(false);
+      if (!quiet && isCurrent()) setIsLoading(false);
     }
   }, [applyDirectory, toast]);
 
   useEffect(() => {
     let canceled = false, stop;
-    load().then(() => {
+    load({ isCurrent: () => !canceled }).then(() => {
       if (!canceled) stop = subscribeCallDirectory({ onData: applyDirectory, onError: error => {
         setLiveError(error.message);
         if ([401, 403].includes(error.status)) { setRooms([]); setLoadError(error.message); }
@@ -100,6 +110,8 @@ const CallsSection = ({ onJoinRoom, embedded = false }) => {
   const Container = embedded ? 'section' : ManagementPanel;
   return (
     <Container className={embedded ? '[font-family:var(--font-ui)]' : undefined} dir="rtl">
+      <ManagementTabs label="المكالمات والأرشيف" value={tab} onChange={setTab} items={[{ value: 'open', label: 'الغرف المفتوحة' }, { value: 'archive', label: 'الأرشيف' }]}>
+      {tab === 'archive' ? <CallArchiveSection /> : <>
       {(!embedded || canCreate) && <ManagementToolbar className="flex-nowrap">
         {!embedded && <Input type="search" aria-label="ابحث في المكالمات" placeholder="ابحث في المكالمات" value={search} onChange={event => setSearch(event.target.value)} className="h-11 min-w-0 flex-1 basis-0" />}
         {canCreate && <>
@@ -109,6 +121,8 @@ const CallsSection = ({ onJoinRoom, embedded = false }) => {
         </>}
       </ManagementToolbar>}
       {_resolveCallsSection()}
+      </>}
+      </ManagementTabs>
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent className="bg-card text-foreground [font-family:var(--font-ui)]" dir="rtl">

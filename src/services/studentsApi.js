@@ -238,9 +238,9 @@ export const studentsApi = {
     method: 'POST',
     body: JSON.stringify(payload),
   }),
-  getCallToken: (roomId) => request(`/calls/${roomId}/token`, {
+  getCallToken: (roomId, options = {}) => request(`/calls/${roomId}/token`, {
     method: 'POST',
-    body: JSON.stringify({}),
+    body: JSON.stringify({ recordingConsent: options.recordingConsent === true }),
   }),
   leaveCallRoom: (roomId) => request(`/calls/${roomId}/leave`, {
     method: 'POST',
@@ -454,6 +454,16 @@ export const studentsApi = {
       method: 'DELETE',
     }),
   getAdministrators: () => request('/administrators'),
+  getReciters: ({ search = '' } = {}) => request(`/reciters?${new URLSearchParams({ search })}`),
+  createReciter: payload => request('/reciters', { method: 'POST', body: JSON.stringify(payload) }),
+  updateReciter: (id, payload) => request(`/reciters/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
+  deleteReciter: id => request(`/reciters/${id}`, { method: 'DELETE' }),
+  setReciterActive: (id, isActive) => request(`/reciters/${id}/active`, { method: 'PUT', body: JSON.stringify({ isActive }) }),
+  getTeachers: ({ search = '' } = {}) => request(`/teachers?${new URLSearchParams({ search })}`),
+  createTeacher: payload => request('/teachers', { method: 'POST', body: JSON.stringify(payload) }),
+  updateTeacher: (id, payload) => request(`/teachers/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
+  deleteTeacher: id => request(`/teachers/${id}`, { method: 'DELETE' }),
+  setTeacherActive: (id, isActive) => request(`/teachers/${id}/active`, { method: 'PUT', body: JSON.stringify({ isActive }) }),
   createAdministrator: (payload) =>
     request('/administrators', {
       method: 'POST',

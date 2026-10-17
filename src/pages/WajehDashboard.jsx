@@ -1,4 +1,5 @@
 import { groupUserSections, userSectionKeys } from '@/lib/userSections';
+import { hasExtendedReciterPermissions } from '../../shared/dashboard-permissions.js';
 import DashboardUndoNotice from '@/components/dashboard/DashboardUndoNotice';
 import useDashboardUndoRefresh from '@/hooks/useDashboardUndoRefresh';
 import PageLoadingBoundary from '@/components/ui/page-loading-boundary';
@@ -94,6 +95,7 @@ const dashboardSectionPreloaders = {
   studentPlans: () => import('@/components/dashboard/StudentPlansSection'),
   students: () => import('@/components/dashboard/StudentsSection'),
   supervisors: () => import('@/components/dashboard/SupervisorsSection'),
+  teachers: () => import('@/components/dashboard/TeachersSection'),
   quranEvaluation: () => import('@/components/dashboard/TeacherEvaluationSection'),
   previousRecitationSessions: () => import('@/components/portal/TeacherPreviousSessionsPanel'),
   whatsappSend: () => import('@/components/dashboard/WhatsAppSendSection'),
@@ -119,6 +121,7 @@ const sectionFeatureKeys = {
   families: 'committeesSectionEnabled',
   supervisors: 'usersRolesSectionEnabled',
   administrators: 'usersRolesSectionEnabled',
+  teachers: 'usersRolesSectionEnabled',
   narrationDay: 'narrationSectionEnabled',
   calls: 'callsSectionEnabled',
   registrationRequests: 'registrationRequestsSectionEnabled',
@@ -138,6 +141,8 @@ const baseSections = [
   { key: 'weeklySession', label: 'الجلسة الأسبوعية', icon: CalendarCheck2, permissionKey: 'weeklySession' },
   { key: 'supervisors', label: 'مشرفي المسارات', icon: Users },
   { key: 'administrators', label: 'الإداريين', icon: ShieldCheck },
+  { key: 'reciters', label: 'المقرئون', icon: Users },
+  { key: 'teachers', label: 'المعلمون', icon: GraduationCap },
   { key: 'narrationDay', label: 'يوم السرد', icon: BookMarked },
   { key: 'quranPassing', label: 'الاجتياز', icon: ClipboardCheck },
   { key: 'calls', label: 'المكالمات', icon: PhoneCall },
@@ -207,7 +212,10 @@ const WajehDashboard = () => {
   const isManager = role === 'manager' && hasSession;
   const isSupervisor = role === 'supervisor' && hasSession;
   const isAdmin = role === 'admin' && hasSession;
-  const hasDashboardAccess = isManager || isAdmin || (isSupervisor && dashboardPermissions.length > 0);
+  const isReciter = role === 'reciter' && hasSession;
+  const isTeacher = role === 'teacher' && hasSession;
+  const hasDashboardAccess = isManager || isAdmin || isTeacher || (isSupervisor && dashboardPermissions.length > 0)
+    || (isReciter && hasExtendedReciterPermissions(dashboardPermissions));
 
   useEffect(() => {
     const routeKey = dashboardSectionRoutes.getKey(sectionSlug);
@@ -226,7 +234,7 @@ const WajehDashboard = () => {
       setIsDashboardLoading(false);
       return;
     }
-    if (isManager || isSupervisor || isAdmin) {
+    if (isManager || isSupervisor || isAdmin || isReciter || isTeacher) {
       studentsApi.getDashboardBootstrap()
         .then((data) => {
           setSettings({ ...defaultSettings, ...(data.settings) });
@@ -245,7 +253,7 @@ const WajehDashboard = () => {
     } else {
       setIsDashboardLoading(false);
     }
-  }, [isAdmin, isManager, isOnline, isSupervisor]);
+  }, [isAdmin, isManager, isOnline, isSupervisor, isReciter, isTeacher]);
 
   const staffAttendanceActive = settings.staffAttendanceSource === 'teacher' && (isSupervisor || isAdmin);
   const staffAttendanceState = useStaffAttendance(staffAttendanceActive);
@@ -256,6 +264,7 @@ const WajehDashboard = () => {
   const sections = useMemo(() => {
     const filteredSections = baseSections.filter((section) => {
       if (isDashboardSectionDisabled({ section, settings, isManager, isSupervisor, site })) return false;
+      if (isTeacher) return section.key === 'reports';
       if (isSupervisor && section.key === 'studentPlans') return true;
       if (isSupervisor && ['teacherPoints', 'calls', 'reports'].includes(section.key)) return true;
       if (section.key === 'staffAttendance') return canDisplayStaffAttendance({ settings, alreadyPresentToday, isSupervisor, isAdmin, dashboardPermissions });
@@ -278,10 +287,11 @@ const WajehDashboard = () => {
       (supervisorSectionOrder.get(first.key) ?? Number.MAX_SAFE_INTEGER)
       - (supervisorSectionOrder.get(second.key) ?? Number.MAX_SAFE_INTEGER)
     )));
-  }, [alreadyPresentToday, dashboardPermissions, isAdmin, isManager, isOnline, isSupervisor, settings, site.features]);
+  }, [alreadyPresentToday, dashboardPermissions, isAdmin, isManager, isOnline, isSupervisor, isTeacher, settings, site.features]);
 
   const routeSection = dashboardSectionRoutes.getKey(sectionSlug);
   const _resolveRequestedSection = () => {
+    if (new URLSearchParams(window.location.search).has('callArchiveRoom') || new URLSearchParams(window.location.search).has('callSession')) return 'calls';
     if (routeSection === 'settings') {
       return defaultSettingsNavigationKey;
     }
@@ -305,7 +315,7 @@ const WajehDashboard = () => {
     const canonicalSlug = dashboardSectionRoutes.getSlug(visibleActiveSection);
     if (sectionSlug !== canonicalSlug) {
       const tab = userSectionKeys.includes(routeSection) && visibleActiveSection === 'users' ? `?tab=${routeSection}` : '';
-      navigate(`/dashboard/${canonicalSlug}${tab}`, { replace: true });
+      navigate(`/dashboard/${canonicalSlug}${tab || (visibleActiveSection === 'calls' ? window.location.search : '')}`, { replace: true });
     }
   }, [hasDashboardAccess, navigationLoading, navigate, routeSection, sectionSlug, visibleActiveSection, waitingForConnection]);
 
@@ -332,9 +342,9 @@ const WajehDashboard = () => {
       case 'families': return <FamiliesSection />;
       case 'reports': return (
       <ReportsSection
-        teacherScoped={isSupervisor}
+        teacherScoped={isSupervisor || isTeacher}
         canViewStandardReports={isSupervisor || isManager || dashboardPermissions.includes('reports')}
-        canViewTeacherPoints={settings.teacherManualPointsEnabled}
+        canViewTeacherPoints={!isTeacher && settings.teacherManualPointsEnabled}
       />
     );
       case 'calls': return activeCallRoom ? null : <LazyCallsSection onJoinRoom={setActiveCallRoom} />;
@@ -412,7 +422,7 @@ const WajehDashboard = () => {
     <DashboardUndoNotice active={isAdmin || isManager} />
     <StaffAttendancePrompt active={staffAttendanceActive} attendanceState={staffAttendanceState} />
     <DashboardShell
-      headerContent={visibleActiveSection === 'quranEvaluation' ? <><Suspense fallback={null}><RecitationSettingsButton staffId={supervisorId} /></Suspense><NotificationButton showTrigger={false} /></> : <NotificationButton />}
+      headerContent={isTeacher || (isReciter && !dashboardPermissions.includes('notifications')) ? null : visibleActiveSection === 'quranEvaluation' ? <><Suspense fallback={null}><RecitationSettingsButton staffId={supervisorId} /></Suspense><NotificationButton showTrigger={false} /></> : <NotificationButton />}
       title={site.name}
       logo={site.markLogo || site.squareLogo || site.logo}
       sections={sections}

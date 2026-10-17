@@ -1,6 +1,42 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildGradingOverview, buildGradingSessionReport } from '../server/services/gradingReports.js';
+import { loadExpectedGrades, includeUnrecordedGrades } from '../server/services/expectedGrades.js';
+import { normalizeGradingPolicy } from '../shared/grading-policy.js';
+
+test('daily expectations include only sessions scheduled on that day, retaining a recorded historical day', async () => {
+  const policy = normalizeGradingPolicy({ trackSession: { sessionDay: 2 }, weeklySession: { sessionDay: 3 } });
+  const connection = { student: () => '1=1', query: async sql => {
+    if (sql.includes('AS holidays') || sql.includes('AS pause') || sql.includes('FROM grading_week_policies')) return [[]];
+    if (sql.includes('FROM student_weekly_components')) return [[{ studentId: 2, component: 'track', policy: JSON.stringify(normalizeGradingPolicy({ trackSession: { sessionDay: 3 } })) }]];
+    if (sql.includes('AS joined')) return [[{ id: 1, joined: '2026-01-01' }, { id: 2, joined: '2026-01-01' }]];
+    throw new Error(`Unexpected query ${sql}`);
+  } };
+  const expected = await loadExpectedGrades(connection, { from: '2026-09-23', to: '2026-09-23', today: '2026-09-23', policy });
+  assert.equal(expected[0].trackMax, 0);
+  assert.equal(expected[0].weeklyMax, 20);
+  assert.equal(expected[1].trackMax, 30, 'the frozen Wednesday record remains on Wednesday');
+  assert.deepEqual(includeUnrecordedGrades(expected, [], 'track').map(row => row.weeks), [0, 1]);
+  assert.deepEqual(includeUnrecordedGrades(expected, [], 'weekly').map(row => row.weeks), [1, 1]);
+});
+
+test('a daily grade freezing an old week policy does not freeze an unrecorded session day', async () => {
+  const old = normalizeGradingPolicy({ trackSession: { sessionDay: 2, attendance: 7, segmentMax: 15 }, weeklySession: { sessionDay: 2 } });
+  const live = normalizeGradingPolicy({ trackSession: { sessionDay: 4 }, weeklySession: { sessionDay: 4 } });
+  const connection = { student: () => '1=1', query: async sql => {
+    if (sql.includes('AS holidays') || sql.includes('AS pause')) return [[]];
+    if (sql.includes('FROM grading_week_policies')) return [[{ weekStart: '2026-09-20', policy: JSON.stringify(old) }]];
+    if (sql.includes('FROM student_weekly_components')) return [[{ studentId: 2, component: 'track', policy: JSON.stringify(old) }]];
+    if (sql.includes('AS joined')) return [[{ id: 1, joined: '2026-01-01' }, { id: 2, joined: '2026-01-01' }]];
+    throw new Error(`Unexpected query ${sql}`);
+  } };
+  const thursday = await loadExpectedGrades(connection, { from: '2026-09-24', to: '2026-09-24', today: '2026-09-24', policy: live });
+  assert.equal(thursday[0].trackMax, 37, 'unrecorded session follows the new day with the frozen week amounts');
+  assert.equal(thursday[1].trackMax, 0, 'the already recorded session stays on its old day');
+  const tuesday = await loadExpectedGrades(connection, { from: '2026-09-22', to: '2026-09-22', today: '2026-09-24', policy: live });
+  assert.equal(tuesday[0].trackMax, 0);
+  assert.equal(tuesday[1].trackMax, 37, 'a recorded component retains its own frozen amounts');
+});
 
 test('session report aggregates the weeks touching the period and scopes teachers', async () => {
   let captured;

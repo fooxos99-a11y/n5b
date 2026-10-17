@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>دليل معاينة تعديلات نخب</title></head>
+  <body>
+    <main id="guide" hidden class="mx-auto max-w-5xl space-y-7 p-4 py-8 sm:p-8">
+      <header class="space-y-3"><p class="text-sm text-muted-foreground">نخب · معاينة محلية</p><h1 class="text-2xl font-bold sm:text-3xl">شاهد تعديلات المكالمات والمقرئين</h1><p class="leading-8 text-muted-foreground">الموقع على المنفذ 3038 يستخدم الخادم وقاعدة البيانات المحليين. بيانات المعاينة مخصصة للاختبار، ولا توجد مكالمة بشرية أو تقارير مولّدة فعليًا من مزود ذكاء اصطناعي حتى الآن.</p></header>
+      <section class="space-y-3 rounded-2xl border border-border p-4 sm:p-6"><h2 class="text-xl font-bold">ابدأ بتسجيل الدخول</h2><a class="inline-flex min-h-11 items-center rounded-xl bg-primary px-5 text-primary-foreground" href="/login">فتح تسجيل الدخول</a><p class="text-sm leading-7">الحساب الإداري <b dir="ltr">990001</b>، والمقرئ <b dir="ltr">990002</b>، والطالب <b dir="ltr">990003</b>، والمعلم <b dir="ltr">990005</b>. كلمة المرور المشتركة في حقل <code dir="ltr">CALL_ARCHIVE_DEMO_PASSWORD</code> داخل ملف <code dir="ltr">.env.call-archive.local</code> المفتوح في المحرر. سجّل الخروج قبل التبديل إلى حساب آخر.</p></section>
+      <section class="space-y-4"><h2 class="text-xl font-bold">جولة التعديلات</h2>
+        <ol class="space-y-4">
+          <li class="rounded-2xl border border-border p-4 sm:p-6"><a class="font-bold text-primary underline underline-offset-4" href="/dashboard/reciters">1. الإدارة ← المقرئون</a><p class="mt-2 leading-7">بالحساب الإداري: شاهد حساب المقرئ، وافتح «إضافة مقرئ» لتجربة إنشاء حساب وصلاحياته. المكالمات مفعلة أساسًا، ويمكنك منح صلاحيات إضافية.</p></li>
+          <li class="rounded-2xl border border-border p-4 sm:p-6"><a class="font-bold text-primary underline underline-offset-4" href="/dashboard/reports">2. الإدارة ← الإحصائيات</a><p class="mt-2 leading-7">اختر «هذا اليوم» من حقل «الفترة»، وشاهد تاريخ اليوم ونتائجه. البيانات المحلية قليلة، لذلك قد تظهر مؤشرات بقيمة صفر.</p></li>
+          <li class="rounded-2xl border border-border p-4 sm:p-6"><a class="font-bold text-primary underline underline-offset-4" href="/portal/calls">3. دخول المقرئ ← المكالمات</a><p class="mt-2 leading-7">سجّل الدخول بالمقرئ <span dir="ltr">990002</span>: تظهر المكالمات فقط. اختر «الأرشيف» لفتح الجلسة التوضيحية. التسجيل الحي غير مهيأ لغياب مفاتيح LiveKit.</p></li>
+          <li class="rounded-2xl border border-border p-4 sm:p-6"><a class="font-bold text-primary underline underline-offset-4" href="/dashboard/calls">4. أرشيف المكالمات والتقرير</a><p class="mt-2 leading-7">بالحساب الإداري: اختر «الأرشيف»، ثم «أرشيف توضيحي — معاينة محلية» والجلسة. أو افتح الأرشيف من حساب المقرئ. جرّب الصوت المشترك ومساري المشاركين، والانتقال إلى توقيت الملاحظة، واعتماد الخطأ المحتمل وحفظ المراجعة. الصوت نغمات مولّدة والتقرير مثال يدوي واضح داخل الصفحة.</p></li>
+          <li class="rounded-2xl border border-border p-4 sm:p-6"><a class="font-bold text-primary underline underline-offset-4" href="/#student/calls">5. دخول الطالب ← المكالمات ← الأرشيف</a><p class="mt-2 leading-7">سجّل الدخول بالطالب <span dir="ltr">990003</span>. يستطيع مشاهدة جلسته والاستماع، وتختفي أدوات اعتماد الأخطاء وإدارة الحسابات.</p></li>
+          <li class="rounded-2xl border border-border p-4 sm:p-6"><a class="font-bold text-primary underline underline-offset-4" href="http://127.0.0.1:3039/tests/fixtures/call-audio.html?consent=1">6. نموذج مستقل لسلوك واجهة المكالمة</a><p class="mt-2 leading-7">محاكاة واجهة واضحة على المنفذ 3039: وافق على التسجيل، واضغط «إكمال الاتصال التجريبي». جرّب التصغير والعودة، والانقطاع وإعادة الاتصال، والخروج وإغلاق الغرفة. هذه الصفحة لا تختبر نقل صوت بشري أو تسجيلًا حقيقيًا.</p></li>
+          <li class="rounded-2xl border border-border p-4 sm:p-6"><a class="font-bold text-primary underline underline-offset-4" href="/dashboard/teachers">7. الإدارة ← المستخدمون ← المعلمون</a><p class="mt-2 leading-7">أنشئ حساب معلم واختر له حلقة واحدة. جرّب الحساب <span dir="ltr">990005</span> لمشاهدة مؤشرات حلقته فقط، دون صلاحيات تعديل أو إدارة.</p></li>
+        </ol>
+      </section>
+      <p class="rounded-xl bg-muted p-4 text-sm leading-7">إصلاح بقاء الغرفة بعد خروج الجميع موجود في منطق الخادم. تأكيده بمكالمة بشرية كاملة مع التسجيل والتقرير يبقى معلقًا حتى توفير مفاتيح الخدمات والتخزين.</p>
+    </main>
+    <script type="module">
+      import '@/index.css';
+      if (!import.meta.env.DEV || !['localhost', '127.0.0.1'].includes(location.hostname)) throw new Error('Local preview only');
+      document.getElementById('guide').hidden = false;
+    </script>
+  </body>
+</html>

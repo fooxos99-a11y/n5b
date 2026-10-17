@@ -6,6 +6,8 @@ const panels = {
   students: lazy(() => import('./StudentsSection')),
   supervisors: lazy(() => import('./SupervisorsSection')),
   administrators: lazy(() => import('./AdministratorsSection')),
+  reciters: lazy(() => import('./RecitersSection')),
+  teachers: lazy(() => import('./TeachersSection')),
 };
 
 /** One card: user groups as tabs, then each group's toolbar and list. */
