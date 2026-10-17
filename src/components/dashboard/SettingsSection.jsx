@@ -14,7 +14,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useToast } from '@/components/ui/use-toast';
 import DashboardLoader from '@/components/dashboard/DashboardLoader';
 import AccountDeletionRequestsDialog from '@/components/dashboard/AccountDeletionRequestsDialog';
-import AccountPolicyLinks from '@/components/dashboard/AccountPolicyLinks';
 import SettingsCategoryPanel from '@/components/dashboard/SettingsCategoryPanel';
 import NotificationSettings from '@/components/dashboard/NotificationSettings';
 import { studentsApi } from '@/services/studentsApi';
@@ -358,9 +357,9 @@ const SettingsSection = ({
           </SettingsCategoryPanel>
 
           <SettingsCategoryPanel category="settingsTerm" activeCategory={activeCategory} title="إنهاء الفصل وطلبات الحذف">
-          {canManageDeletionRequests && <SettingsGroup><AccountPolicyLinks>
-            {settings.deletionRequestsSectionEnabled !== false && <AccountDeletionRequestsDialog triggerClassName="w-auto px-3 text-xs sm:text-sm" />}
-          </AccountPolicyLinks></SettingsGroup>}
+          {canManageDeletionRequests && settings.deletionRequestsSectionEnabled !== false && <SettingsGroup>
+            <AccountDeletionRequestsDialog triggerClassName="w-auto px-3 text-xs sm:text-sm" />
+          </SettingsGroup>}
           {settings.termClosureSectionEnabled !== false && <SettingsGroup>
             <h3 className="text-sm font-black text-primary">إنهاء الفصل</h3>
             <p className="text-sm font-bold leading-7 text-muted-foreground">

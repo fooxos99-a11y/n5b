@@ -6,14 +6,13 @@ const read = (path) => readFile(new URL(path, import.meta.url), 'utf8');
 const exists = (path) => access(new URL(path, import.meta.url)).then(() => true, () => false);
 
 test('contact messages are removed from the dashboard, the public pages and the server', async () => {
-  const [server, dashboard, routes, api, privacy, registration, footer] = await Promise.all([
+  const [server, dashboard, routes, api, privacy, registration] = await Promise.all([
     read('../server/index.js'),
     read('../src/pages/WajehDashboard.jsx'),
     read('../src/lib/sectionRoutes.js'),
     read('../src/services/studentsApi.js'),
     read('../src/pages/PrivacyPolicy.jsx'),
     read('../src/pages/PublicRegistration.jsx'),
-    read('../src/components/public/PublicLegalFooter.jsx'),
   ]);
   assert.doesNotMatch(server, /contactMessage|contact-messages/i);
   assert.doesNotMatch(dashboard, /ContactMessagesSection|contactMessages/);
@@ -21,7 +20,6 @@ test('contact messages are removed from the dashboard, the public pages and the 
   assert.doesNotMatch(api, /submitContactMessage|getContactMessages/);
   assert.doesNotMatch(privacy, /تواصل معنا/);
   assert.doesNotMatch(registration, /تواصل معنا/);
-  assert.doesNotMatch(footer, /للتواصل/);
   for (const file of [
     '../src/components/dashboard/ContactMessagesSection.jsx',
     '../src/components/public/PublicContactDialog.jsx',

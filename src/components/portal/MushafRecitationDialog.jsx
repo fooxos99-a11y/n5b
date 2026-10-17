@@ -466,6 +466,7 @@ const MushafRecitationDialog = ({
             index={mushafIndex}
             toolbar={<MushafReaderToolbar
               theme={mushafTheme}
+              onBack={() => onOpenChange?.(false)}
               onIndex={browsing && mushafIndex && entries.length > 0 ? () => setIndexOpen(true) : undefined}
               onThemeChange={changeMushafTheme}
               pageNumber={visiblePageNumber}

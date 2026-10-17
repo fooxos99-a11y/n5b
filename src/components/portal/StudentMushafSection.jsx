@@ -209,6 +209,7 @@ const StudentMushafSection = ({ studentId, onBack, initialTarget = null }) => {
       index={index}
       toolbar={<MushafReaderToolbar
         theme={theme}
+        onBack={onBack}
         onIndex={() => setIndexOpen(true)}
         onThemeChange={changeTheme}
         pageNumber={displayedPage}

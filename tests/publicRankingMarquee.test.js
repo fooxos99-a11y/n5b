@@ -77,22 +77,21 @@ test('standalone homepage keeps Nukhab identity', async () => {
   assert.match(siteConfig, /نخب/);
 });
 
-test('public legal links share one plain footer outside the login dialog', async () => {
-  const [login, gateway, home, footer] = await Promise.all([
+test('public homepage and account menus omit the removed legal shortcuts', async () => {
+  const [login, gateway, home, sidebar, studentHeader, settings, loginHelp] = await Promise.all([
     readFile(new URL('../src/components/public/AccountLoginDialog.jsx', import.meta.url), 'utf8'),
     readFile(new URL('../src/pages/LoginGateway.jsx', import.meta.url), 'utf8'),
     readFile(new URL('../src/components/public/nukhab/NukhabPublicHome.jsx', import.meta.url), 'utf8'),
-    readFile(new URL('../src/components/public/PublicLegalFooter.jsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/dashboard/DashboardSidebarContent.jsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/portal/home/StudentHomeHeader.jsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/dashboard/SettingsSection.jsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/public/LoginHelpDialog.jsx', import.meta.url), 'utf8'),
   ]);
   assert.doesNotMatch(login, /LegalConsentText|بتسجيل دخولك/);
   assert.match(gateway, /<AccountLoginPage/);
-  assert.match(home, /<PublicLegalFooter/);
-  assert.match(footer, /flex-wrap/);
-  assert.match(footer, /text-\[11px\]/);
-  assert.doesNotMatch(footer, /hover:bg|rounded-xl|focus-visible:ring/);
-  assert.match(footer, /to="\/terms">شروط الاستخدام/);
-  assert.match(footer, /to="\/privacy">سياسة الخصوصية/);
-  assert.match(footer, /طلب حذف الحساب/);
-  assert.doesNotMatch(footer, /للتواصل مع المجمع|setContactOpen|PublicContactDialog/);
+  for (const source of [home, sidebar, studentHeader, settings, loginHelp]) {
+    assert.doesNotMatch(source, /PublicLegalFooter|AccountPolicyLinks|المساعدة والخصوصية/);
+    assert.doesNotMatch(source, /to="\/(?:terms|privacy|support|account-deletion)"/);
+  }
   assert.doesNotMatch(home, /onContact|PublicContactDialog/);
 });

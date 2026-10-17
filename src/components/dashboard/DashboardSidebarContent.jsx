@@ -9,7 +9,6 @@ import ThemeToggle from '@/components/ThemeToggle';
 import { Button } from '@/components/ui/button';
 import { resolveAssetUrl } from '@/lib/assetUrl';
 import { useSiteConfig } from '@/site/SiteProvider';
-import PublicLegalFooter from '@/components/public/PublicLegalFooter';
 
 const DashboardSidebarContent = ({
   title,
@@ -134,7 +133,6 @@ const DashboardSidebarContent = ({
     </nav>
 
     <div className="shrink-0 border-t border-white/[0.06] p-3">
-      <PublicLegalFooter compact inverse />
       <div className="flex items-center justify-between gap-2">
         <Button
           type="button"

@@ -30,7 +30,7 @@ test('portal account and public rankings match the student experience with notif
   assert.doesNotMatch(portal, /AccountPrivacySection/);
   assert.doesNotMatch(wajehDashboard, /AccountPrivacySection/);
   assert.match(login, /<AccountLoginPage/);
-  assert.match(publicHome, /<PublicLegalFooter/);
+  assert.doesNotMatch(publicHome, /PublicLegalFooter/);
   assert.match(login, /const AccountDeletionDialog = lazy/);
   assert.match(login, /deletionPage && storedUser[\s\S]*<AccountDeletionDialog open onOpenChange=/);
   assert.doesNotMatch(portal, /const AccountPrivacySection = lazy/);
@@ -66,7 +66,7 @@ test('portal account and public rankings match the student experience with notif
   assert.match(terms, /<PublicInfoLayout title=\{termsContent.title\} showSiteName=\{false\}>/);
   assert.equal(termsContent.title, 'شروط الاستخدام');
   assert.match(terms, /termsContent.sections.map/);
-  assert.match(JSON.stringify(termsContent), /بعد تسجيل الدخول، من «المساعدة والخصوصية» داخل قائمة حساب الطالب أو الشريط الجانبي/);
+  assert.match(JSON.stringify(termsContent), /رابطها المباشر بعد تسجيل الدخول/);
   assert.doesNotMatch(shell, /accountContent/);
   assert.match(sidebar, /section\.badge/);
   assert.doesNotMatch(sidebar, /إدارة المجمعات القرآنية/);

@@ -10,7 +10,7 @@ test('manager settings expose pending account deletion requests with delete and 
     readFile(new URL('../server/routes/accountDeletionRoutes.js', import.meta.url), 'utf8'),
   ]);
 
-  assert.match(settings, /title="إنهاء الفصل وطلبات الحذف"[\s\S]*canManageDeletionRequests[\s\S]*<AccountPolicyLinks>[\s\S]*settings\.deletionRequestsSectionEnabled !== false[\s\S]*<AccountDeletionRequestsDialog triggerClassName="w-auto px-3 text-xs sm:text-sm" \/>[\s\S]*<\/AccountPolicyLinks>[\s\S]*إنهاء الفصل والبدء بفصل جديد/);
+  assert.match(settings, /title="إنهاء الفصل وطلبات الحذف"[\s\S]*canManageDeletionRequests && settings\.deletionRequestsSectionEnabled !== false[\s\S]*<AccountDeletionRequestsDialog triggerClassName="w-auto px-3 text-xs sm:text-sm" \/>[\s\S]*إنهاء الفصل والبدء بفصل جديد/);
   assert.match(dashboard, /canManageDeletionRequests=\{isManager \|\| \(\(isAdmin \|\| isSupervisor\) && dashboardPermissions\.includes\('settings'\)\)\}/);
   assert.match(dialog, />\s*طلبات الحذف\s*</);
   assert.match(dialog, /status === 'pending'/);

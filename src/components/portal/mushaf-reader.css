@@ -145,11 +145,13 @@
 .mushaf-reader-toolbar { background: var(--reader-toolbar); padding: calc(12px + env(safe-area-inset-top)) 12px 10px; }
 .mushaf-reader-toolbar-main { display: flex; align-items: center; gap: 8px; min-height: 56px; max-width: 640px; margin-inline: auto; }
 .mushaf-reader-location { display: flex; align-items: center; justify-content: space-between; flex: 1; min-width: 0; height: 44px; border: 1px solid color-mix(in srgb, var(--reader-ink) 18%, transparent); border-radius: 4px; background: var(--reader-control); padding-inline: 9px; }
-.mushaf-reader-location-text { min-width: 0; }
-.mushaf-reader-location-text p { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 13px; font-weight: 500; }
-.mushaf-reader-location-text span { display: block; color: var(--reader-muted); font-size: 9px; white-space: nowrap; }
+.mushaf-reader-toolbar .mushaf-reader-location-text { display: flex; flex: 1; flex-direction: column; align-items: flex-start; justify-content: center; gap: 0; min-width: 0; height: 42px; padding: 0; text-align: start; background: transparent; }
+.mushaf-reader-location-text > span { max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 13px; font-weight: 500; }
+.mushaf-reader-location-text small { display: block; color: var(--reader-muted); font-size: 9px; white-space: nowrap; }
 .mushaf-reader-toolbar button { box-shadow: none; color: var(--reader-ink); }
 .mushaf-reader-toolbar .mushaf-reader-icon { width: 44px; min-width: 44px; height: 44px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--reader-ink); box-shadow: none; }
+.mushaf-reader .mushaf-reader-toolbar .mushaf-reader-icon { background: transparent !important; color: var(--reader-ink) !important; }
+.mushaf-reader .mushaf-reader-toolbar .mushaf-reader-icon:hover { background: var(--reader-control) !important; }
 .mushaf-reader-toolbar button:hover { background: var(--reader-control); color: var(--reader-ink); transform: none; }
 .mushaf-reader-toolbar-extra { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; max-width: 640px; margin: 4px auto 0; }
 .mushaf-reader-keyboard-control:not(:focus) { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }

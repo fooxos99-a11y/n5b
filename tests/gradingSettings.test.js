@@ -26,7 +26,8 @@ test('grading settings live in their own settings category with a dedicated save
   assert.doesNotMatch(settings, /gradingPolicy|gradingApi/);
 
   assert.match(panel, /gradingApi\.getPolicy\(\)/);
-  assert.match(panel, /gradingApi\.savePolicy\(toPolicy\(value\.draft\), \{ applyFrom: value\.applyFrom, revision: revisionRef\.current \}\)/);
+  assert.match(panel, /gradingApi\.savePolicy\(toPolicy\(value\), \{ applyFrom: 'today', revision: revisionRef\.current \}\)/);
+  assert.doesNotMatch(panel, /grading-apply-from|تطبيق تعديلات البرنامج|من الأسبوع القادم|موعد السريان المحفوظ/);
   assert.doesNotMatch(panel, /studentsApi\.updateSettings/);
   assert.match(panel, /from '\.\.\/\.\.\/\.\.\/shared\/grading-policy\.js'/);
   // Valid edits balance automatically before the existing autosave and server validation.

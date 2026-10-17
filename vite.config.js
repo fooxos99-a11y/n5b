@@ -1,5 +1,6 @@
 import react from '@vitejs/plugin-react';
 import { rmSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { defineConfig, loadEnv } from 'vite';
 import { getSiteConfig } from './src/site/siteConfigs.js';
@@ -10,11 +11,20 @@ export default defineConfig(({ mode }) => {
   const base = env.BASE_URL || '/';
   const site = getSiteConfig(env.VITE_SITE_KEY);
   const nativeBuild = mode.includes('mobile') || process.env.VITE_NATIVE_APP === 'true';
+  const buildId = randomUUID();
   let resolvedOutDir = '';
   return {
   base,
+  define: { 'import.meta.env.VITE_APP_BUILD_ID': JSON.stringify(buildId) },
   plugins: [
     react(),
+    {
+      name: 'deployment-version',
+      apply: 'build',
+      generateBundle() {
+        if (!nativeBuild) this.emitFile({ type: 'asset', fileName: 'app-version.json', source: JSON.stringify({ buildId }) });
+      },
+    },
     {
       name: 'site-branding',
       transformIndexHtml(html) {
