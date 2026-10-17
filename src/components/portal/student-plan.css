@@ -60,8 +60,8 @@
 .student-plan-feedback-quran { font-size: 16px; font-weight: 400; line-height: 1.6; }
 .student-plan-feedback [data-tone='mistake'] { color: #b42338; background: #fff1f2; }
 .student-plan-feedback [data-tone='warning'] { color: #8a5300; background: #fff7e6; }
-.dark .student-plan-feedback [data-tone='mistake'] { color: #fda4af; }
-.dark .student-plan-feedback [data-tone='warning'] { color: #fcd34d; }
+.dark .student-plan-feedback [data-tone='mistake'] { color: #fda4af; background: #3f1d25; }
+.dark .student-plan-feedback [data-tone='warning'] { color: #fcd34d; background: #3b2c12; }
 @media (prefers-reduced-motion: reduce) { .student-plan-progress-fill::before { animation: none; } }
 
 .student-plan-history .student-plan-day { grid-template-columns: 42px minmax(0, 1fr); }

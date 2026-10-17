@@ -75,17 +75,13 @@ try {
     const failed = await submit(first, null, true);
     assert.equal(failed.value.statusCode, 200, JSON.stringify(failed.value));
     const corrected = await submit(correction, first, false);
-    assert.equal(corrected.value.statusCode, 200, JSON.stringify(corrected.value));
-    assert.equal(corrected.rolledBack, false);
+    assert.equal(corrected.value.statusCode, 409, JSON.stringify(corrected.value));
+    assert.equal(corrected.rolledBack, true);
     const [attempts] = await pool.query('SELECT teacher_completed AS passed,is_official AS official FROM student_quran_recitation_attempts WHERE task_id=? ORDER BY id', [task.id]);
-    assert.deepEqual(attempts.map(row => [Number(row.passed), Number(row.official)]), [[0,0],[1,1]]);
+    assert.deepEqual(attempts.map(row => [Number(row.passed), Number(row.official)]), [[0,1]]);
     const report = await buildRecitationSessionsReport({ from: date, to: date, studentId: 2, studentHistory: true, auth: source.auth });
     assert.equal(report.rows[0].evaluatorId, 1);
-    assert.equal(report.rows[0].sessionId, correction);
-    const staleOffline = await submit(randomUUID(), null, true, '2026-01-01T00:00:00Z');
-    assert.equal(staleOffline.value.statusCode, 409, 'Old offline submissions cannot undo an explicit correction');
-    const reverted = await submit(randomUUID(), correction, true);
-    assert.equal(reverted.value.statusCode, 200, JSON.stringify(reverted.value));
+    assert.equal(report.rows[0].sessionId, first);
     const [[rewound]] = await pool.query('SELECT next_memorization_page AS page,status FROM student_quran_plans WHERE id=3');
     assert.equal(Number(rewound.page), 1);
     assert.equal(rewound.status, 'active');
@@ -106,7 +102,7 @@ try {
     assert.deepEqual(cleared, { score: null, warnings: 0, mistakes: 0 });
     globalThis.console.log('Isolated narration absence clears saved part evaluations.');
     globalThis.console.log('Isolated statistics SQL passed with future dates excluded.');
-    globalThis.console.log('Isolated correction passed: failed to passed to failed, official attempt replacement, report identity, plan rewind.');
+    globalThis.console.log('Retired correction denied: original official attempt, report identity and plan cursor preserved.');
     globalThis.console.log('Isolated MySQL completed-plan revision, prior deletion and reading passed: completed plan, proportional grade, idempotent points, date/scope guards, clearing.');
   });
 } finally {

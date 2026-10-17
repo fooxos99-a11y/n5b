@@ -25,15 +25,9 @@ try {
     });
     await page.goto('http://localhost:3107/tests/fixtures/audit-settings.html?section=history');
     await page.getByText('طالب تجريبي', { exact: true }).click();
-    await page.getByRole('button', { name: 'تصحيح التقييم', exact: true }).click();
-    await page.getByRole('button', { name: 'متابعة التصحيح' }).click();
-    await page.getByLabel('عدد الأخطاء', { exact: true }).fill('0');
-    await page.getByLabel('عدد التنبيهات', { exact: true }).fill('1');
-    assert.ok(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth));
-    await page.getByRole('button', { name: 'إنهاء', exact: true }).click();
-    await page.getByRole('dialog').waitFor({ state: 'hidden' });
-    assert.equal(writes[0].sessions[0].tasks[0].payload.correctionOf, '9ce68b0e-749e-4da1-8e6e-58d7f52b7a3d');
-    assert.equal(writes[0].sessions[0].tasks[0].payload.mistakeCount, 0);
+    assert.equal(await page.getByRole('button', { name: 'تصحيح التقييم', exact: true }).count(), 0);
+    assert.equal(await page.getByText('طالب تجريبي', { exact: true }).count(), 1);
+    assert.equal(writes.length, 0);
     await page.evaluate(async () => { globalThis.auditOperations = await import('../../src/services/offlineOperationsService.js'); });
     await page.context().setOffline(true);
     const pending = await page.evaluate(async date => {
@@ -53,9 +47,9 @@ try {
     });
     assert.equal(synced[0][0].status, 'synced');
     assert.equal(synced[1].length, 0);
-    assert.equal(writes.length, 2);
+    assert.equal(writes.length, 1);
     assert.deepEqual(errors, []);
     await page.close();
-    globalThis.console.log(`Correction and offline reading passed at ${width}px.`);
+    globalThis.console.log(`Read-only history and offline reading passed at ${width}px.`);
   }
 } finally { await browser.close(); }

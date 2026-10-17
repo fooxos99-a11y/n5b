@@ -187,7 +187,6 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
   const [isSaving, setIsSaving] = useState(false);
   const [isDeletingMemorized, setIsDeletingMemorized] = useState(false);
   const [isDeletingPlan, setIsDeletingPlan] = useState(false);
-  const [closingPlan, setClosingPlan] = useState(null);
   const keepPlanDialogOpen = (event) => event.preventDefault();
 
   const startAyah = startAyahs.find((ayah) => String(ayah.ayah) === String(form.startAyah));
@@ -695,7 +694,6 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
     }
     return <>
       <StudentPlansPauseControl studentId={row.studentId} studentName={row.studentName} initialState={row.planPause} onChange={loadRows} />
-      {row.plan.queuedRanges?.length > 0 && <Button variant="outline" className="h-11" onClick={() => setClosingPlan(row)}>إغلاق الحالية</Button>}
       {Number(row.plan.progressPercent || 0) >= 100 && (
         <ManagementIconButton
           className={rowActionClass}
@@ -767,18 +765,6 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
   };
   return (
     <>
-      <Dialog open={Boolean(closingPlan)} onOpenChange={open => !open && !isSaving && setClosingPlan(null)}>
-        <DialogContent dir="rtl"><DialogHeader><DialogTitle>إغلاق الخطة الحالية</DialogTitle></DialogHeader>
-          <p className="text-sm">يُحفظ التنفيذ السابق وتُفتح الخطة التالية، ويبدأ جدولها من الغد.</p>
-          <DialogFooter><Button variant="outline" disabled={isSaving} onClick={() => setClosingPlan(null)}>إلغاء</Button>
-            <Button loading={isSaving} onClick={async () => {
-              setIsSaving(true);
-              try { await studentsApi.closeStudentPlan(closingPlan.studentId, closingPlan.plan.id); setClosingPlan(null); await loadRows(); }
-              catch (error) { toast({ title: 'تعذر إغلاق الخطة', description: error.message, variant: 'destructive' }); }
-              finally { setIsSaving(false); }
-            }}>إغلاق وفتح التالية</Button></DialogFooter>
-        </DialogContent>
-      </Dialog>
       <ManagementPanel>
         <ManagementToolbar><Input type="search" aria-label="ابحث بالاسم" placeholder="ابحث بالاسم" value={search} onChange={event => setSearch(event.target.value)} className="h-11 min-w-0 flex-1 basis-40 sm:max-w-sm" />
         {!hideCommitteeFilter && (

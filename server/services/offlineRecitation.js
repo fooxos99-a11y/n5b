@@ -1,4 +1,3 @@
-import { assertRecitationCorrection } from './recitationCorrection.js';
 import { assertRecitationReplacementCoverage } from './recitationSessionTransaction.js';
 import crypto from 'node:crypto';
 import { isUuid, recitationCandidateWins, recitationSessionTypeForTask } from '../../shared/offline-recitation.js';
@@ -96,6 +95,7 @@ export async function claimRecitationSession(connection, {
   sessionDate,
   requestId,
 }) {
+  if (req.body.correctionOf) throw Object.assign(new Error('لا يمكن تعديل جلسة تسميع معتمدة.'), { statusCode: 409 });
   const sessionId = normalizeServerSessionId(req.body.sessionId, requestId);
   const deviceId = await ensureRecitationDeviceOwner(req, connection);
   const event = await resolveTrustedDeviceEventTime(connection, {
@@ -138,9 +138,6 @@ export async function claimRecitationSession(connection, {
     [task.studentId, sessionDate, sessionType],
   );
   slot = await createOrReadRecitationSlot({ slot, connection, task, sessionDate, sessionType, sessionId, req, event });
-  if (req.body.correctionOf && slot.sessionId !== sessionId) {
-    await assertRecitationCorrection(connection, { req, slot, task, sessionDate, currentPlanVersion });
-  }
   if (slot.sessionId !== sessionId && recitedUnderEarlierPlan(slot, task, currentPlanVersion)) {
     // The plan changed after today's recitation: the new plan gets its own session and the earlier one stays valid.
     await connection.query(
@@ -156,9 +153,8 @@ export async function claimRecitationSession(connection, {
     slot = { ...slot, sessionId };
   }
   if (slot.sessionId !== sessionId) {
-    const correction = Boolean(req.body.correctionOf);
     const compensationRetry = await canRetryReviewCompensation(connection, { req, slot, task, sessionDate, currentPlanVersion });
-    const wins = correction || compensationRetry || (!slot.correctionOf && recitationCandidateWins(
+    const wins = compensationRetry || (!slot.correctionOf && recitationCandidateWins(
       { sessionId, eventAt: event.eventAt, trusted: event.trusted },
       { sessionId: slot.sessionId, eventAt: String(slot.eventAt || '').slice(0, 23), trusted: Boolean(slot.eventTimeTrusted) },
     ));
@@ -182,8 +178,8 @@ export async function claimRecitationSession(connection, {
       `UPDATE student_quran_recitation_submissions SET status = 'rejected_duplicate',
         rejection_code = ?, rejection_message = ?, resolved_at = NOW(3)
        WHERE session_id = ?`,
-      [correction ? 'TEACHER_CORRECTION' : compensationRetry ? 'COMPENSATION_RETRY' : 'EARLIER_TRUSTED_SESSION',
-        correction ? 'استُبدل بتصحيح مشرف المسار.' : compensationRetry ? 'أعيد تسميع التعويض غير المجتاز.' : 'وصل تسميع أسبق وفق مرجع الوقت الموثوق.', slot.sessionId],
+      [compensationRetry ? 'COMPENSATION_RETRY' : 'EARLIER_TRUSTED_SESSION',
+        compensationRetry ? 'أعيد تسميع التعويض غير المجتاز.' : 'وصل تسميع أسبق وفق مرجع الوقت الموثوق.', slot.sessionId],
     );
     await connection.query(
       `UPDATE student_quran_recitation_attempts SET is_official = 0
@@ -199,7 +195,7 @@ export async function claimRecitationSession(connection, {
       sessionId: slot.sessionId,
       req,
       deviceId,
-      eventType: correction ? 'superseded_by_teacher_correction' : compensationRetry ? 'superseded_by_compensation_retry' : 'superseded_by_earlier_session',
+      eventType: compensationRetry ? 'superseded_by_compensation_retry' : 'superseded_by_earlier_session',
       details: { winningSessionId: sessionId, sessionDate },
     });
     await connection.query(

@@ -360,7 +360,6 @@ export const studentsApi = {
       method: 'PUT',
       body: JSON.stringify(payload),
     }),
-  closeStudentPlan: (studentId, planId) => request(`/student-plans/${studentId}/close`, { method: 'POST', body: JSON.stringify({ planId }) }),
   deleteStudentPlan: (studentId) => request(`/student-plans/${studentId}`, { method: 'DELETE' }),
   deleteStudentPriorMemorization: (studentId, payload) =>
     request(`/student-plans/${studentId}/prior-memorization`, {

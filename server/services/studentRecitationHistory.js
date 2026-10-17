@@ -9,5 +9,14 @@ export async function loadStudentRecitationHistory(connection, auth, studentId, 
     WHERE s.id = ? GROUP BY s.id`, [auth.id, id]);
   if (!student) throw Object.assign(new Error('الطالب غير موجود في حلقاتك.'), { statusCode: 404 });
   if (!student.firstDate) return { rows: [] };
-  return buildReport({ from: student.firstDate, studentId: id, studentHistory: true, auth });
+  const report = await buildReport({ from: student.firstDate, studentId: id, studentHistory: true, auth });
+  const dates = [...new Set(report.rows.map(row => row.taskDate).filter(Boolean))];
+  if (!dates.length) return report;
+  const [records] = await connection.query(`SELECT DATE_FORMAT(grade_date, '%Y-%m-%d') AS date,
+    component, grade, max_grade AS max, passed FROM student_daily_grades
+    WHERE student_id = ? AND grade_date IN (?) AND component IN ('memorization', 'review', 'link')`, [id, dates]);
+  const grades = new Map(records.map(record => [`${record.date}:${record.component}`, {
+    date: record.date, grade: Number(record.grade), max: Number(record.max), passed: Boolean(Number(record.passed)),
+  }]));
+  return { ...report, rows: report.rows.map(row => ({ ...row, programGrade: grades.get(`${row.taskDate}:${row.taskType}`) || null })) };
 }

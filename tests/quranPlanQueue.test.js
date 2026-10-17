@@ -94,33 +94,21 @@ test('manual close denies a teacher outside their circles before reading or chan
     hasSupervisorStudentPlanAccess: async () => false,
   });
   await handler({ auth: { role: 'supervisor' }, params: { studentId: '3' } }, { status(value) { code = value; return this; }, json() {} }, error => { throw error; });
-  assert.equal(code, 403); assert.equal(released, true);
+  assert.equal(code, 403); assert.equal(released, false);
 });
 
-test('manual close preserves a changed plan and commits only an available successor', async () => {
-  const start = source.indexOf("app.post('/api/student-plans/:studentId/close'");
-  const end = source.indexOf("app.delete('/api/student-plans/:studentId'", start);
-  for (const [requestedId, successor, expectedCode] of [[16, 18, 409], [17, null, 422], [17, 18, 200]]) {
-    let handler, code = 200, committed = false, rolledBack = false, released = false, transitions = 0;
-    const connection = {
-      beginTransaction: async () => {}, query: async () => [[{ id: 3 }]],
-      commit: async () => { committed = true; }, rollback: async () => { rolledBack = true; },
-      release() { released = true; },
-    };
-    vm.runInNewContext(source.slice(start, end), {
-      app: { post: (_path, _guard, callback) => { handler = callback; } }, requireStudentPlanAccess: () => {},
-      db: () => ({ getConnection: async () => connection }), hasSupervisorStudentPlanAccess: async () => true,
-      getActivePlanForStudent: async () => ({ id: 17 }),
-      getSaudiDateTimeParts: () => ({ date: '2026-10-01' }), addUtcDays: () => '2026-10-02',
-      activateQueuedQuranPlan: async (_connection, options) => {
-        transitions++; assert.equal(options.planId, 17); assert.equal(options.manual, true);
-        assert.equal(options.startDate, '2026-10-02'); return successor;
-      },
-    });
-    await handler({ auth: { role: 'supervisor' }, params: { studentId: '3' }, body: { planId: requestedId } },
-      { status(value) { code = value; return this; }, json() {} }, error => { throw error; });
-    assert.equal(code, expectedCode); assert.equal(committed, expectedCode === 200);
-    assert.equal(rolledBack, expectedCode !== 200); assert.equal(released, true);
-    assert.equal(transitions, expectedCode === 409 ? 0 : 1);
-  }
+test('retired manual close preserves every plan without a transaction or successor activation', async () => {
+ const start = source.indexOf("app.post('/api/student-plans/:studentId/close'");
+ const end = source.indexOf("app.delete('/api/student-plans/:studentId'", start);
+ for (const role of ['manager', 'supervisor']) {
+  let handler, code;
+  vm.runInNewContext(source.slice(start, end), {
+   app: { post: (_path, _guard, callback) => { handler = callback; } }, requireStudentPlanAccess: () => {},
+   db: () => assert.fail('Retired action must not open a transaction'), hasSupervisorStudentPlanAccess: async () => true,
+   activateQueuedQuranPlan: () => assert.fail('Retired action must not activate a successor'),
+  });
+  await handler({ auth: { role }, params: { studentId: '3' }, body: { planId: 17 } },
+   { status(value) { code = value; return this; }, json() {} }, error => { throw error; });
+  assert.equal(code, 410);
+ }
 });

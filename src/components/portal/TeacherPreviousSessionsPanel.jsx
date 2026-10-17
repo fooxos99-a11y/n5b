@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react';
 import DashboardLoader from '@/components/dashboard/DashboardLoader';
 import { Button } from '@/components/ui/button';
 import TeacherStudentHistoryCard from '@/components/portal/TeacherStudentHistoryCard';
-import TeacherCorrectionDialog from '@/components/portal/TeacherCorrectionDialog';
 import TeacherSessionCard from '@/components/portal/TeacherSessionCard';
 import '@/components/portal/home/student-home.css';
 import { studentsApi } from '@/services/studentsApi';
@@ -18,7 +17,6 @@ export default function TeacherPreviousSessionsPanel() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [retry, setRetry] = useState(0);
-  const [correction, setCorrection] = useState(null);
   const accountId = Number(localStorage.getItem('wajeh_supervisor_id') || 0);
   const weeks = useMemo(() => buildStudentSessionWeeks(rows), [rows]);
 
@@ -47,7 +45,7 @@ export default function TeacherPreviousSessionsPanel() {
                                      return <DashboardLoader />;
                                    }
                                    if (weeks.length > 0) {
-                                     return weeks.flatMap(week => week.days).filter(day => day.date <= getBusinessDate()).map(day => <TeacherSessionCard key={`${studentId}:${day.date}`} day={day} studentName={student.name} supervisorId={accountId} onCorrect={sessionId => setCorrection({ rows: rows.filter(row => row.sessionId === sessionId), studentName: student.name })} />);
+                                     return weeks.flatMap(week => week.days).filter(day => day.date <= getBusinessDate()).map(day => <TeacherSessionCard key={`${studentId}:${day.date}`} day={day} />);
                                    }
                                    return !error && <p className="student-plan-empty">لا توجد جلسات تسميع سابقة.</p>;
                                  };
@@ -59,6 +57,5 @@ export default function TeacherPreviousSessionsPanel() {
       </TeacherStudentHistoryCard>); })}
       {!students.length && !error && <p className="student-plan-empty">لا يوجد طلاب في حلقاتك.</p>}
     </div>}
-    {correction && <TeacherCorrectionDialog {...correction} supervisorId={accountId} onClose={() => setCorrection(null)} onSaved={() => { setCorrection(null); setRetry(value => value + 1); }} />}
   </div>;
 }

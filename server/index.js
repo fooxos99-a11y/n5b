@@ -8291,22 +8291,10 @@ app.put('/api/student-plans/:studentId', requireStudentPlanAccess, async (req, r
 });
 
 app.post('/api/student-plans/:studentId/close', requireStudentPlanAccess, async (req, res, next) => {
-  const connection = await db().getConnection();
   try {
-    const studentId = Number(req.params.studentId);
-    if (req.auth?.role === 'supervisor' && !await hasSupervisorStudentPlanAccess(req, studentId)) return res.status(403).json({ message: 'الطالب خارج حلقاتك.' });
-    await connection.beginTransaction();
-    const [[student]] = await connection.query('SELECT id FROM students WHERE id = ? FOR UPDATE', [studentId]);
-    if (!student) { await connection.rollback(); return res.status(404).json({ message: 'الطالب غير موجود.' }); }
-    const plan = await getActivePlanForStudent(connection, studentId);
-    if (!plan) { await connection.rollback(); return res.status(404).json({ message: 'لا توجد خطة حالية.' }); }
-    if (Number(req.body?.planId) !== Number(plan.id)) { await connection.rollback(); return res.status(409).json({ message: 'تغيّرت الخطة الحالية. حدّث القائمة قبل الإغلاق.' }); }
-    const id = await activateQueuedQuranPlan(connection, { planId: plan.id, startDate: addUtcDays(getSaudiDateTimeParts().date, 1), manual: true });
-    if (!id) { await connection.rollback(); return res.status(422).json({ message: 'أضف خطة تالية قبل إغلاق الحالية.' }); }
-    await connection.commit();
-    return res.json({ ok: true, id });
-  } catch (error) { await connection.rollback(); return next(error); }
-  finally { connection.release(); }
+    if (req.auth?.role === 'supervisor' && !await hasSupervisorStudentPlanAccess(req, Number(req.params.studentId))) return res.status(403).json({ message: 'الطالب خارج حلقاتك.' });
+    return res.status(410).json({ message: 'لم يعد إغلاق الخطة يدويًا متاحًا.' });
+  } catch (error) { return next(error); }
 });
 
 app.delete('/api/student-plans/:studentId', requireStudentPlanAccess, async (req, res, next) => {

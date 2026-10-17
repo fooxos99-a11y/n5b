@@ -23,7 +23,7 @@ test('student history requires teacher ownership before loading all years', asyn
     assert.deepEqual(values, [13, 2]);
     return [[{ id: 2, firstDate: '2022-01-01' }]];
   } };
-  const result = await loadStudentRecitationHistory(connection, { role: 'supervisor', id: 13 }, 2, async (options) => options);
+  const result = await loadStudentRecitationHistory(connection, { role: 'supervisor', id: 13 }, 2, async (options) => ({ ...options, rows: [] }));
   assert.equal(result.from, '2022-01-01');
   assert.equal(result.studentHistory, true);
   assert.equal(result.studentId, 2);
@@ -40,4 +40,25 @@ test('student history preserves every attempt on its session date without insert
   assert.equal(weeks[0].days[0].date, '2022-01-03');
   assert.equal(weeks[0].days[0].tasks.length, 2);
   assert.deepEqual(buildStudentSessionWeeks([]), []);
+});
+
+
+test('history attaches the stored program grade once per assignment date and component', async () => {
+ const calls = [];
+ const connection = { query: async (sql, values) => {
+  calls.push({ sql, values });
+  return sql.includes('FROM students s') ? [[{ id: 2, firstDate: '2022-01-01' }]]
+   : [[{ date: '2022-01-02', component: 'memorization', grade: '0.95', max: '1', passed: 1 }]];
+ } };
+ const rows = [
+  { id: 1, taskDate: '2022-01-02', sessionDate: '2022-01-03', taskType: 'memorization', evaluationScore: 95 },
+  { id: 2, taskDate: '2022-01-02', taskType: 'review' },
+ ];
+ const result = await loadStudentRecitationHistory(connection, { role: 'supervisor', id: 13 }, 2, async () => ({ rows }));
+ assert.deepEqual(calls[1].values, [2, ['2022-01-02']]);
+ assert.match(calls[1].sql, /student_id = \?/);
+ assert.deepEqual(result.rows[0].programGrade, { date: '2022-01-02', grade: 0.95, max: 1, passed: true });
+ assert.equal(result.rows[1].programGrade, null);
+ assert.equal(result.rows[0].sessionDate, '2022-01-03');
+ assert.equal(rows[0].programGrade, undefined);
 });
