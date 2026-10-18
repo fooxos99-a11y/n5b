@@ -46,5 +46,32 @@ class AppleStatusTests(unittest.TestCase):
         self.assertEqual(result['uploads'], [])
 
 
+class AppleProcessingWaitTests(unittest.TestCase):
+    def snapshot(self, state):
+        return {'appId': 'original-app', 'builds': [{'id': 'build', 'number': '29', 'processingState': 'VALID'}] if state == 'COMPLETE' else [],
+                'versions': [], 'uploads': [{'id': 'upload', 'number': '29', 'state': {'state': state}}]}
+
+    def test_processing_waits_then_returns_the_ready_build(self):
+        sleep = MagicMock()
+        progress = MagicMock()
+        with patch.object(status, 'read_status', side_effect=[self.snapshot('PROCESSING'), self.snapshot('COMPLETE')]):
+            result = status.wait_for_build('original-app', '29', MagicMock(), sleep=sleep, attempts=2, on_status=progress)
+        self.assertEqual(result['builds'][0]['processingState'], 'VALID')
+        sleep.assert_called_once_with(60)
+        self.assertEqual(progress.call_count, 2)
+
+    def test_failed_upload_stops_without_waiting_or_changing_review(self):
+        sleep = MagicMock()
+        with patch.object(status, 'read_status', return_value=self.snapshot('FAILED')):
+            with self.assertRaisesRegex(RuntimeError, 'rejected'):
+                status.wait_for_build('original-app', '29', MagicMock(), sleep=sleep)
+        sleep.assert_not_called()
+
+    def test_timeout_keeps_processing_distinct_from_success(self):
+        with patch.object(status, 'read_status', return_value=self.snapshot('PROCESSING')):
+            with self.assertRaisesRegex(RuntimeError, 'existing review remains unchanged'):
+                status.wait_for_build('original-app', '29', MagicMock(), sleep=MagicMock(), attempts=1)
+
+
 if __name__ == '__main__':
     unittest.main()

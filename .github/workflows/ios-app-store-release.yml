@@ -22,8 +22,33 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  wait_for_apple:
+    name: Wait for Apple build processing
+    runs-on: ubuntu-24.04
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Prepare read-only Apple status client
+        run: |
+          python3 -m venv "$RUNNER_TEMP/apple-wait"
+          "$RUNNER_TEMP/apple-wait/bin/pip" install --quiet PyJWT cryptography
+      - name: Wait for the uploaded original-app build
+        env:
+          APPSTORE_API_KEY_ID: ${{ vars.APPSTORE_API_KEY_ID }}
+          APPSTORE_ISSUER_ID: ${{ vars.APPSTORE_ISSUER_ID }}
+          APPSTORE_API_PRIVATE_KEY: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
+          APP_IDENTIFIER: sa.nukhab.app
+          WAIT_FOR_BUILD_NUMBER: ${{ inputs.build_number }}
+        run: '"$RUNNER_TEMP/apple-wait/bin/python" scripts/read-app-store-status.py'
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        if: always()
+        with:
+          name: nukhab-apple-processing-${{ inputs.build_number }}
+          path: app-store-status.json
+          retention-days: 7
   submit:
     name: Submit ${{ inputs.app }} to App Review
+    needs: wait_for_apple
     runs-on: macos-26
     timeout-minutes: 45
     env:

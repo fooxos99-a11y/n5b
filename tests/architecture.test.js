@@ -392,8 +392,9 @@ test('App Store build number is passed through environment variables, never shel
 
   const environmentLines = buildInputLines.filter((line) => /^ {10}(?:TARGET_BUILD_NUMBER|BUILD_NUMBER):/.test(line));
   assert.equal(environmentLines.length, 2);
+  assert.equal(buildInputLines.filter((line) => /^ {10}WAIT_FOR_BUILD_NUMBER:/.test(line)).length, 1);
   for (const line of buildInputLines) {
-    assert.match(line, /^ {10}(?:(?:TARGET_BUILD_NUMBER|BUILD_NUMBER): \$\{\{ inputs\.build_number \}\}|name: nukhab-(?:testflight|app-store)-status-\$\{\{ inputs\.build_number \}\})$/);
+    assert.match(line, /^ {10}(?:(?:TARGET_BUILD_NUMBER|BUILD_NUMBER|WAIT_FOR_BUILD_NUMBER): \$\{\{ inputs\.build_number \}\}|name: nukhab-(?:(?:testflight|app-store)-status|apple-processing)-\$\{\{ inputs\.build_number \}\})$/);
   }
   const submission = workflow.slice(workflow.indexOf('      - name: Select processed build and submit for review'));
   assert.match(submission, /env:\r?\n {10}BUILD_NUMBER: \$\{\{ inputs\.build_number \}\}\r?\n {8}run:/);
