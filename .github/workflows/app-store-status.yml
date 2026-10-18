@@ -1,0 +1,27 @@
+name: Read App Store release status
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Install Apple API authentication dependencies
+        run: |
+          python3 -m venv "$RUNNER_TEMP/apple-status"
+          "$RUNNER_TEMP/apple-status/bin/pip" install --quiet PyJWT cryptography
+      - name: Read original app versions and recent builds
+        env:
+          APPSTORE_API_KEY_ID: ${{ vars.APPSTORE_API_KEY_ID }}
+          APPSTORE_ISSUER_ID: ${{ vars.APPSTORE_ISSUER_ID }}
+          APPSTORE_API_PRIVATE_KEY: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
+          APP_IDENTIFIER: sa.nukhab.app
+        run: '"$RUNNER_TEMP/apple-status/bin/python" scripts/read-app-store-status.py'
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: nukhab-apple-status
+          path: app-store-status.json
+          retention-days: 7
