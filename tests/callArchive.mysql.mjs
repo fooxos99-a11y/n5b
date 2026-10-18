@@ -121,7 +121,18 @@ try {
     assert.equal((await request(`/playback/${legacyToken}`,{role:null})).status,403,'Previously issued non-administration playback grants are rejected');
   }
   assert.equal((await request(`/sessions/${first.id}/media/${mixed.id}/playback`,{role:'student',id:4,method:'POST'})).status,403);
-  const playback=JSON.parse((await request(`/sessions/${first.id}/media/${mixed.id}/playback`,{method:'POST',headers:{'x-test-token-hash':tokenHash}})).text);
+  let playback;
+  const originalTimezone=process.env.TZ;
+  process.env.TZ='Etc/GMT+12';
+  try {
+    playback=JSON.parse((await request(`/sessions/${first.id}/media/${mixed.id}/playback`,{method:'POST',headers:{'x-test-token-hash':tokenHash}})).text);
+    const hash=createHash('sha256').update(playback.url.split('/playback/')[1].split('?')[0]).digest('hex');
+    const [[expiry]]=await pool.query('SELECT TIMESTAMPDIFF(SECOND,CURRENT_TIMESTAMP(3),expires_at) AS remaining FROM call_archive_playback_grants WHERE token_hash=?',[hash]);
+    assert.ok(expiry.remaining>100&&expiry.remaining<=120,'Playback lasts two minutes according to the database clock regardless of the application timezone');
+    assert.equal((await request(playback.url,{role:null,headers:{Range:'bytes=2-5'}})).status,206,'Timezone difference cannot immediately expire a valid recording grant');
+  } finally {
+    if(originalTimezone===undefined)delete process.env.TZ;else process.env.TZ=originalTimezone;
+  }
   assert.equal(playback.url.includes(mixed.object_key),false);
   const range=await request(playback.url,{role:null,headers:{Range:'bytes=2-5'}});
   assert.equal(range.status,206); assert.equal(range.text,'2345'); assert.equal(range.headers.get('cache-control'),'private, no-store');

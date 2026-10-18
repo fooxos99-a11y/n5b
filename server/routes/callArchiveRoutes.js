@@ -119,8 +119,8 @@ router.post('/sessions/:sessionId/media/:mediaId/playback', async (req, res, nex
     const [[media]] = await db().query("SELECT id FROM call_archive_media WHERE id=? AND session_id=? AND state='ready' LIMIT 1", [req.params.mediaId, session.id]);
     if (!media) return res.status(404).json({ message: 'التسجيل غير متاح بعد.' });
     const token = crypto.randomBytes(32).toString('hex'), expiresAt = new Date(Date.now() + 120000);
-    await db().query(`INSERT INTO call_archive_playback_grants (token_hash,session_id,media_id,actor_role,actor_id,auth_token_hash,expires_at) VALUES (?,?,?,?,?,?,?)`,
-      [sha(token), session.id, media.id, req.auth.role, req.auth.id, req.auth.tokenHash || null, expiresAt]);
+    await db().query(`INSERT INTO call_archive_playback_grants (token_hash,session_id,media_id,actor_role,actor_id,auth_token_hash,expires_at) VALUES (?,?,?,?,?,?,DATE_ADD(CURRENT_TIMESTAMP(3),INTERVAL 2 MINUTE))`,
+      [sha(token), session.id, media.id, req.auth.role, req.auth.id, req.auth.tokenHash || null]);
     const registration = getDatabaseContext().tenant?.registrationNumber;
     res.set('Cache-Control', 'no-store').json({ url: `/api/calls/archive/playback/${token}${registration ? `?registrationNumber=${encodeURIComponent(registration)}` : ''}`, expiresAt: expiresAt.toISOString() });
   } catch (error) { next(error); }
