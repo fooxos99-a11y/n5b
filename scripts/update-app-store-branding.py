@@ -121,6 +121,9 @@ def update_version_metadata(app_id, token, version_string, arabic_description, e
     for localization in version_localizations:
         attributes = localization.get("attributes", {})
         locale = attributes.get("locale", "unknown")
+        if os.environ.get("PRESERVE_EXISTING_STORE_DESCRIPTIONS") == "true" and attributes.get("description"):
+            print(f"{locale}: preserved the existing App Store description")
+            continue
         desired = arabic_description if locale.lower().startswith("ar") else english_description
         if not desired or attributes.get("description") == desired:
             continue

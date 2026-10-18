@@ -40,7 +40,6 @@ jobs:
           case "${{ inputs.app }}" in
             nukhab)
               echo "APP_IDENTIFIER=sa.nukhab.app" >> "$GITHUB_ENV"
-              echo "APP_VERSION=1.0.19" >> "$GITHUB_ENV"
               echo "APP_NAME=نخب" >> "$GITHUB_ENV"
               echo "APP_COPYRIGHT=2026 نخب" >> "$GITHUB_ENV"
               echo "APP_DESCRIPTION_AR=برنامج نخب التعليمي" >> "$GITHUB_ENV"
@@ -51,6 +50,17 @@ jobs:
               exit 1
               ;;
           esac
+          python3 - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+          project = Path("ios/App/App.xcodeproj/project.pbxproj").read_text(encoding="utf-8")
+          versions = set(re.findall(r"MARKETING_VERSION = ([0-9]+\.[0-9]+\.[0-9]+);", project))
+          if len(versions) != 1:
+              raise RuntimeError("Expected one shared iOS marketing version; submission stopped")
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as handle:
+              handle.write("APP_VERSION=" + versions.pop() + "\n")
+          PY
 
       - name: Validate App Store credentials
         shell: bash
@@ -99,8 +109,8 @@ jobs:
           CREATE_VERSION_IF_MISSING: "true"
           TARGET_BUILD_NUMBER: ${{ inputs.build_number }}
           TESTFLIGHT_GROUP_ID: "19fde5d2-840a-4afd-8a54-eb3c35dad1cf"
-          APP_RELEASE_NOTES_AR: "توحيد بداية التشغيل وتحسين الانتقال إلى الحساب ومعالجة تعثر التحميل وإعادة المحاولة."
-          APP_RELEASE_NOTES_EN: "Unified app startup, smoother account entry, and improved loading recovery and retry."
+          APP_RELEASE_NOTES_AR: "تحسين المكالمات وإدارة الحسابات ومؤشرات الحلقات، ومعالجة مشكلات الاتصال والتنقل."
+          APP_RELEASE_NOTES_EN: "Improved calls, account management, and circle reports, with fixes for connection and navigation issues."
         run: |
           python3 -m venv "$RUNNER_TEMP/app-store-status-venv"
           "$RUNNER_TEMP/app-store-status-venv/bin/pip" install --quiet PyJWT cryptography
@@ -117,6 +127,7 @@ jobs:
       - name: Update App Store product name
         env:
           APPSTORE_API_PRIVATE_KEY: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
+          PRESERVE_EXISTING_STORE_DESCRIPTIONS: "true"
         run: |
           python3 -m venv "$RUNNER_TEMP/app-store-branding-venv"
           "$RUNNER_TEMP/app-store-branding-venv/bin/pip" install --quiet PyJWT cryptography
