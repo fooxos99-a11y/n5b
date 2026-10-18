@@ -10,7 +10,6 @@ import express from 'express';
 import mysql from 'mysql2/promise';
 import { AccessToken, TokenVerifier } from 'livekit-server-sdk';
 import { initDatabase, runWithDatabase } from '../server/db.js';
-import { assertCallArchiveConsent } from '../server/services/callArchive.js';
 import { createCallArchiveWebhookDispatcher } from '../server/services/callArchiveWebhookDispatch.js';
 import { createLivekitWebhookRouter } from '../server/routes/livekitWebhookRoutes.js';
 
@@ -29,9 +28,6 @@ try {
   for(let index=0;index<databases.length;index++){
     await pools[index].query("INSERT INTO committees(id,name)VALUES(1,'Isolated circle')");
     await pools[index].query("INSERT INTO call_rooms(id,name,livekit_room_name,committee_id,created_by_role,created_by_id,created_by_name)VALUES(1,'Same numeric ID',?,1,'supervisor',7,'Teacher')",[roomNames[index]]);
-    await runWithDatabase(databases[index],{tenant:{registrationNumber:String(100+index)}},async()=>{
-      await assertCallArchiveConsent({role:'supervisor',id:7},1,true);await assertCallArchiveConsent({role:'student',id:3},1,true);
-    });
   }
   const media=express();media.use(express.json());
   const verifier=new TokenVerifier(process.env.LIVEKIT_API_KEY,process.env.LIVEKIT_API_SECRET);

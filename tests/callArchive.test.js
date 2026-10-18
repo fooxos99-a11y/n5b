@@ -4,25 +4,34 @@ import { getCallArchiveConfig, callArchiveCapabilities } from '../server/service
 import { verifiedHumanParticipant } from '../server/services/callArchiveProvider.js';
 import { parseArchiveRange, validArchiveKey } from '../server/services/callArchiveStorage.js';
 import { transcribeCallArchive, summarizeCallArchive, validateCallArchiveReport } from '../server/services/callArchiveAI.js';
-import { assertCallArchiveConsent, canManageCallArchive, canAccessCallArchive, canReviewCallArchive, callArchiveSqlScope } from '../server/services/callArchive.js';
+import { assertCallArchiveAvailable, canManageCallArchive, canAccessCallArchive, canReviewCallArchive, callArchiveSqlScope } from '../server/services/callArchive.js';
 
 const config = { aiKey: 'local-mock-only', transcriptionModel: 'gpt-4o-transcribe-diarize', reportModel: 'gpt-4.1-mini' };
 const report = { summary: 'راجع المقرئ تلاوة الطالب.', passage: '', observations: [{ id: 'external-id', atSeconds: 2, endSeconds: 4,
   speaker: 'A', category: 'possible_error', detail: 'صحح المقرئ موضعًا.', correction: 'إعادة الموضع', response: 'أعاد الطالب', confidence: 'medium' }], followUp: ['مراجعة الموضع'], limitations: ['يلزم اعتماد المقرئ.'] };
 const transcript = { text: 'أعد هذا الموضع.', segments: [{ start: 1, end: 5, speaker: 'A', text: 'أعد هذا الموضع.' }] };
 
-test('recording activation can pause new joins before token issuance, including with consent', async () => {
+test('recording activation can pause new joins before token issuance', () => {
   const previous = process.env.CALL_ARCHIVE_JOIN_PAUSED;
   process.env.CALL_ARCHIVE_JOIN_PAUSED = 'true';
   try {
-    for (const accepted of [false, true]) await assert.rejects(
-      () => assertCallArchiveConsent({ role: 'student', id: 3 }, 1, accepted),
+    assert.throws(
+      () => assertCallArchiveAvailable(),
       error => error.statusCode === 503 && error.code === 'call_recording_setup'
     );
     assert.equal(getCallArchiveConfig({}).joinPaused, false);
   } finally {
     if (previous === undefined) delete process.env.CALL_ARCHIVE_JOIN_PAUSED;
     else process.env.CALL_ARCHIVE_JOIN_PAUSED = previous;
+  }
+});
+
+test('recording never requires a separate approval, whether enabled or disabled', () => {
+  for (const enabled of ['true', 'false']) {
+    const capabilities = callArchiveCapabilities(getCallArchiveConfig({ CALL_ARCHIVE_ENABLED: enabled }));
+    assert.equal(capabilities.enabled, enabled === 'true');
+    assert.equal(capabilities.consentRequired, false);
+    assert.equal(Object.hasOwn(capabilities, 'consentVersion'), false);
   }
 });
 
@@ -49,6 +58,8 @@ test('archive stays explicitly unconfigured without private storage and livekit'
 });
 
 test('only verified standard human identities count; recorder/agent/SIP identities cannot trigger recording', () => {
+  assert.equal(verifiedHumanParticipant({ identity: 'student:7', sid: 'PA_connection' }).connectionSid, 'PA_connection');
+  assert.equal(verifiedHumanParticipant({ identity: 'student:7' }).connectionSid, null);
   assert.equal(verifiedHumanParticipant({ identity: 'reciter:7', kind: 0, tracks: [{ type: 0, sid: 'microphone' }, { type: 1, sid: 'camera' }] }).tracks[0], 'microphone');
   for (const person of [{ identity: 'reciter:7', kind: 1 }, { identity: 'student:7', kind: 4 }, { identity: 'EG_abc' }, { identity: 'student:0' }, { identity: 'unknown:4' }]) assert.equal(verifiedHumanParticipant(person), null);
 });

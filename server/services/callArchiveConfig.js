@@ -1,7 +1,6 @@
 import path from 'node:path';
 import { resolveLiveKitConfig } from './livekitConfig.js';
 
-export const CALL_ARCHIVE_CONSENT_VERSION = '2026-10-18';
 export const GEMINI_ARCHIVE_MAX_AUDIO_BYTES = 13 * 1024 * 1024;
 export function getCallArchiveConfig(environment = process.env) {
   const aiProvider = String(environment.CALL_ARCHIVE_AI_PROVIDER || 'openai').trim().toLowerCase();
@@ -27,7 +26,6 @@ export function getCallArchiveConfig(environment = process.env) {
     enabled, configured: Boolean(enabled && storageReady && livekit), storage, s3,
     joinPaused: environment.CALL_ARCHIVE_JOIN_PAUSED === 'true',
     localPath, egressPath, livekit,
-    graceMs: Math.max(5000, Math.min(120000, Number(environment.CALL_ARCHIVE_RECONNECT_GRACE_MS) || 30000)),
     maxSessionMs: Math.max(300000, Math.min(86400000, Number(environment.CALL_ARCHIVE_MAX_SESSION_MS) || 4 * 3600000)),
     maxAiBytes: Math.min(providerAudioLimit, Math.max(1024, Number(environment.CALL_ARCHIVE_AI_MAX_BYTES) || providerAudioLimit)),
     ffmpegPath: String(environment.CALL_ARCHIVE_FFMPEG_PATH || '').trim(),
@@ -40,7 +38,6 @@ export function getCallArchiveConfig(environment = process.env) {
 
 export function callArchiveCapabilities(config = getCallArchiveConfig()) {
   return { enabled: config.enabled, configured: config.configured,
-    consentRequired: config.enabled, aiConfigured: Boolean(config.aiKey),
-    consentVersion: CALL_ARCHIVE_CONSENT_VERSION,
+    consentRequired: false, aiConfigured: Boolean(config.aiKey),
     message: config.configured ? null : 'الأرشفة الصوتية غير مهيأة. لن يبدأ تسجيل قبل إعداد خدمة التسجيل والتخزين الخاص.' };
 }

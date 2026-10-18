@@ -12,7 +12,7 @@ export default async () => {
       server.middlewares.use((req, res, next) => {
         const pathname = new URL(req.url, 'http://127.0.0.1:3039').pathname;
         if (req.headers.accept?.includes('text/html') && pathname !== '/tests/fixtures/call-audio.html') {
-          res.writeHead(302, { Location: '/tests/fixtures/call-audio.html?consent=1' }); res.end(); return;
+          res.writeHead(302, { Location: '/tests/fixtures/call-audio.html?recording=1' }); res.end(); return;
         }
         if (pathname.startsWith('/api/')) { res.writeHead(403); res.end('UI demonstration only'); return; }
         next();

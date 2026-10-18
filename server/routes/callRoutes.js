@@ -10,7 +10,7 @@ import {
 import { hasSupervisorDashboardPermission, permissionDenied } from '../services/dashboardPermissions.js';
 import { siteKey } from '../siteConfig.js';
 import { subscribeLiveKitPresence } from '../services/livekitPresenceEvents.js';
-import { assertCallArchiveConsent, finishCallArchiveRoom, getCallArchiveRoomStates, canManageCallArchive } from '../services/callArchive.js';
+import { assertCallArchiveAvailable, finishCallArchiveRoom, getCallArchiveRoomStates, canManageCallArchive } from '../services/callArchive.js';
 
 const router = express.Router();
 
@@ -220,12 +220,7 @@ router.post('/:id/token', async (req, res, next) => {
     if (!await canAccessCommittee(req.auth, room.committeeId)) {
       return res.status(403).json({ message: 'هذه الغرفة غير متاحة لحسابك.' });
     }
-    let recording;
-    try { recording = await assertCallArchiveConsent(req.auth, roomId, req.body.recordingConsent === true); }
-    catch (error) {
-      if (error.code === 'recording_consent_required') return res.status(422).json({ message: error.message, code: error.code, recordingConsentRequired: true });
-      throw error;
-    }
+    const recording = assertCallArchiveAvailable();
     const userId = Number(req.auth.id || 0);
     const credentials = await createLiveKitCallToken({
       roomName: room.livekitRoomName,

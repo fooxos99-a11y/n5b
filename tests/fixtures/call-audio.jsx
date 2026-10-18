@@ -9,19 +9,19 @@ import '../../src/index.css';
 
 if (!import.meta.env.DEV || !['localhost', '127.0.0.1'].includes(location.hostname)) throw new Error('Local test only');
 let finishToken;
-let tokenRequests = 0, tokenConsent = false;
-const consentRequired = new URLSearchParams(location.search).has('consent');
-const staleConsent = new URLSearchParams(location.search).has('staleConsent');
-globalThis.callAudioFixture = { stats: () => ({ rooms: Room.instances.length, connections: Room.instances.reduce((sum, room) => sum + room.connections, 0), disconnections: Room.instances.reduce((sum, room) => sum + room.disconnections, 0), tokenRequests, tokenConsent }) };
+let tokenRequests = 0, tokenConsentSent = false;
+const params = new URLSearchParams(location.search);
+const recording = { enabled: params.has('recording') || params.has('legacyConsent'), state: 'recording', consentRequired: params.has('legacyConsent') };
+globalThis.callAudioFixture = { stats: () => ({ rooms: Room.instances.length, connections: Room.instances.reduce((sum, room) => sum + room.connections, 0), disconnections: Room.instances.reduce((sum, room) => sum + room.disconnections, 0), tokenRequests, tokenConsentSent }) };
 studentsApi.getCallToken = (_id, options) => {
   tokenRequests++;
-  tokenConsent = options?.recordingConsent === true;
-  if (staleConsent && !tokenConsent) return Promise.reject(Object.assign(new Error('Recording consent required'), { status: 422, data: { code: 'recording_consent_required' } }));
+  tokenConsentSent = Object.hasOwn(options || {}, 'recordingConsent');
+  if (params.has('setupPaused')) return Promise.reject(Object.assign(new Error('Recording setup in progress'), { status: 503 }));
   return new Promise(resolve => { finishToken = () => resolve({ serverUrl: 'wss://local-test.invalid', token: 'synthetic' }); });
 };
 studentsApi.leaveCallRoom = async () => ({});
 studentsApi.closeCallRoom = async () => ({});
-studentsApi.getCallRooms = async () => ({ rooms: [{ id: 1 }] });
+studentsApi.getCallRooms = async () => ({ rooms: [1, 2].map(id => ({ id, recording })) });
 function Fixture() {
   const [active, setActive] = useState(true);
   const [minimized, setMinimized] = useState(false);
@@ -46,8 +46,8 @@ function Fixture() {
       <Button onClick={() => { studentsApi.leaveCallRoom = () => new Promise(() => {}); }}>تأخير إشعار الخروج</Button>
       <Button onClick={() => setRoomId(value => value === 1 ? 2 : 1)}>تبديل غرفة الاختبار</Button>
     </div>
-    <output aria-label="إحصاءات الفحص">تحديث {revision} · غرف {Room.instances.length} · اتصالات {Room.instances.reduce((sum, room) => sum + room.connections, 0)} · خروج {Room.instances.reduce((sum, room) => sum + room.disconnections, 0)} · رموز {tokenRequests} · موافقة {String(tokenConsent)}</output>
-    {active && <AudioCallRoom roomInfo={{ id: roomId, name: 'اختبار ثبات صوت المكالمة', recording: { consentRequired } }} minimized={minimized} onRestore={() => setMinimized(false)} onLeave={() => setActive(false)} onClosed={() => setActive(false)} />}
+    <output aria-label="إحصاءات الفحص">تحديث {revision} · غرف {Room.instances.length} · اتصالات {Room.instances.reduce((sum, room) => sum + room.connections, 0)} · خروج {Room.instances.reduce((sum, room) => sum + room.disconnections, 0)} · رموز {tokenRequests}</output>
+    {active && <AudioCallRoom roomInfo={{ id: roomId, name: 'اختبار ثبات صوت المكالمة', recording }} minimized={minimized} onRestore={() => setMinimized(false)} onLeave={() => setActive(false)} onClosed={() => setActive(false)} />}
     <Toaster />
   </main>;
 }

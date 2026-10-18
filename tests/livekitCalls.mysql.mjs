@@ -14,7 +14,6 @@ import { TokenVerifier, AccessToken } from 'livekit-server-sdk';
 import { initDatabase, runWithDatabase } from '../server/db.js';
 import callRouter from '../server/routes/callRoutes.js';
 import { invalidateLiveKitPresence } from '../server/services/livekitCalls.js';
-import { CALL_ARCHIVE_CONSENT_VERSION } from '../server/services/callArchiveConfig.js';
 
 assert.ok(['localhost', '127.0.0.1'].includes(process.env.MYSQL_HOST));
 assert.equal(process.env.MYSQL_DATABASE, 'nukhab_local');
@@ -249,25 +248,20 @@ try {
   await expectClosed(revokedSessionReader);
   assert.equal((await request('', { role: 'admin', id: 7, method: 'GET' })).status, 403);
   Object.assign(process.env, { CALL_ARCHIVE_ENABLED: 'true', CALL_ARCHIVE_STORAGE_PATH: temporary });
-  const [[beforeConsent]] = await pool.query("SELECT join_count AS joins FROM call_room_participants WHERE room_id=? AND user_role='student' AND user_id=3", [general.body.id]);
-  const consentDenied = await request(`/${general.body.id}/token`, { role: 'student', id: 3 });
-  assert.equal(consentDenied.status, 422);
-  assert.equal(consentDenied.body.code, 'recording_consent_required');
-  assert.equal(consentDenied.body.recordingConsentRequired, true);
-  assert.equal(Object.hasOwn(consentDenied.body, 'token'), false);
-  const [[afterConsentDenied]] = await pool.query("SELECT join_count AS joins FROM call_room_participants WHERE room_id=? AND user_role='student' AND user_id=3", [general.body.id]);
-  assert.equal(afterConsentDenied.joins, beforeConsent.joins, 'denied consent cannot mutate admission history');
-  assert.equal(Number((await pool.query('SELECT COUNT(*) AS count FROM call_archive_consents'))[0][0].count), 0);
-  const consentAccepted = await request(`/${general.body.id}/token`, { role: 'student', id: 3, body: { recordingConsent: true } });
-  assert.equal(consentAccepted.status, 200);
-  assert.equal((await verifier.verify(consentAccepted.body.token)).sub, 'student:3');
-  assert.equal(consentAccepted.body.recording.consentRequired, true);
-  const [[storedConsent]] = await pool.query("SELECT consent_version AS version FROM call_archive_consents WHERE room_id=? AND identity='student:3'", [general.body.id]);
-  assert.equal(storedConsent.version, CALL_ARCHIVE_CONSENT_VERSION);
-  assert.equal((await request('/999999/token', { role: 'student', id: 3, body: { recordingConsent: true } })).status, 404);
-  assert.equal((await request(`/${other.body.id}/token`, { role: 'student', id: 3, body: { recordingConsent: true } })).status, 403);
-  assert.equal(Number((await pool.query('SELECT COUNT(*) AS count FROM call_archive_consents'))[0][0].count), 1, 'missing or unauthorized rooms cannot receive consent records');
-  globalThis.console.log('Isolated MySQL/HTTP passed: durable empty rooms after leave/media expiry and fresh admission, presence outage fallback, student close denial, reciter scope/ownership, signed admission, explicit close recovery, live snapshots and grant/session revocation; integrated consent POST rejects before token/history, accepts and stores version, rejects missing/unauthorized rooms without consent writes.');
+  const [[beforeJoin]] = await pool.query("SELECT join_count AS joins FROM call_room_participants WHERE room_id=? AND user_role='student' AND user_id=3", [general.body.id]);
+  for (const body of [{}, { recordingConsent: false }, { recordingConsent: true }]) {
+    const admitted = await request(`/${general.body.id}/token`, { role: 'student', id: 3, body });
+    assert.equal(admitted.status, 200);
+    assert.equal((await verifier.verify(admitted.body.token)).sub, 'student:3');
+    assert.equal(admitted.body.recording.enabled, true);
+    assert.equal(admitted.body.recording.consentRequired, false);
+  }
+  const [[afterJoin]] = await pool.query("SELECT join_count AS joins FROM call_room_participants WHERE room_id=? AND user_role='student' AND user_id=3", [general.body.id]);
+  assert.equal(afterJoin.joins, beforeJoin.joins + 3);
+  assert.equal((await request('/999999/token', { role: 'student', id: 3 })).status, 404);
+  assert.equal((await request(`/${other.body.id}/token`, { role: 'student', id: 3 })).status, 403);
+  assert.equal(Number((await pool.query('SELECT COUNT(*) AS count FROM call_archive_consents'))[0][0].count), 0, 'admission must never fabricate approval records');
+  globalThis.console.log('Isolated MySQL/HTTP passed: durable empty rooms after leave/media expiry and fresh admission, presence outage fallback, student close denial, reciter scope/ownership, signed admission, explicit close recovery, live snapshots and grant/session revocation; recording-enabled admission works with absent/false/legacy-true consent flags, keeps authorization and history, and never fabricates approval records.');
 } finally {
   streamController?.abort();
   for (const listener of [server, mediaServer]) await new Promise(resolve => listener ? listener.close(resolve) : resolve());

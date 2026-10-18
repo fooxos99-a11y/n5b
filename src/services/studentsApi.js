@@ -238,9 +238,9 @@ export const studentsApi = {
     method: 'POST',
     body: JSON.stringify(payload),
   }),
-  getCallToken: (roomId, options = {}) => request(`/calls/${roomId}/token`, {
+  getCallToken: (roomId) => request(`/calls/${roomId}/token`, {
     method: 'POST',
-    body: JSON.stringify({ recordingConsent: options.recordingConsent === true }),
+    body: JSON.stringify({}),
   }),
   leaveCallRoom: (roomId) => request(`/calls/${roomId}/leave`, {
     method: 'POST',

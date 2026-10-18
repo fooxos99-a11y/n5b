@@ -1,5 +1,4 @@
 import AudioCallControls from './AudioCallControls';
-import CallRecordingStatus from './CallRecordingStatus';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Camera, CameraOff, Mic, MicOff, MonitorPlay, PhoneCall, User, X } from 'lucide-react';
@@ -7,7 +6,6 @@ import { AudioPresets, DisconnectReason, Room, RoomEvent, Track } from 'livekit-
 import { Button } from '@/components/ui/button';
 import IconActionButton from '@/components/ui/icon-action-button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import DashboardLoader from '@/components/dashboard/DashboardLoader';
 import { useToast } from '@/components/ui/use-toast';
 import { studentsApi } from '@/services/studentsApi';
@@ -92,11 +90,6 @@ const AudioCallRoom = ({ roomInfo, isOwner, minimized = false, displayTarget, on
   const [connectionError, setConnectionError] = useState('');
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [connectionAttempt, setConnectionAttempt] = useState(0);
-  const [consentedRoomId, setConsentedRoomId] = useState('');
-  const [consentRequestedRoomId, setConsentRequestedRoomId] = useState('');
-  const recordingConsent = consentedRoomId === String(roomInfo.id);
-  const needsConsent = Boolean(roomInfo.recording?.consentRequired || consentRequestedRoomId === String(roomInfo.id));
-  const waitingForConsent = needsConsent && !recordingConsent;
 
   useEffect(() => { onLeaveRef.current = onLeave; onClosedRef.current = onClosed; }, [onLeave, onClosed]);
 
@@ -157,7 +150,6 @@ const AudioCallRoom = ({ roomInfo, isOwner, minimized = false, displayTarget, on
   }, [toast]);
 
   useEffect(() => {
-    if (waitingForConsent) return undefined;
     let mounted = true;
     leavingRef.current = false;
     setIsConnecting(true);
@@ -256,17 +248,13 @@ const AudioCallRoom = ({ roomInfo, isOwner, minimized = false, displayTarget, on
 
     const connect = async () => {
       try {
-        const credentials = await studentsApi.getCallToken(roomInfo.id, { recordingConsent });
+        const credentials = await studentsApi.getCallToken(roomInfo.id);
         if (!mounted) return;
         await room.connect(credentials.serverUrl, credentials.token, { autoSubscribe: true });
         if (!mounted) { await room.disconnect(); return; }
         syncParticipants();
       } catch (error) {
         if (!mounted) return;
-        if (error.status === 422 && (error.data?.code === 'recording_consent_required' || error.data?.recordingConsentRequired)) {
-          setConsentRequestedRoomId(String(roomInfo.id));
-          return;
-        }
         console.error('LiveKit room connection failed', error);
         toast({ title: 'تعذر دخول المكالمة', description: 'تعذر الاتصال بالغرفة الصوتية. تحقق من اتصال الإنترنت ثم حاول مرة أخرى.', variant: 'destructive' });
         setConnectionError(error.status === 404 ? 'الغرفة غير متاحة أو أُغلقت.' : 'تعذر الاتصال بالمكالمة. تحقق من الإنترنت ثم أعد المحاولة.');
@@ -287,7 +275,7 @@ const AudioCallRoom = ({ roomInfo, isOwner, minimized = false, displayTarget, on
       audioContainer?.replaceChildren();
       screenContainer?.replaceChildren();
     };
-  }, [closeScreenShareView, connectionAttempt, recordingConsent, roomInfo.id, syncParticipants, toast, waitingForConsent]);
+  }, [closeScreenShareView, connectionAttempt, roomInfo.id, syncParticipants, toast]);
 
   const toggleMicrophone = async () => {
     try {
@@ -376,7 +364,6 @@ const AudioCallRoom = ({ roomInfo, isOwner, minimized = false, displayTarget, on
   };
 
   const renderCall = () => {
-    if (waitingForConsent) return <Dialog open onOpenChange={open => { if (!open) leave(); }}><DialogContent dir="rtl"><DialogHeader><DialogTitle>الموافقة على تسجيل المكالمة</DialogTitle><DialogDescription>يمكن تسجيل صوت المكالمة وتحليله لإعداد تقرير. بدخولك توافق على ذلك.</DialogDescription></DialogHeader><DialogFooter><Button variant="outline" onClick={leave}>إلغاء</Button><Button onClick={() => setConsentedRoomId(String(roomInfo.id))}>أوافق وأدخل</Button></DialogFooter></DialogContent></Dialog>;
     if (connectionError) {
       if (minimized) return <Button onClick={onRestore} variant="outline" className="fixed bottom-3 left-3 z-[60] h-auto max-w-[88vw] whitespace-normal p-4 text-right sm:bottom-5 sm:left-5" dir="rtl">{roomInfo.name} · انقطع الاتصال، افتح المكالمة لإعادة المحاولة</Button>;
       return <Card dir="rtl"><CardHeader><h2 className="text-xl font-bold">{roomInfo.name}</h2></CardHeader><CardContent className="space-y-4"><p role="status">{connectionError}</p><div className="flex flex-wrap gap-2"><Button onClick={() => setConnectionAttempt(value => value + 1)}>إعادة الاتصال</Button><Button variant="outline" onClick={leave}>الخروج من المكالمة</Button></div></CardContent></Card>;
@@ -430,7 +417,6 @@ const AudioCallRoom = ({ roomInfo, isOwner, minimized = false, displayTarget, on
           </div>
         </CardHeader>
         <CardContent className="space-y-5 pt-4 sm:pt-6">
-          <CallRecordingStatus roomId={roomInfo.id} initialRecording={roomInfo.recording} />
           {isReconnecting && <p role="status" className="text-sm text-muted-foreground">انقطع الاتصال مؤقتًا. جارٍ إعادة الاتصال…</p>}
           <div className={activeScreenShare ? 'overflow-hidden rounded-lg border border-primary/20 bg-black' : 'hidden'}>
             <div className="flex items-center justify-between bg-background/95 px-3 py-2 text-sm font-black text-foreground">

@@ -7,6 +7,7 @@ export function verifiedHumanParticipant(person) {
   const match = /^(manager|admin|supervisor|student|reciter):([1-9][0-9]*)$/.exec(String(person.identity || ''));
   if (!match || (person.kind !== undefined && Number(person.kind) !== 0)) return null;
   return { identity: person.identity, role: match[1], id: Number(match[2]), name: String(person.name || 'مستخدم').slice(0, 180),
+    connectionSid: String(person.sid || '').slice(0, 100) || null,
     tracks: (person.tracks || []).filter(track => Number(track.type) === TrackType.AUDIO && track.sid).map(track => String(track.sid)) };
 }
 

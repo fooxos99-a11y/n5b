@@ -11,7 +11,7 @@ import express from 'express';
 import mysql from 'mysql2/promise';
 import { initDatabase, runWithDatabase } from '../server/db.js';
 import archiveRouter from '../server/routes/callArchiveRoutes.js';
-import { assertCallArchiveConsent, reconcileCallArchivePresence, processCallArchiveBatch, getCallArchiveRoomStates, finishCallArchiveRoom } from '../server/services/callArchive.js';
+import { reconcileCallArchivePresence, processCallArchiveBatch, getCallArchiveRoomStates, finishCallArchiveRoom } from '../server/services/callArchive.js';
 import { getCallArchiveConfig } from '../server/services/callArchiveConfig.js';
 import { createCallArchiveStorage } from '../server/services/callArchiveStorage.js';
 import { startCallArchiveWorker } from '../server/services/callArchiveWorker.js';
@@ -20,9 +20,9 @@ assert.ok(['127.0.0.1', 'localhost'].includes(process.env.MYSQL_HOST));
 assert.equal(process.env.MYSQL_DATABASE, 'nukhab_local');
 const database = `nukhab_archive_${randomUUID().replaceAll('-', '').slice(0, 16)}`;
 const temporary = await mkdtemp(path.join(tmpdir(), 'nukhab-archive-test-'));
-const keys = ['CALL_ARCHIVE_ENABLED','CALL_ARCHIVE_STORAGE_PATH','LIVEKIT_URL','LIVEKIT_API_KEY','LIVEKIT_API_SECRET','OPENAI_API_KEY'];
+const keys = ['CALL_ARCHIVE_ENABLED','CALL_ARCHIVE_STORAGE_PATH','LIVEKIT_URL','LIVEKIT_API_KEY','LIVEKIT_API_SECRET','OPENAI_API_KEY','CALL_ARCHIVE_AI_PROVIDER'];
 const saved = Object.fromEntries(keys.map(key => [key, process.env[key]]));
-Object.assign(process.env, { CALL_ARCHIVE_ENABLED:'true', CALL_ARCHIVE_STORAGE_PATH:temporary, LIVEKIT_URL:'http://127.0.0.1:1',LIVEKIT_API_KEY:'test-only',LIVEKIT_API_SECRET:'test-secret-never-used-externally',OPENAI_API_KEY:'mock-only' });
+Object.assign(process.env, { CALL_ARCHIVE_ENABLED:'true', CALL_ARCHIVE_STORAGE_PATH:temporary, LIVEKIT_URL:'http://127.0.0.1:1',LIVEKIT_API_KEY:'test-only',LIVEKIT_API_SECRET:'test-secret-never-used-externally',OPENAI_API_KEY:'mock-only',CALL_ARCHIVE_AI_PROVIDER:'openai' });
 let pool, server, starts = 0;
 let people = [];
 const egresses = [];
@@ -46,7 +46,6 @@ const provider = {
 const report = { summary:'تقرير اختبار محلي بموفر صوت وذكاء اصطناعي وهميين.',passage:'',observations:[{id:'observation-1',atSeconds:2,endSeconds:4,speaker:'A',category:'possible_error',detail:'موضع مراجعة',correction:'إعادة',response:'أعاد',confidence:'medium'},
   {id:'observation-2',atSeconds:6,endSeconds:7,speaker:'B',category:'unclear',detail:'غير واضح',correction:'',response:'',confidence:'low'}],followUp:['مراجعة'],limitations:['اختبار موفر وهمي، لا يثبت دقة التلاوة.'] };
 const ai = { transcribe:async () => ({text:'اختبار',segments:[{start:1,end:5,text:'اختبار',speaker:'A'}]}),summarize:async () => report };
-const supervisor = {role:'supervisor',id:7,name:'Teacher'}, student = {role:'student',id:3,name:'Student'};
 const tokenHash = createHash('sha256').update('local-session').digest('hex');
 try {
   pool = await initDatabase(database, { seedDefaultData:false });
@@ -60,10 +59,6 @@ try {
   const run = action => runWithDatabase(database,{tenant:{registrationNumber:'',databaseName:database}},action);
   const config = getCallArchiveConfig(), storage = createCallArchiveStorage(config);
   const batch = () => run(() => processCallArchiveBatch({ config, provider, storage, ai }));
-  await run(async () => {
-    await assert.rejects(() => assertCallArchiveConsent(student,roomId,false),error => error.statusCode===422 && error.code==='recording_consent_required');
-    await assertCallArchiveConsent(supervisor,roomId,true); await assertCallArchiveConsent(student,roomId,true);
-  });
   people=[{identity:'supervisor:7',role:'supervisor',id:7,name:'Teacher',tracks:['TR_A']}];
   await run(() => reconcileCallArchivePresence('archive-room',{config,provider}));
   assert.equal(Number((await pool.query('SELECT COUNT(*) AS count FROM call_archive_sessions'))[0][0].count),0);
@@ -75,11 +70,17 @@ try {
   await pool.query('UPDATE call_archive_jobs SET next_at=CURRENT_TIMESTAMP(3) WHERE session_id=?',[first.id]);
   await batch();
   assert.equal(starts,3,'One mixed capture plus one microphone capture per human; repeated events cannot duplicate');
+  const [participants] = await pool.query('SELECT consented_at FROM call_archive_participants WHERE session_id=?', [first.id]);
+  assert.equal(participants.length, 2, 'Both humans are archived without separate approval');
+  assert.ok(participants.every(person => person.consented_at === null), 'Do not invent a consent timestamp');
+  assert.equal(Number((await pool.query('SELECT COUNT(*) AS count FROM call_archive_consents'))[0][0].count), 0);
   assert.equal((await run(() => getCallArchiveRoomStates([roomId])))[roomId].state,'recording');
-  people=[];
-  await batch();
-  assert.equal((await pool.query('SELECT state FROM call_archive_sessions WHERE id=?',[first.id]))[0][0].state,'recording','Reconnect grace keeps the same session');
-  await pool.query('UPDATE call_archive_sessions SET empty_since=DATE_SUB(CURRENT_TIMESTAMP(3),INTERVAL 40 SECOND) WHERE id=?',[first.id]);
+  people=people.slice(0,1);
+  await run(() => reconcileCallArchivePresence('archive-room',{config,provider}));
+  const [[endedPair]]=await pool.query('SELECT state,active_room_id FROM call_archive_sessions WHERE id=?',[first.id]);
+  assert.equal(endedPair.state,'stopping','One remaining human ends the recording without a grace period');
+  assert.equal(endedPair.active_room_id,null,'Saving the old archive must not hold the room');
+  assert.ok(egresses.filter(item=>item.media.session_id===first.id).every(item=>item.status===3),'The recorder stops immediately, before the worker finalizes the archive');
   await batch();
   await pool.query('UPDATE call_archive_jobs SET next_at=CURRENT_TIMESTAMP(3) WHERE session_id=?',[first.id]);
   await batch(); await batch();
@@ -162,20 +163,19 @@ try {
   await pool.query('DELETE FROM committees WHERE id=1');
   assert.equal((await request(`/sessions/${first.id}`)).status,200,'Administration archive snapshots survive source room/circle deletion');
   const [autoRoom]=await pool.query("INSERT INTO call_rooms(name,livekit_room_name,committee_id,created_by_role,created_by_id,created_by_name) VALUES('Auto-finish room','auto-finish-room',2,'supervisor',7,'Teacher')");
-  await run(async()=>{await assertCallArchiveConsent(supervisor,autoRoom.insertId,true);await assertCallArchiveConsent(student,autoRoom.insertId,true);});
   people=[{identity:'supervisor:7',role:'supervisor',id:7,name:'Teacher',tracks:['TR_AUTO1']},{identity:'student:3',role:'student',id:3,name:'Student',tracks:['TR_AUTO2']}];
   await batch();
   const [[autoFirst]]=await pool.query('SELECT * FROM call_archive_sessions WHERE active_room_id=?',[autoRoom.insertId]);
   assert.equal(autoFirst.state,'recording');
   people=[];
   // Real Egress naturally ends when its media room disappears. Participants
-  // return before the next poll and before the 30-second app grace elapses.
+  // return before the next poll. Never reuse the completed capture.
   for(const info of egresses.filter(item=>item.media.session_id===autoFirst.id)) await provider.stop(info.egressId);
   people=[{identity:'supervisor:7',role:'supervisor',id:7,name:'Teacher',tracks:['TR_RETURN1']},{identity:'student:3',role:'student',id:3,name:'Student',tracks:['TR_RETURN2']}];
   const startsBeforeReturn=starts;
   await batch(); await batch();
   const [autoSessions]=await pool.query('SELECT * FROM call_archive_sessions WHERE room_id=? ORDER BY started_at',[autoRoom.insertId]);
-  assert.equal(autoSessions.length,2,'A naturally finalized Egress session is not reused during reconnect grace');
+  assert.equal(autoSessions.length,2,'A naturally finalized Egress session is not reused');
   assert.notEqual(autoSessions[1].id,autoFirst.id);
   assert.equal(starts,startsBeforeReturn+3,'Returning participants get an actual NEW mixed and two new microphone captures');
   assert.equal(autoSessions[1].state,'recording');
@@ -183,6 +183,58 @@ try {
   await pool.query("UPDATE call_rooms SET status='closed' WHERE id=?",[autoRoom.insertId]);
   await batch(); await pool.query('UPDATE call_archive_jobs SET next_at=CURRENT_TIMESTAMP(3)'); await batch(); await batch();
   await pool.query('DELETE FROM call_rooms WHERE id=?',[autoRoom.insertId]);
+  // Return while the old files are still finalizing: a new archive must start
+  // without recording the solo interval or sharing the previous output files.
+  for (const remaining of [0,1]) {
+    const roomName=`threshold-${remaining}`;
+    const [thresholdRoom]=await pool.query("INSERT INTO call_rooms(name,livekit_room_name,committee_id,created_by_role,created_by_id,created_by_name) VALUES(?,?,2,'supervisor',7,'Teacher')",[roomName,roomName]);
+    const initial=[{identity:'supervisor:7',connectionSid:'PA_A1',role:'supervisor',id:7,name:'Teacher',tracks:['TR_THRESHOLD_A1']},{identity:'student:3',connectionSid:'PA_B1',role:'student',id:3,name:'Student',tracks:['TR_THRESHOLD_B1']}];
+    const delayedProvider={...provider,stop:async id=>{const info=egresses.find(item=>item.egressId===id);info.status=2;return info;}};
+    const thresholdBatch=()=>run(()=>processCallArchiveBatch({config,provider:delayedProvider,storage,ai}));
+    people=[...initial];await thresholdBatch();
+    const [[oldSession]]=await pool.query('SELECT * FROM call_archive_sessions WHERE active_room_id=?',[thresholdRoom.insertId]);
+    const oldCaptures=egresses.filter(item=>item.media.session_id===oldSession.id);
+    assert.equal(oldCaptures.length,3);
+    people=initial.slice(0,remaining);
+    await run(()=>reconcileCallArchivePresence(roomName,{config,provider:delayedProvider}));
+    assert.ok(oldCaptures.every(item=>item.status===2),'Stop is requested immediately for every recorder');
+    const [[stopping]]=await pool.query('SELECT state,active_room_id FROM call_archive_sessions WHERE id=?',[oldSession.id]);
+    assert.equal(stopping.state,'stopping');assert.equal(stopping.active_room_id,null);
+    await thresholdBatch();
+    assert.equal(Number((await pool.query('SELECT COUNT(*) AS count FROM call_archive_sessions WHERE room_id=?',[thresholdRoom.insertId]))[0][0].count),1,'Zero or one participant cannot create another archive');
+    people=initial.map((person,index)=>remaining===1&&index===0?person:{...person,connectionSid:`PA_RETURN_${index}`,tracks:[`TR_RETURN_${remaining}_${index}`]});
+    await thresholdBatch();
+    const [[replacement]]=await pool.query('SELECT * FROM call_archive_sessions WHERE active_room_id=?',[thresholdRoom.insertId]);
+    assert.notEqual(replacement.id,oldSession.id);assert.equal(replacement.state,'recording');
+    const newCaptures=egresses.filter(item=>item.media.session_id===replacement.id);
+    assert.equal(newCaptures.length,3,'The replacement capture starts before the old files finish');
+    assert.ok(newCaptures.every(item=>!oldCaptures.some(old=>old.outputPath===item.outputPath)),'Archive files are independent');
+    await thresholdBatch();
+    assert.equal(Number((await pool.query('SELECT COUNT(*) AS count FROM call_archive_sessions WHERE room_id=?',[thresholdRoom.insertId]))[0][0].count),2,'Repeated presence cannot create duplicate archives');
+    for(const info of oldCaptures)await provider.stop(info.egressId);
+    await pool.query('UPDATE call_archive_jobs SET next_at=CURRENT_TIMESTAMP(3) WHERE session_id=?',[oldSession.id]);
+    await thresholdBatch();await thresholdBatch();
+    assert.equal((await pool.query('SELECT state FROM call_archive_sessions WHERE id=?',[oldSession.id]))[0][0].state,'ready');
+    await run(()=>finishCallArchiveRoom(roomName));await pool.query("UPDATE call_rooms SET status='closed' WHERE id=?",[thresholdRoom.insertId]);
+    await batch();await pool.query('UPDATE call_archive_jobs SET next_at=CURRENT_TIMESTAMP(3)');await batch();await batch();
+    await pool.query('DELETE FROM call_rooms WHERE id=?',[thresholdRoom.insertId]);
+  }
+  const [pairRoom]=await pool.query("INSERT INTO call_rooms(name,livekit_room_name,committee_id,created_by_role,created_by_id,created_by_name) VALUES('Fast return','fast-return',2,'supervisor',7,'Teacher')");
+  people=[{identity:'supervisor:7',connectionSid:'PA_PAIR_A',role:'supervisor',id:7,name:'Teacher',tracks:['TR_PAIR_A']},{identity:'student:3',connectionSid:'PA_PAIR_B',role:'student',id:3,name:'Student',tracks:['TR_PAIR_B']}];
+  await batch();
+  const [[pairFirst]]=await pool.query('SELECT id FROM call_archive_sessions WHERE active_room_id=?',[pairRoom.insertId]);
+  people.push({identity:'student:4',connectionSid:'PA_THIRD',role:'student',id:4,name:'Third',tracks:['TR_THIRD']});await batch();
+  people.pop();await batch();
+  assert.equal((await pool.query('SELECT id FROM call_archive_sessions WHERE active_room_id=?',[pairRoom.insertId]))[0][0].id,pairFirst.id,'Three becoming two keeps the existing archive');
+  people[1]={...people[1],connectionSid:'PA_PAIR_B_RETURN',tracks:['TR_PAIR_B_RETURN']};
+  await batch();
+  const [[pairSecond]]=await pool.query('SELECT id,state FROM call_archive_sessions WHERE active_room_id=?',[pairRoom.insertId]);
+  assert.notEqual(pairSecond.id,pairFirst.id,'A complete leave/rejoin between polls starts another archive');assert.equal(pairSecond.state,'recording');
+  await run(()=>reconcileCallArchivePresence('fast-return',{config,provider,departure:{identity:'student:3',sid:'PA_PAIR_B',kind:0}}));
+  assert.equal((await pool.query('SELECT id FROM call_archive_sessions WHERE active_room_id=?',[pairRoom.insertId]))[0][0].id,pairSecond.id,'A delayed duplicate departure cannot split the replacement archive');
+  await run(()=>finishCallArchiveRoom('fast-return'));await pool.query("UPDATE call_rooms SET status='closed' WHERE id=?",[pairRoom.insertId]);
+  await batch();await pool.query('UPDATE call_archive_jobs SET next_at=CURRENT_TIMESTAMP(3)');await batch();await batch();
+  await pool.query('DELETE FROM call_rooms WHERE id=?',[pairRoom.insertId]);
   const unrelated=Array.from({length:501},() => [randomUUID(),999,'unrelated-room','Other room','reciter',9,new Date()]);
   await pool.query('INSERT INTO call_archive_sessions(id,room_id,livekit_room_name,room_name,owner_role,owner_id,started_at) VALUES ?',[unrelated]);
   assert.equal((await request('/',{role:'student',id:3})).status,403,'Participants cannot list archives regardless of pagination');
@@ -198,18 +250,21 @@ try {
   await run(() => processCallArchiveBatch({config,provider:faultyProvider,storage,ai}));
   assert.equal((await pool.query("SELECT state FROM call_archive_jobs WHERE session_id=? AND kind='report'",[first.id]))[0][0].state,'done','One unavailable room cannot starve unrelated report jobs');
   await pool.query('DELETE FROM call_rooms WHERE id=?',[bad.insertId]);
-  const [raceRoom]=await pool.query("INSERT INTO call_rooms(name,livekit_room_name,committee_id,created_by_role,created_by_id,created_by_name) VALUES('Consent race','consent-race',2,'supervisor',7,'Teacher')");
-  await run(async()=>{await assertCallArchiveConsent(supervisor,raceRoom.insertId,true);await assertCallArchiveConsent(student,raceRoom.insertId,true);});
+  const [raceRoom]=await pool.query("INSERT INTO call_rooms(name,livekit_room_name,committee_id,created_by_role,created_by_id,created_by_name) VALUES('Late participant','late-participant',2,'supervisor',7,'Teacher')");
   const accepted=[{identity:'supervisor:7',role:'supervisor',id:7,name:'Teacher',tracks:['TR_R1']},{identity:'student:3',role:'student',id:3,name:'Student',tracks:['TR_R2']}];
   let presenceReads=0;
-  const raceProvider={...provider,presence:async()=>{presenceReads++;return presenceReads>=3?[...accepted,{identity:'student:4',role:'student',id:4,name:'No consent',tracks:['TR_BAD']}]:accepted;}};
-  await run(()=>reconcileCallArchivePresence('consent-race',{config,provider:raceProvider}));
+  const raceProvider={...provider,presence:async()=>{presenceReads++;return presenceReads>=3?[...accepted,{identity:'student:4',role:'student',id:4,name:'Late student',tracks:['TR_LATE']}]:accepted;}};
+  await run(()=>reconcileCallArchivePresence('late-participant',{config,provider:raceProvider}));
   const beforeRace=starts;
   await run(()=>processCallArchiveBatch({config,provider:raceProvider,storage,ai}));
-  assert.equal(starts,beforeRace,'Consent is rechecked at actual capture start, even after prior reconcile');
+  assert.equal(starts,beforeRace+3,'A later arrival cannot block the mixed recording or existing tracks');
+  await run(()=>reconcileCallArchivePresence('late-participant',{config,provider:raceProvider}));
+  await run(()=>processCallArchiveBatch({config,provider:raceProvider,storage,ai}));
+  assert.equal(starts,beforeRace+4,'The later participant receives a separate audio track');
+  const [[lateParticipant]]=await pool.query('SELECT p.consented_at FROM call_archive_participants p JOIN call_archive_sessions s ON s.id=p.session_id WHERE s.room_id=? AND p.identity=?',[raceRoom.insertId,'student:4']);
+  assert.equal(lateParticipant.consented_at,null);
   await pool.query("UPDATE call_rooms SET status='closed'");
   const [failureRoom]=await pool.query("INSERT INTO call_rooms(name,livekit_room_name,committee_id,created_by_role,created_by_id,created_by_name) VALUES('Failure exhaustion','failure-room',2,'supervisor',7,'Teacher')");
-  await run(async()=>{await assertCallArchiveConsent(supervisor,failureRoom.insertId,true);await assertCallArchiveConsent(student,failureRoom.insertId,true);});
   people=[...accepted];
   const failingCapture={...provider,start:async()=>{throw new Error('Mock recording start outage');}};
   let failedSession;
@@ -255,7 +310,6 @@ try {
   try{
     await waitUntil(()=>reportStarted);
     const [promptRoom]=await pool.query("INSERT INTO call_rooms(name,livekit_room_name,committee_id,created_by_role,created_by_id,created_by_name) VALUES('Recording while AI busy','prompt-room',2,'supervisor',7,'Teacher')");
-    await run(async()=>{await assertCallArchiveConsent(supervisor,promptRoom.insertId,true);await assertCallArchiveConsent(student,promptRoom.insertId,true);});
     people=[{identity:'supervisor:7',role:'supervisor',id:7,name:'Teacher',tracks:['TR_PROMPT1']},{identity:'student:3',role:'student',id:3,name:'Student',tracks:['TR_PROMPT2']}];
     const startsBeforePrompt=starts;
     await waitUntil(async()=>{const [[row]]=await pool.query("SELECT COUNT(*) AS count FROM call_archive_media m JOIN call_archive_sessions s ON s.id=m.session_id WHERE s.active_room_id=? AND s.state='recording' AND m.state='recording'",[promptRoom.insertId]);return Number(row.count)===3;});
@@ -267,7 +321,7 @@ try {
     stopScheduler();releaseReport();
     await waitUntil(async()=>{const [[row]]=await pool.query("SELECT state FROM call_archive_jobs WHERE session_id=? AND kind='report'",[first.id]);return row.state==='done';});
   }
-  console.log('PASS archive MySQL: lifecycle, duplicate prevention, consent race, separate tracks, reconnect/new captures after Egress end, async mock AI, authority/Range/HEAD/revocation, deletion survival, pagination after501 unrelated sessions, failure exhaustion/manual retry, missing audio422, REAL independent scheduler captures while AI report held. External LiveKit/Egress/OpenAI mocked; not real recording/AI accuracy.');
+  console.log('PASS archive MySQL: lifecycle, duplicate prevention, direct recording without approval and late arrivals, separate tracks, reconnect/new captures after Egress end, async mock AI, authority/Range/HEAD/revocation, deletion survival, pagination after501 unrelated sessions, failure exhaustion/manual retry, missing audio422, REAL independent scheduler captures while AI report held. External LiveKit/Egress/OpenAI mocked; not real recording/AI accuracy.');
 } finally {
   await new Promise(resolve => server?server.close(resolve):resolve());
   const admin=await mysql.createConnection({host:process.env.MYSQL_HOST,port:Number(process.env.MYSQL_PORT),user:process.env.MYSQL_USER,password:process.env.MYSQL_PASSWORD||''});

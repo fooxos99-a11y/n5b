@@ -1,13 +1,12 @@
 import crypto from 'node:crypto';
 import { db, getDatabaseContext } from '../db.js';
 import { hasSupervisorDashboardPermission } from './dashboardPermissions.js';
-import { getCallArchiveConfig, callArchiveCapabilities, CALL_ARCHIVE_CONSENT_VERSION } from './callArchiveConfig.js';
-import { createCallArchiveProvider } from './callArchiveProvider.js';
+import { getCallArchiveConfig, callArchiveCapabilities } from './callArchiveConfig.js';
+import { createCallArchiveProvider, verifiedHumanParticipant } from './callArchiveProvider.js';
 import { createCallArchiveStorage } from './callArchiveStorage.js';
 import { transcribeCallArchive, summarizeCallArchive } from './callArchiveAI.js';
 import { transcribeCallArchiveChunks } from './callArchiveChunks.js';
 
-const identityOf = auth => `${auth?.role}:${Number(auth?.id || 0)}`;
 const safeError = error => error?.code === 'AUDIO_TOO_LARGE' ? error.message
   : error?.code === 'CHUNKER_UNCONFIGURED' ? error.message
   : error?.code === 'AI_UNCONFIGURED' ? 'خدمة التحليل الآلي غير مهيأة.' : 'تعذر إكمال التسجيل أو التحليل. ستُعاد المحاولة تلقائيًا، ويمكن للإدارة مراجعة إعدادات الخدمة.';
@@ -34,25 +33,19 @@ async function queue(connection, id, kind) {
     next_at=IF(state='done',CURRENT_TIMESTAMP(3),next_at),state=IF(state='done','pending',state)`, [id, kind]);
 }
 
-export async function assertCallArchiveConsent(auth, roomId, accepted) {
+export function assertCallArchiveAvailable() {
   const config = getCallArchiveConfig();
   if (config.joinPaused) throw Object.assign(new Error('يجري تجهيز تسجيل المكالمات. حاول الدخول بعد قليل.'), { statusCode: 503, code: 'call_recording_setup' });
-  if (!config.enabled) return callArchiveCapabilities(config);
-  if (!accepted) throw Object.assign(new Error('يلزم الموافقة على تسجيل الجلسة وحفظها وتحليلها قبل الدخول.'), { statusCode: 422, code: 'recording_consent_required', recordingConsentRequired: true });
-  await db().query(`INSERT INTO call_archive_consents (room_id,identity,consent_version,consented_at)
-    VALUES (?,?,?,CURRENT_TIMESTAMP(3)) ON DUPLICATE KEY UPDATE consent_version=VALUES(consent_version),consented_at=VALUES(consented_at)`,
-  [roomId, identityOf(auth), CALL_ARCHIVE_CONSENT_VERSION]);
   return callArchiveCapabilities(config);
 }
 
 async function enroll(connection, sessionId, humans) {
   for (const human of humans) {
     await connection.query(`INSERT INTO call_archive_participants
-      (session_id,identity,user_role,user_id,user_name,consented_at,joined_at)
-      SELECT ?,?,?,?, ?,consented_at,CURRENT_TIMESTAMP(3) FROM call_archive_consents
-      WHERE room_id=(SELECT room_id FROM call_archive_sessions WHERE id=?) AND identity=? AND consent_version=?
-      ON DUPLICATE KEY UPDATE user_name=VALUES(user_name),left_at=NULL`,
-    [sessionId, human.identity, human.role, human.id, human.name, sessionId, human.identity, CALL_ARCHIVE_CONSENT_VERSION]);
+      (session_id,identity,user_role,user_id,user_name,connection_sid,consented_at,joined_at)
+      VALUES (?,?,?,?,?,?,NULL,CURRENT_TIMESTAMP(3))
+      ON DUPLICATE KEY UPDATE user_name=VALUES(user_name),connection_sid=VALUES(connection_sid),left_at=NULL`,
+    [sessionId, human.identity, human.role, human.id, human.name, human.connectionSid || null]);
   }
   const identities = humans.map(person => person.identity);
   await connection.query(`UPDATE call_archive_participants SET left_at=COALESCE(left_at,CURRENT_TIMESTAMP(3))
@@ -79,12 +72,25 @@ export async function reconcileCallArchivePresence(roomName, options = {}) {
       return;
     }
     const humans = await provider.presence(roomName);
-    const [consents] = await connection.query('SELECT identity FROM call_archive_consents WHERE room_id=? AND consent_version=?', [room.id, CALL_ARCHIVE_CONSENT_VERSION]);
-    const consented = new Set(consents.map(row => row.identity));
-    if (humans.some(person => !consented.has(person.identity))) {
-      // Tokens issued before recording was enabled cannot silently give consent.
-      if (session) { await connection.query('UPDATE call_archive_sessions SET recording_gap=1,last_error=? WHERE id=?', ['توقف التسجيل لأن أحد المشاركين لم يوافق على التسجيل. يلزم خروجه ودخوله بعد الموافقة.', session.id]); await markStopping(connection, session); }
-      return;
+    if (session) {
+      for (const info of await provider.list(roomName)) await applyCallArchiveEgress(info, { pool: connection });
+      [[session]] = await connection.query('SELECT * FROM call_archive_sessions WHERE id=? AND active_room_id IS NOT NULL', [session.id]);
+    }
+    if (session) {
+      const [previous] = await connection.query('SELECT identity,connection_sid FROM call_archive_participants WHERE session_id=? AND left_at IS NULL', [session.id]);
+      const departure = options.departure && verifiedHumanParticipant(options.departure);
+      // A full reconnect can happen between presence polls. Compare connection
+      // IDs, not microphone tracks; delayed duplicate departures cannot end the
+      // replacement connection's archive.
+      const pairChanged = previous.length === 2 && previous.some(person => person.connection_sid && (
+        (departure?.connectionSid === person.connection_sid && departure.identity === person.identity)
+        || humans.some(human => human.identity === person.identity && human.connectionSid && human.connectionSid !== person.connection_sid)
+      ));
+      if (humans.length < 2 || pairChanged) {
+        await markStopping(connection, session);
+        await stopRecordingMedia(connection, session, provider);
+        session = null;
+      }
     }
     if (!session && humans.length >= 2) {
       const id = crypto.randomUUID();
@@ -95,21 +101,8 @@ export async function reconcileCallArchivePresence(roomName, options = {}) {
       [[session]] = await connection.query('SELECT * FROM call_archive_sessions WHERE id=?', [id]);
       await newMedia(connection, session, 'mixed');
     }
-    if (!session || session.state === 'stopping') return;
-    for (const info of await provider.list(roomName)) await applyCallArchiveEgress(info, { pool: connection });
-    // RoomComposite may finish as soon as the media room empties, before our
-    // reconnect grace expires. Never reuse its finalized mixed file for people
-    // who return: finish this logical session, then create a fresh capture.
-    [[session]] = await connection.query('SELECT * FROM call_archive_sessions WHERE id=?', [session.id]);
-    if (session.state === 'stopping') return;
+    if (!session) return;
     await enroll(connection, session.id, humans);
-    if (!humans.length) {
-      await connection.query('UPDATE call_archive_sessions SET empty_since=COALESCE(empty_since,CURRENT_TIMESTAMP(3)) WHERE id=?', [session.id]);
-      const emptySince = session.empty_since ? new Date(session.empty_since).getTime() : Date.now();
-      if (Date.now() - emptySince >= config.graceMs) await markStopping(connection, session);
-      return;
-    }
-    await connection.query('UPDATE call_archive_sessions SET empty_since=NULL WHERE id=?', [session.id]);
     if (Date.now() - new Date(session.started_at).getTime() > config.maxSessionMs) {
       await connection.query('UPDATE call_archive_sessions SET recording_gap=1,last_error=? WHERE id=?', ['بلغ التسجيل حد الجلسة؛ ستبدأ جلسة جديدة إذا استمرت المكالمة.', session.id]);
       await markStopping(connection, session); return;
@@ -121,7 +114,8 @@ export async function reconcileCallArchivePresence(roomName, options = {}) {
 }
 
 async function markStopping(connection, session) {
-  await connection.query("UPDATE call_archive_sessions SET state='stopping',ended_at=COALESCE(ended_at,CURRENT_TIMESTAMP(3)) WHERE id=?", [session.id]);
+  await connection.query("UPDATE call_archive_sessions SET active_room_id=NULL,state='stopping',ended_at=COALESCE(ended_at,CURRENT_TIMESTAMP(3)) WHERE id=?", [session.id]);
+  await connection.query('UPDATE call_archive_participants SET left_at=COALESCE(left_at,CURRENT_TIMESTAMP(3)) WHERE session_id=?', [session.id]);
   await queue(connection, session.id, 'stop');
 }
 
@@ -159,8 +153,9 @@ export async function handleCallArchiveWebhook(event) {
   if (!getCallArchiveConfig().enabled) return;
   if (event.egressInfo) await applyCallArchiveEgress(event.egressInfo);
   if (['participant_joined', 'participant_left', 'participant_connection_aborted', 'track_published', 'track_unpublished', 'room_started', 'room_finished'].includes(event.event)) {
-    // Reconcile full provider state, never trust event arrival order as presence.
-    await reconcileCallArchivePresence(event.room?.name);
+    await reconcileCallArchivePresence(event.room?.name, {
+      departure: ['participant_left', 'participant_connection_aborted'].includes(event.event) ? event.participant : null,
+    });
   }
 }
 
@@ -168,12 +163,9 @@ async function captureSession(connection, session, provider) {
   [[session]] = await connection.query('SELECT * FROM call_archive_sessions WHERE id=?', [session.id]);
   if (['stopping', 'processing', 'ready', 'failed'].includes(session.state)) return;
   const humans = await provider.presence(session.livekit_room_name);
-  if (!humans.length) return;
-  const [consents] = await connection.query('SELECT identity FROM call_archive_consents WHERE room_id=? AND consent_version=?', [session.room_id, CALL_ARCHIVE_CONSENT_VERSION]);
-  const consented = new Set(consents.map(row => row.identity));
-  if (humans.some(person => !consented.has(person.identity))) {
-    await connection.query('UPDATE call_archive_sessions SET recording_gap=1,last_error=? WHERE id=?', ['لم يبدأ التسجيل لأن أحد المشاركين لم يوافق على التسجيل.', session.id]);
+  if (humans.length < 2) {
     await markStopping(connection, session);
+    await stopRecordingMedia(connection, session, provider);
     return;
   }
   const existing = await provider.list(session.livekit_room_name);
@@ -196,7 +188,7 @@ async function captureSession(connection, session, provider) {
   }
 }
 
-async function stopSession(connection, session, provider, storage, config) {
+async function stopRecordingMedia(connection, session, provider) {
   const egresses = await provider.list(session.livekit_room_name);
   for (const info of egresses) await applyCallArchiveEgress(info, { pool: connection });
   const [rows] = await connection.query('SELECT * FROM call_archive_media WHERE session_id=?', [session.id]);
@@ -205,7 +197,7 @@ async function stopSession(connection, session, provider, storage, config) {
     if (media.egress_id && ['recording', 'starting'].includes(media.state)) {
       const info = egresses.find(info => info.egressId === media.egress_id);
       if (info && Number(info.status) < 2) await applyCallArchiveEgress(await provider.stop(media.egress_id), { pool: connection });
-      if (Date.now() - new Date(session.ended_at).getTime() > 600000) {
+      if (session.ended_at && Date.now() - new Date(session.ended_at).getTime() > 600000) {
         await connection.query("UPDATE call_archive_media SET state='failed',last_error=? WHERE id=?", ['لم تؤكد خدمة التسجيل اكتمال الملف خلال المهلة.', media.id]);
         continue;
       }
@@ -214,6 +206,11 @@ async function stopSession(connection, session, provider, storage, config) {
       await connection.query("UPDATE call_archive_media SET state='failed',last_error=? WHERE id=?", ['لم يبدأ تسجيل هذا المسار قبل انتهاء الجلسة.', media.id]);
     }
   }
+  return waiting;
+}
+
+async function stopSession(connection, session, provider, storage, config) {
+  const waiting = await stopRecordingMedia(connection, session, provider);
   if (waiting) throw Object.assign(new Error('Waiting for recording finalization'), { code: 'EGRESS_PENDING' });
   const [[mixed]] = await connection.query("SELECT * FROM call_archive_media WHERE session_id=? AND kind='mixed' AND state='ready' LIMIT 1", [session.id]);
   if (!mixed) throw new Error('Mixed recording is unavailable');
@@ -247,7 +244,8 @@ export async function processCallArchiveBatch(options = {}) {
   if (!kinds.length || kinds.some(kind => !['capture', 'stop', 'report'].includes(kind))) throw new Error('Invalid call archive worker job kinds.');
   const provider = options.provider || createCallArchiveProvider(config), storage = options.storage || createCallArchiveStorage(config);
   const ai = options.ai || { transcribe: transcribeCallArchive, summarize: summarizeCallArchive };
-  // Polling reconciles missing/out-of-order webhooks and empty-room grace timers.
+  // Polling recovers missed webhooks; signed departures also preserve short
+  // participant-count boundaries between polls.
   if (options.reconcile !== false) {
     const [rooms] = await db().query(`SELECT livekit_room_name FROM call_rooms WHERE status='open'
       UNION SELECT livekit_room_name FROM call_archive_sessions WHERE active_room_id IS NOT NULL`);
