@@ -30,7 +30,7 @@ Object.assign(callArchiveApi, {
   review: async (_id, value) => { if (!reviewer) throw new Error('غير مصرح'); review = { ...value, reviewedBy: { name: 'المقرئ التجريبي', role: 'reciter', id: '7' }, reviewedAt: new Date().toISOString() }; window.__archiveReview = review; },
   retry: async () => { window.__archiveRetried = true; },
 });
-studentsApi.getCallRooms = async () => ({ rooms: [], committees: [], livekitConfigured: false });
+studentsApi.getCallRooms = async () => ({ rooms: [], committees: [], livekitConfigured: false, canAccessArchive: true });
 const original = window.fetch;
 window.fetch = (input, options) => String(input).endsWith('/calls/events') ? Promise.reject(new Error('Local archive fixture; no media connection')) : original(input, options);
 createRoot(document.getElementById('root')).render(<main dir="rtl" className="mx-auto max-w-5xl p-3 sm:p-6"><CallsSection /><Toaster /></main>);

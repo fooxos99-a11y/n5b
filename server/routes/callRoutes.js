@@ -10,7 +10,7 @@ import {
 import { hasSupervisorDashboardPermission, permissionDenied } from '../services/dashboardPermissions.js';
 import { siteKey } from '../siteConfig.js';
 import { subscribeLiveKitPresence } from '../services/livekitPresenceEvents.js';
-import { assertCallArchiveConsent, finishCallArchiveRoom, getCallArchiveRoomStates } from '../services/callArchive.js';
+import { assertCallArchiveConsent, finishCallArchiveRoom, getCallArchiveRoomStates, canManageCallArchive } from '../services/callArchive.js';
 
 const router = express.Router();
 
@@ -117,6 +117,7 @@ async function loadCallDirectory(req) {
     }
     const recording = await getCallArchiveRoomStates(visible.map(room => Number(room.id)));
     return { rooms: visible.map(room => ({ ...room, recording: recording[room.id] })), committees, canCreate: canCreateRoom(req.auth),
+      canAccessArchive: await canManageCallArchive(req.auth),
       committeeSelectionLocked: req.auth.role === 'supervisor' && committees.length <= 1,
       canCreateGeneral: ['manager', 'admin', 'reciter'].includes(req.auth.role), livekitConfigured: isLiveKitConfigured(),
       presenceUnavailable: visible.some(room => !room.presenceAvailable) };

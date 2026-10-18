@@ -25,6 +25,7 @@ export function getCallArchiveConfig(environment = process.env) {
   const livekit = resolveLiveKitConfig(environment);
   return {
     enabled, configured: Boolean(enabled && storageReady && livekit), storage, s3,
+    joinPaused: environment.CALL_ARCHIVE_JOIN_PAUSED === 'true',
     localPath, egressPath, livekit,
     graceMs: Math.max(5000, Math.min(120000, Number(environment.CALL_ARCHIVE_RECONNECT_GRACE_MS) || 30000)),
     maxSessionMs: Math.max(300000, Math.min(86400000, Number(environment.CALL_ARCHIVE_MAX_SESSION_MS) || 4 * 3600000)),

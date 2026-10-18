@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import { pipeline } from 'node:stream/promises';
 import { db, getDatabaseContext } from '../db.js';
 import { callArchiveCapabilities, getCallArchiveConfig } from '../services/callArchiveConfig.js';
-import { canAccessCallArchive, canReviewCallArchive, callArchiveSqlScope, publicCallArchiveSession, parseCallArchiveJson, queueCallArchiveJob } from '../services/callArchive.js';
+import { canManageCallArchive, canAccessCallArchive, canReviewCallArchive, callArchiveSqlScope, publicCallArchiveSession, parseCallArchiveJson, queueCallArchiveJob } from '../services/callArchive.js';
 import { createCallArchiveStorage, parseArchiveRange } from '../services/callArchiveStorage.js';
 
 const router = express.Router();
@@ -27,6 +27,7 @@ router.get('/playback/:token', async (req, res, next) => {
     if (!/^[a-f0-9]{64}$/.test(req.params.token)) return forbidden(res);
     const [[grant]] = await db().query(`SELECT * FROM call_archive_playback_grants WHERE token_hash=? AND expires_at>CURRENT_TIMESTAMP(3) LIMIT 1`, [sha(req.params.token)]);
     if (!grant) return forbidden(res);
+    if (!await canManageCallArchive({ role: grant.actor_role, id: Number(grant.actor_id) })) return forbidden(res);
     if (grant.auth_token_hash) {
       const [[authSession]] = await db().query(`SELECT 1 AS active FROM auth_sessions session
         LEFT JOIN students student ON session.user_role='student' AND student.id=session.user_id
@@ -56,6 +57,10 @@ router.get('/playback/:token', async (req, res, next) => {
 });
 
 router.use((req, res, next) => req.auth ? next() : res.status(401).json({ message: 'يلزم تسجيل الدخول.' }));
+router.use(async (req, res, next) => {
+  try { return await canManageCallArchive(req.auth) ? next() : forbidden(res); }
+  catch (error) { return next(error); }
+});
 
 router.get('/', async (req, res, next) => {
   try {

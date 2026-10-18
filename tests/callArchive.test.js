@@ -4,11 +4,43 @@ import { getCallArchiveConfig, callArchiveCapabilities } from '../server/service
 import { verifiedHumanParticipant } from '../server/services/callArchiveProvider.js';
 import { parseArchiveRange, validArchiveKey } from '../server/services/callArchiveStorage.js';
 import { transcribeCallArchive, summarizeCallArchive, validateCallArchiveReport } from '../server/services/callArchiveAI.js';
+import { assertCallArchiveConsent, canManageCallArchive, canAccessCallArchive, canReviewCallArchive, callArchiveSqlScope } from '../server/services/callArchive.js';
 
 const config = { aiKey: 'local-mock-only', transcriptionModel: 'gpt-4o-transcribe-diarize', reportModel: 'gpt-4.1-mini' };
 const report = { summary: 'راجع المقرئ تلاوة الطالب.', passage: '', observations: [{ id: 'external-id', atSeconds: 2, endSeconds: 4,
   speaker: 'A', category: 'possible_error', detail: 'صحح المقرئ موضعًا.', correction: 'إعادة الموضع', response: 'أعاد الطالب', confidence: 'medium' }], followUp: ['مراجعة الموضع'], limitations: ['يلزم اعتماد المقرئ.'] };
 const transcript = { text: 'أعد هذا الموضع.', segments: [{ start: 1, end: 5, speaker: 'A', text: 'أعد هذا الموضع.' }] };
+
+test('recording activation can pause new joins before token issuance, including with consent', async () => {
+  const previous = process.env.CALL_ARCHIVE_JOIN_PAUSED;
+  process.env.CALL_ARCHIVE_JOIN_PAUSED = 'true';
+  try {
+    for (const accepted of [false, true]) await assert.rejects(
+      () => assertCallArchiveConsent({ role: 'student', id: 3 }, 1, accepted),
+      error => error.statusCode === 503 && error.code === 'call_recording_setup'
+    );
+    assert.equal(getCallArchiveConfig({}).joinPaused, false);
+  } finally {
+    if (previous === undefined) delete process.env.CALL_ARCHIVE_JOIN_PAUSED;
+    else process.env.CALL_ARCHIVE_JOIN_PAUSED = previous;
+  }
+});
+
+test('archive access is administration-only even for the room owner or a participant', async () => {
+  const session = { id: 'session', owner_role: 'reciter', owner_id: 7 };
+  for (const role of ['student', 'supervisor', 'reciter', 'teacher', 'unknown', undefined]) {
+    const auth = { role, id: 7 };
+    assert.equal(await canManageCallArchive(auth), false);
+    assert.equal(await canAccessCallArchive(auth, { ...session, owner_role: role }), false);
+    assert.equal(await canReviewCallArchive(auth, session), false);
+    assert.deepEqual(await callArchiveSqlScope(auth), { sql: '1=0', params: [] });
+  }
+  assert.equal(await canAccessCallArchive(null, session), false);
+  assert.equal(await canAccessCallArchive({ role: 'manager', id: 1 }, null), false);
+  assert.equal(await canAccessCallArchive({ role: 'manager', id: 1 }, session), true);
+  assert.equal(await canReviewCallArchive({ role: 'manager', id: 1 }, session), true);
+  assert.deepEqual(await callArchiveSqlScope({ role: 'manager', id: 1 }), { sql: '1=1', params: [] });
+});
 
 test('archive stays explicitly unconfigured without private storage and livekit', () => {
   assert.equal(getCallArchiveConfig({}).configured, false);

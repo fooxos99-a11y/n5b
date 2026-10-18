@@ -36,6 +36,7 @@ async function queue(connection, id, kind) {
 
 export async function assertCallArchiveConsent(auth, roomId, accepted) {
   const config = getCallArchiveConfig();
+  if (config.joinPaused) throw Object.assign(new Error('يجري تجهيز تسجيل المكالمات. حاول الدخول بعد قليل.'), { statusCode: 503, code: 'call_recording_setup' });
   if (!config.enabled) return callArchiveCapabilities(config);
   if (!accepted) throw Object.assign(new Error('يلزم الموافقة على تسجيل الجلسة وحفظها وتحليلها قبل الدخول.'), { statusCode: 422, code: 'recording_consent_required', recordingConsentRequired: true });
   await db().query(`INSERT INTO call_archive_consents (room_id,identity,consent_version,consented_at)
@@ -302,27 +303,22 @@ export async function processCallArchiveBatch(options = {}) {
   return { processed };
 }
 
-export async function canAccessCallArchive(auth, session) {
-  if (!auth || !session) return false;
-  if (auth.role === 'manager') return true;
-  if (auth.role === 'admin' && await hasSupervisorDashboardPermission(auth.id, 'calls')) return true;
-  if (!['student', 'supervisor', 'reciter', 'admin'].includes(auth.role)) return false;
-  if (session.owner_role === auth.role && Number(session.owner_id) === Number(auth.id)) return true;
-  const [[participant]] = await db().query('SELECT 1 AS found FROM call_archive_participants WHERE session_id=? AND identity=? LIMIT 1', [session.id, identityOf(auth)]);
-  return Boolean(participant);
+export async function canManageCallArchive(auth) {
+  return auth?.role === 'manager'
+    || (auth?.role === 'admin' && await hasSupervisorDashboardPermission(auth.id, 'calls'));
 }
 
-/** Apply authority before pagination; a busy unrelated room cannot hide an
- * older authorized session. Alias is a fixed implementation value. */
+export async function canAccessCallArchive(auth, session) {
+  return Boolean(session) && await canManageCallArchive(auth);
+}
+
+/** Room ownership and participation never grant archive access. */
 export async function callArchiveSqlScope(auth) {
-  if (auth?.role === 'manager' || (auth?.role === 'admin' && await hasSupervisorDashboardPermission(auth.id, 'calls'))) return { sql: '1=1', params: [] };
-  if (!['student', 'supervisor', 'reciter', 'admin'].includes(auth?.role)) return { sql: '1=0', params: [] };
-  return { sql: '(s.owner_role=? AND s.owner_id=? OR EXISTS (SELECT 1 FROM call_archive_participants p WHERE p.session_id=s.id AND p.identity=?))',
-    params: [auth.role, Number(auth.id), identityOf(auth)] };
+  return { sql: await canManageCallArchive(auth) ? '1=1' : '1=0', params: [] };
 }
 
 export async function canReviewCallArchive(auth, session) {
-  return ['manager', 'admin', 'supervisor', 'reciter'].includes(auth?.role) && await canAccessCallArchive(auth, session);
+  return canAccessCallArchive(auth, session);
 }
 
 export async function getCallArchiveRoomStates(ids) {

@@ -21,7 +21,7 @@ assert.equal(process.env.MYSQL_DATABASE, 'nukhab_local');
 assert.notEqual(Number(process.env.MYSQL_PORT), 3312, 'protected database must never be used');
 const database = `nukhab_calls_${randomUUID().replaceAll('-', '').slice(0, 16)}`;
 const temporary = await mkdtemp(path.join(tmpdir(), 'nukhab-call-consent-'));
-const saved = Object.fromEntries(['LIVEKIT_URL', 'LIVEKIT_API_KEY', 'LIVEKIT_API_SECRET', 'CALL_ARCHIVE_ENABLED', 'CALL_ARCHIVE_STORAGE_PATH'].map(key => [key, process.env[key]]));
+const saved = Object.fromEntries(['LIVEKIT_URL', 'LIVEKIT_API_KEY', 'LIVEKIT_API_SECRET', 'CALL_ARCHIVE_ENABLED', 'CALL_ARCHIVE_STORAGE_PATH', 'CALL_ARCHIVE_JOIN_PAUSED'].map(key => [key, process.env[key]]));
 let pool, server, mediaServer, rejectClose = false, rejectPresence = false, closedRoom, activePeople = new Map(), streamController;
 const listen = app => new Promise(resolve => { const listener = app.listen(0, '127.0.0.1', () => resolve(listener)); });
 try {
@@ -85,6 +85,9 @@ try {
   assert.equal(created.status, 201);
   const roomId = created.body.id;
   assert.equal((await request(`/${roomId}/token`, { role: 'student', id: 4 })).status, 403);
+  process.env.CALL_ARCHIVE_JOIN_PAUSED = 'true';
+  assert.equal((await request(`/${roomId}/token`, { role: 'student', id: 3, body: { recordingConsent: true } })).status, 503, 'Activation pause blocks issuing new media tokens even after consent');
+  process.env.CALL_ARCHIVE_JOIN_PAUSED = 'false';
   const joined = await request(`/${roomId}/token`, { role: 'student', id: 3 });
   assert.equal(joined.status, 200);
   const claims = await verifier.verify(joined.body.token);

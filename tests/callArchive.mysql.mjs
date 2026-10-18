@@ -52,8 +52,9 @@ try {
   pool = await initDatabase(database, { seedDefaultData:false });
   await pool.query("INSERT INTO committees (id,name) VALUES (1,'Archive one'),(2,'Archive two')");
   await pool.query("INSERT INTO supervisors(id,name,login_number,national_id,phone,job_title,role,password_hash) VALUES(7,'Teacher','archive-teacher','','','','supervisor','test-only'),(9,'Other','archive-other','','','','reciter','test-only')");
+  await pool.query("INSERT INTO supervisors(id,name,login_number,national_id,phone,job_title,role,password_hash) VALUES(8,'Manager','archive-manager','','','','manager','test-only'),(10,'Admin','archive-admin','','','','admin','test-only')");
   await pool.query("INSERT INTO students(id,name,login_number,national_id,guardian_phone,committee_id,password_hash) VALUES(3,'Student','archive-one','','',1,'test-only'),(4,'Other','archive-two','','',2,'test-only')");
-  await pool.query("INSERT INTO auth_sessions(token_hash,user_role,user_id,user_name) VALUES(?,'supervisor',7,'Teacher')",[tokenHash]);
+  await pool.query("INSERT INTO auth_sessions(token_hash,user_role,user_id,user_name) VALUES(?,'manager',8,'Manager')",[tokenHash]);
   const [created] = await pool.query("INSERT INTO call_rooms(name,livekit_room_name,committee_id,created_by_role,created_by_id,created_by_name) VALUES('Persistent room','archive-room',1,'supervisor',7,'Teacher')");
   const roomId = created.insertId;
   const run = action => runWithDatabase(database,{tenant:{registrationNumber:'',databaseName:database}},action);
@@ -91,19 +92,34 @@ try {
   app.use('/api/calls/archive',archiveRouter);
   app.use((error,_req,res,next) => { if(res.headersSent) return next(error); return res.status(error.statusCode||500).json({message:error.message}); });
   server=await new Promise(resolve => { const instance=app.listen(0,'127.0.0.1',() => resolve(instance)); });
-  const request=async (url,{role='supervisor',id=7,method='GET',body,headers={}}={}) => {
+  const request=async (url,{role='manager',id=8,method='GET',body,headers={}}={}) => {
     const response=await globalThis.fetch(`http://127.0.0.1:${server.address().port}${url.startsWith('/api')?url:'/api/calls/archive'+url}`,{method,headers:{'Content-Type':'application/json',...(role?{'x-test-role':role,'x-test-id':String(id)}:{}),...headers},...(body?{body:JSON.stringify(body)}:{})});
     return {status:response.status,headers:response.headers,text:await response.text()};
   };
   assert.equal((await request('/',{role:null})).status,401);
   assert.equal((await request(`/sessions/${first.id}`,{role:'student',id:4})).status,403);
   assert.equal((await request(`/sessions/${first.id}`,{role:'reciter',id:9})).status,403);
-  assert.equal((await request(`/sessions/${first.id}`,{role:'student',id:3})).status,200);
+  assert.equal((await request(`/sessions/${first.id}`,{role:'student',id:3})).status,403);
+  for (const [role,id] of [['student',3],['supervisor',7],['reciter',9],['teacher',11],['admin',10]]) {
+    for (const route of ['/',`/rooms/${roomId}`,`/sessions/${first.id}`]) assert.equal((await request(route,{role,id})).status,403,`${role} cannot read ${route}`);
+    assert.equal((await request(`/sessions/${first.id}/review`,{role,id,method:'PUT',body:{notes:'',approvedErrors:[]}})).status,403);
+    assert.equal((await request(`/sessions/${first.id}/retry`,{role,id,method:'POST',body:{}})).status,403);
+  }
+  await pool.query("INSERT INTO supervisor_dashboard_permissions(supervisor_id,permission_key) VALUES(10,'calls'),(9,'calls'),(7,'calls')");
+  assert.equal((await request(`/sessions/${first.id}`,{role:'admin',id:10})).status,200,'Administrator with calls permission can read archives');
+  assert.equal((await request(`/sessions/${first.id}`,{role:'reciter',id:9})).status,403,'Reciter grants never grant archive access');
+  assert.equal((await request(`/sessions/${first.id}`,{role:'supervisor',id:7})).status,403,'Supervisor grants never grant archive access');
   assert.equal((await request(`/sessions/${first.id}/review`,{role:'student',id:3,method:'PUT',body:{notes:'',approvedErrors:[]}})).status,403);
   assert.equal((await request(`/sessions/${first.id}/review`,{method:'PUT',body:{notes:'',approvedErrors:[{id:'forged',note:''}]}})).status,422);
   assert.equal((await request(`/sessions/${first.id}/review`,{method:'PUT',body:{notes:'',approvedErrors:[{id:'observation-2',note:''}]}})).status,422);
   assert.equal((await request(`/sessions/${first.id}/review`,{method:'PUT',body:{notes:'اعتماد يدوي',approvedErrors:[{id:'observation-1',note:'راجع المقرئ التسجيل'}]}})).status,200);
   const [[mixed]]=await pool.query("SELECT * FROM call_archive_media WHERE session_id=? AND kind='mixed'",[first.id]);
+  for (const [role,id] of [['student',3],['supervisor',7],['reciter',9],['teacher',11]]) {
+    assert.equal((await request(`/sessions/${first.id}/media/${mixed.id}/playback`,{role,id,method:'POST'})).status,403);
+    const legacyToken = createHash('sha256').update(`legacy-${role}`).digest('hex');
+    await pool.query('INSERT INTO call_archive_playback_grants(token_hash,session_id,media_id,actor_role,actor_id,expires_at) VALUES(?,?,?,?,?,DATE_ADD(CURRENT_TIMESTAMP(3),INTERVAL 2 MINUTE))',[createHash('sha256').update(legacyToken).digest('hex'),first.id,mixed.id,role,id]);
+    assert.equal((await request(`/playback/${legacyToken}`,{role:null})).status,403,'Previously issued non-administration playback grants are rejected');
+  }
   assert.equal((await request(`/sessions/${first.id}/media/${mixed.id}/playback`,{role:'student',id:4,method:'POST'})).status,403);
   const playback=JSON.parse((await request(`/sessions/${first.id}/media/${mixed.id}/playback`,{method:'POST',headers:{'x-test-token-hash':tokenHash}})).text);
   assert.equal(playback.url.includes(mixed.object_key),false);
@@ -111,9 +127,15 @@ try {
   assert.equal(range.status,206); assert.equal(range.text,'2345'); assert.equal(range.headers.get('cache-control'),'private, no-store');
   assert.equal((await request(playback.url,{role:null,method:'HEAD'})).status,200);
   assert.equal((await request(playback.url,{role:null,headers:{Range:'bytes=999-'}})).status,416);
-  await pool.query('UPDATE supervisors SET is_active=0 WHERE id=7');
+  await pool.query('UPDATE supervisors SET is_active=0 WHERE id=8');
   assert.equal((await request(playback.url,{role:null})).status,403,'Disabled account immediately loses playback grant');
-  await pool.query('UPDATE supervisors SET is_active=1 WHERE id=7');
+  await pool.query('UPDATE supervisors SET is_active=1 WHERE id=8');
+  const adminHash=createHash('sha256').update('local-admin-session').digest('hex');
+  await pool.query("INSERT INTO auth_sessions(token_hash,user_role,user_id,user_name) VALUES(?,'admin',10,'Admin')",[adminHash]);
+  const adminPlayback=JSON.parse((await request(`/sessions/${first.id}/media/${mixed.id}/playback`,{role:'admin',id:10,method:'POST',headers:{'x-test-token-hash':adminHash}})).text);
+  assert.equal((await request(adminPlayback.url,{role:null})).status,200,'Authorized administrator playback works before permission removal');
+  await pool.query("DELETE FROM supervisor_dashboard_permissions WHERE supervisor_id=10 AND permission_key='calls'");
+  assert.equal((await request(adminPlayback.url,{role:null})).status,403,'Removing administrator calls permission revokes playback immediately');
   await pool.query('DELETE FROM auth_sessions WHERE token_hash=?',[tokenHash]);
   assert.equal((await request(playback.url,{role:null})).status,403,'Logout revokes unexpired audio grants');
   people=[{identity:'supervisor:7',role:'supervisor',id:7,name:'Teacher',tracks:['TR_C']},{identity:'student:3',role:'student',id:3,name:'Student',tracks:['TR_D']}];
@@ -127,7 +149,7 @@ try {
   await pool.query('DELETE FROM call_rooms WHERE id=?',[roomId]);
   await pool.query('UPDATE students SET committee_id=NULL WHERE committee_id=1');
   await pool.query('DELETE FROM committees WHERE id=1');
-  assert.equal((await request(`/sessions/${first.id}`,{role:'student',id:3})).status,200,'Archive snapshots survive source room/circle deletion');
+  assert.equal((await request(`/sessions/${first.id}`)).status,200,'Administration archive snapshots survive source room/circle deletion');
   const [autoRoom]=await pool.query("INSERT INTO call_rooms(name,livekit_room_name,committee_id,created_by_role,created_by_id,created_by_name) VALUES('Auto-finish room','auto-finish-room',2,'supervisor',7,'Teacher')");
   await run(async()=>{await assertCallArchiveConsent(supervisor,autoRoom.insertId,true);await assertCallArchiveConsent(student,autoRoom.insertId,true);});
   people=[{identity:'supervisor:7',role:'supervisor',id:7,name:'Teacher',tracks:['TR_AUTO1']},{identity:'student:3',role:'student',id:3,name:'Student',tracks:['TR_AUTO2']}];
@@ -152,12 +174,12 @@ try {
   await pool.query('DELETE FROM call_rooms WHERE id=?',[autoRoom.insertId]);
   const unrelated=Array.from({length:501},() => [randomUUID(),999,'unrelated-room','Other room','reciter',9,new Date()]);
   await pool.query('INSERT INTO call_archive_sessions(id,room_id,livekit_room_name,room_name,owner_role,owner_id,started_at) VALUES ?',[unrelated]);
-  const studentIndex=JSON.parse((await request('/',{role:'student',id:3})).text);
-  assert.equal(studentIndex.rooms.length,2,'Unrelated recent archives cannot hide authorized older history');
-  assert.equal(studentIndex.rooms.find(room=>Number(room.id)===roomId).sessionCount,2);
-  const firstPage=JSON.parse((await request(`/rooms/${roomId}?limit=1`,{role:'student',id:3})).text);
+  assert.equal((await request('/',{role:'student',id:3})).status,403,'Participants cannot list archives regardless of pagination');
+  const managerIndex=JSON.parse((await request('/')).text);
+  assert.equal(managerIndex.rooms.find(room=>Number(room.id)===roomId).sessionCount,2);
+  const firstPage=JSON.parse((await request(`/rooms/${roomId}?limit=1`)).text);
   assert.equal(firstPage.sessions.length,1); assert.ok(firstPage.nextCursor);
-  const secondPage=JSON.parse((await request(`/rooms/${roomId}?limit=1&before=${firstPage.nextCursor}`,{role:'student',id:3})).text);
+  const secondPage=JSON.parse((await request(`/rooms/${roomId}?limit=1&before=${firstPage.nextCursor}`)).text);
   assert.equal(secondPage.sessions.length,1); assert.notEqual(secondPage.sessions[0].id,firstPage.sessions[0].id); assert.equal(secondPage.nextCursor,null);
   const [bad]=await pool.query("INSERT INTO call_rooms(name,livekit_room_name,committee_id,created_by_role,created_by_id,created_by_name) VALUES('Unavailable','bad-room',2,'supervisor',7,'Teacher')");
   const faultyProvider={...provider,presence:async name => { if(name==='bad-room') throw new Error('Mock provider outage'); return []; }};

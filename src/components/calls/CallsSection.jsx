@@ -21,6 +21,7 @@ const CallsSection = ({ onJoinRoom, embedded = false }) => {
   const [search, setSearch] = useState('');
   const [committees, setCommittees] = useState([]);
   const [canCreate, setCanCreate] = useState(false);
+  const [canAccessArchive, setCanAccessArchive] = useState(false);
   const [canCreateGeneral, setCanCreateGeneral] = useState(false);
   const [committeeSelectionLocked, setCommitteeSelectionLocked] = useState(false);
   const [livekitConfigured, setLivekitConfigured] = useState(false);
@@ -40,6 +41,7 @@ const CallsSection = ({ onJoinRoom, embedded = false }) => {
     setRooms((data.rooms || []).filter((room) => room.status === 'open'));
     setCommittees(data.committees || []);
     setCanCreate(Boolean(data.canCreate));
+    setCanAccessArchive(data.canAccessArchive === true);
     setCanCreateGeneral(Boolean(data.canCreateGeneral));
     setCommitteeSelectionLocked(Boolean(data.committeeSelectionLocked));
     setLivekitConfigured(data.livekitConfigured === true);
@@ -55,7 +57,7 @@ const CallsSection = ({ onJoinRoom, embedded = false }) => {
       if (isCurrent() && requestedVersion === snapshotVersion.current) applyDirectory(data);
     } catch (error) {
       if (!isCurrent() || requestedVersion !== snapshotVersion.current) return;
-      if ([401, 403].includes(error.status)) { setRooms([]); setLoadError(error.message || 'المكالمات غير متاحة لحسابك.'); }
+      if ([401, 403].includes(error.status)) { setRooms([]); setCanAccessArchive(false); setLoadError(error.message || 'المكالمات غير متاحة لحسابك.'); }
       else if (hasDirectory.current) setLiveError(error.message || 'تعذر تحديث الغرف.');
       else if (!quiet) setLoadError(error.message || 'تعذر تحميل الغرف.');
       if (!quiet) toast({ title: 'تعذر تحميل الغرف', description: error.message, variant: 'destructive' });
@@ -69,7 +71,7 @@ const CallsSection = ({ onJoinRoom, embedded = false }) => {
     load({ isCurrent: () => !canceled }).then(() => {
       if (!canceled) stop = subscribeCallDirectory({ onData: applyDirectory, onError: error => {
         setLiveError(error.message);
-        if ([401, 403].includes(error.status)) { setRooms([]); setLoadError(error.message); }
+        if ([401, 403].includes(error.status)) { setRooms([]); setCanAccessArchive(false); setLoadError(error.message); }
       } });
     });
     return () => { canceled = true; stop?.(); };
@@ -108,10 +110,11 @@ const CallsSection = ({ onJoinRoom, embedded = false }) => {
     return <>{liveError && <p role="status" className="px-4 py-3 text-sm text-destructive sm:px-6">{liveError}</p>}{embedded ? <div className="p-4 sm:p-6"><CallRoomCards rooms={visibleRooms} onJoinRoom={onJoinRoom} /></div> : <CallRoomList rooms={visibleRooms} onJoinRoom={onJoinRoom} />}</>;
   };
   const Container = embedded ? 'section' : ManagementPanel;
+  const activeTab = canAccessArchive && tab === 'archive' ? 'archive' : 'open';
   return (
     <Container className={embedded ? '[font-family:var(--font-ui)]' : undefined} dir="rtl">
-      <ManagementTabs label="المكالمات والأرشيف" value={tab} onChange={setTab} items={[{ value: 'open', label: 'الغرف المفتوحة' }, { value: 'archive', label: 'الأرشيف' }]}>
-      {tab === 'archive' ? <CallArchiveSection /> : <>
+      <ManagementTabs label="المكالمات والأرشيف" value={activeTab} onChange={setTab} items={[{ value: 'open', label: 'الغرف المفتوحة' }, ...(canAccessArchive ? [{ value: 'archive', label: 'الأرشيف' }] : [])]}>
+      {activeTab === 'archive' ? <CallArchiveSection /> : <>
       {(!embedded || canCreate) && <ManagementToolbar className="flex-nowrap">
         {!embedded && <Input type="search" aria-label="ابحث في المكالمات" placeholder="ابحث في المكالمات" value={search} onChange={event => setSearch(event.target.value)} className="h-11 min-w-0 flex-1 basis-0" />}
         {canCreate && <>
