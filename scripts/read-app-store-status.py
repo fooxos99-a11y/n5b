@@ -15,13 +15,18 @@ def read_status(app_id, request):
     builds = request(query('/builds', **{'filter[app]': app_id, 'include': 'preReleaseVersion', 'limit': 30}))
     releases = {row['id']: row['attributes'].get('version') for row in builds.get('included', []) if row['type'] == 'preReleaseVersions'}
     versions = request(query(f'/apps/{app_id}/appStoreVersions', **{'filter[platform]': 'IOS', 'include': 'build', 'limit': 10}))
+    uploads = request(query(f'/apps/{app_id}/buildUploads', limit=30))
     return {'appId': app_id, 'builds': [{'id': row['id'], 'number': row['attributes'].get('version'),
              'processingState': row['attributes'].get('processingState'), 'uploadedDate': row['attributes'].get('uploadedDate'),
              'version': releases.get(row.get('relationships', {}).get('preReleaseVersion', {}).get('data', {}).get('id'))}
              for row in builds.get('data', [])],
             'versions': [{'id': row['id'], 'version': row['attributes'].get('versionString'),
              'state': row['attributes'].get('appStoreState'), 'buildId': (row.get('relationships', {}).get('build', {}).get('data') or {}).get('id')}
-             for row in versions.get('data', [])]}
+             for row in versions.get('data', [])],
+            'uploads': [{'id': row['id'], 'number': row['attributes'].get('cfBundleVersion'),
+             'version': row['attributes'].get('cfBundleShortVersionString'), 'state': row['attributes'].get('state'),
+             'uploadedDate': row['attributes'].get('uploadedDate'), 'createdDate': row['attributes'].get('createdDate')}
+             for row in uploads.get('data', [])]}
 
 
 def main():
