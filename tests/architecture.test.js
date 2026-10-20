@@ -495,12 +495,15 @@ test('loading surfaces share one indicator and startup does not wait for every f
 
   const sourceRoot = new URL('../src/', import.meta.url);
   const sourceFiles = (await readdir(sourceRoot, { recursive: true }))
-    .filter((file) => /\.(?:js|jsx)$/.test(file));
+    .filter((file) => /\.(?:js|jsx)$/.test(file)
+      && file.replaceAll('\\', '/') !== 'components/ui/loading-spinner.jsx');
   const sourceText = (await Promise.all(sourceFiles.map((file) => (
     readFile(new URL(file.replaceAll('\\', '/'), sourceRoot), 'utf8')
   )))).join('\n');
 
-  assert.match(loadingSpinnerText, /loading-logo/);
+  assert.match(loadingSpinnerText, /loading-progress/);
+  assert.match(loadingSpinnerText, /import \{ Loader2 \} from 'lucide-react'/);
+  assert.doesNotMatch(loadingSpinnerText, /loading-logo/);
   assert.match(loadingIndicatorText, /<LoadingSpinner size=/);
   assert.match(loadingIndicatorText, /data-loading-indicator=/);
   assert.match(loadingIndicatorText, /aria-label="جاري التحميل"/);

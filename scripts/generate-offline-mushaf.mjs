@@ -133,5 +133,8 @@ await fs.writeFile(path.join(OUTPUT_ROOT, 'index.json'), JSON.stringify({
   pageHashes,
 }));
 
+// Derive all planning coordinates from the finished display package.
+const { generateQuranReference } = await import('./generate-quran-line-layout.mjs');
+await generateQuranReference();
 const fontsSummary = pagesOnly ? '، مع الإبقاء على الخطوط الحالية' : ' و' + (PAGE_COUNT + 1) + ' خط';
 process.stdout.write(`حزمة المصحف المحلية: ${PAGE_COUNT} صفحة، ${packagedVerses.size} آية${fontsSummary}.\n`);

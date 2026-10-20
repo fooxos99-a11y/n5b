@@ -1,3 +1,5 @@
+import { withFacePortionLabel } from '../../shared/quran-face-portion.js';
+
 const numberText = (value) => Number(value || 0).toLocaleString('ar-SA-u-nu-latn');
 
 const cleanSurahName = (name, surah) => String(name || `سورة ${surah || ''}`)
@@ -56,6 +58,7 @@ const taskSegment = (task) => {
   const end = taskEnd(task);
   return {
     fromSurah: Number(task.fromSurah || 0),
+    facePortion: task.facePortion,
     fromAyah: Number(task.fromAyah || 0),
     toSurah: end.surah,
     toAyah: end.ayah,
@@ -73,7 +76,7 @@ const segmentsAreContinuous = (previous, next) => {
     && previous.toAyah === previous.toSurahAyahCount;
 };
 
-const formatSegment = (segment) => {
+const formatSegmentText = (segment) => {
   const fromLabel = `${segment.fromSurahName}\u00a0${numberText(segment.fromAyah)}`;
   const toLabel = `${segment.toSurahName}\u00a0${numberText(segment.toAyah)}`;
   if (segment.fromSurah !== segment.toSurah) {
@@ -83,11 +86,13 @@ const formatSegment = (segment) => {
   return `من ${fromLabel} إلى ${numberText(segment.toAyah)}`;
 };
 
-const formatPageSegment = ({ fromPage, toPage }) => (
+const formatSegment = segment => withFacePortionLabel(segment, formatSegmentText(segment));
+
+const formatPageSegment = ({ fromPage, toPage, facePortion }) => withFacePortionLabel({ facePortion }, (
   fromPage === toPage
     ? `الوجه ${numberText(fromPage)}`
     : `من ${numberText(fromPage)} إلى ${numberText(toPage)}`
-);
+));
 
 const formatContinuousPageRange = (tasks = []) => {
   const segments = [];
@@ -95,12 +100,13 @@ const formatContinuousPageRange = (tasks = []) => {
     const fromPage = Number(task.fromPage || 0);
     const toPage = Number(task.actualToPage || task.toPage || fromPage);
     return fromPage && toPage ? {
+      facePortion: task.facePortion,
       fromPage: Math.min(fromPage, toPage),
       toPage: Math.max(fromPage, toPage),
     } : null;
   }).filter(Boolean).sort((first, second) => first.fromPage - second.fromPage).forEach((segment) => {
     const previous = segments.at(-1);
-    if (previous && segment.fromPage <= previous.toPage + 1) {
+    if (previous && !previous.facePortion && !segment.facePortion && segment.fromPage <= previous.toPage + 1) {
       previous.toPage = Math.max(previous.toPage, segment.toPage);
       return;
     }
@@ -114,7 +120,7 @@ export const formatContinuousRecitationRange = (tasks = [], referenceMode = 'aya
   const segments = [];
   sortRecitationTasks(tasks).map(taskSegment).forEach((segment) => {
     const previous = segments.at(-1);
-    if (previous && segmentsAreContinuous(previous, segment)) {
+    if (previous && !previous.facePortion && !segment.facePortion && segmentsAreContinuous(previous, segment)) {
       previous.toSurah = segment.toSurah;
       previous.toAyah = segment.toAyah;
       previous.toSurahName = segment.toSurahName;

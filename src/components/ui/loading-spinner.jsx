@@ -1,4 +1,5 @@
 import React from 'react';
+import { Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import '@/styles/loading-spinner.css';
 
@@ -9,9 +10,9 @@ const sizeClassNames = {
   lg: 'loading-spinner--screen',
 };
 
-// All loading surfaces, including buttons, share the boot logo and animation.
+// Branding belongs to the startup screen; later loading keeps a quiet progress indicator.
 const LoadingSpinner = ({ className, size = 'sm' }) => (
-  <span className={cn('loading-logo', sizeClassNames[size] || sizeClassNames.sm, className)} aria-hidden="true" />
+  <Loader2 className={cn('loading-progress motion-safe:animate-spin', sizeClassNames[size] || sizeClassNames.sm, className)} aria-hidden="true" />
 );
 
 export default LoadingSpinner;

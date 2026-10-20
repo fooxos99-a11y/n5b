@@ -36,7 +36,7 @@ try {
     assert.match(await button.evaluate(node => globalThis.getComputedStyle(node).backgroundImage), /linear-gradient\(105deg/);
     await button.click();
     await page.locator('[data-loading-indicator]').waitFor();
-    assert.equal(await page.locator('.loading-logo:visible').count(), 1);
+    assert.equal(await page.locator('.loading-progress:visible').count(), 1);
     assert.equal((await page.locator('main:visible, [data-loading-indicator]:visible').first().innerText()).trim(), '');
     assert.deepEqual(errors, []);
     await page.close();

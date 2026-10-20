@@ -57,7 +57,17 @@ export function measureQuranFaces(start,end) {
   return raw>0 ? Math.max(0.25,Math.round(raw*4)/4) : 0;
 }
 
-export function quranRangeFacesSql(alias='t',end='expected') {
+export function quranRangeFingerprintSql(alias='t',end='expected') {
+  if (!/^[a-zA-Z_]\w*$/.test(alias) || !['actual','expected'].includes(end)) throw new Error('Invalid Quran range SQL selector');
+  const endpoint = key => end === 'actual' ? `COALESCE(${alias}.actual_to_${key},${alias}.to_${key})` : `${alias}.to_${key}`;
+  const quantity = end === 'actual'
+    ? `COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(${alias}.review_execution_json,'$.faces')) AS DECIMAL(10,4)),-1)`
+    : `COALESCE(${alias}.target_pages,0)`;
+  return `CONCAT_WS(':',COALESCE(${alias}.from_surah,0),COALESCE(${alias}.from_ayah,0),
+    COALESCE(${endpoint('surah')},0),COALESCE(${endpoint('ayah')},0),${quantity})`;
+}
+
+export function quranRangeFacesSql(alias='t',end='expected', { preserveHistorical = true } = {}) {
   if (!/^[a-zA-Z_]\w*$/.test(alias) || !['actual','expected'].includes(end)) throw new Error('Invalid Quran range SQL selector');
   const endColumn=key => end==='actual' ? `COALESCE(${alias}.actual_to_${key},${alias}.to_${key})` : `${alias}.to_${key}`;
   const measured = `COALESCE((SELECT GREATEST(0.25, ROUND(GREATEST(0, CASE
@@ -67,7 +77,18 @@ export function quranRangeFacesSql(alias='t',end='expected') {
     FROM quran_face_positions first_pos JOIN quran_face_positions last_pos
       ON last_pos.surah = ${endColumn('surah')} AND last_pos.ayah = ${endColumn('ayah')}
     WHERE first_pos.surah = ${alias}.from_surah AND first_pos.ayah = ${alias}.from_ayah), 0)`;
-  return end === 'actual' ? `CASE WHEN ${alias}.review_execution_json IS NOT NULL THEN CAST(JSON_UNQUOTE(JSON_EXTRACT(${alias}.review_execution_json, '$.faces')) AS DECIMAL(10,4)) ELSE ${measured} END` : measured;
+  const original = end === 'actual' ? `CASE WHEN ${alias}.review_execution_json IS NOT NULL THEN CAST(JSON_UNQUOTE(JSON_EXTRACT(${alias}.review_execution_json, '$.faces')) AS DECIMAL(10,4)) ELSE ${measured} END` : measured;
+  if (!preserveHistorical) return original;
+  const current = end === 'expected'
+    ? `CASE WHEN ${alias}.scheduled_pages IS NOT NULL THEN COALESCE(${alias}.target_pages,${original}) ELSE ${original} END`
+    : `CASE WHEN ${alias}.scheduled_pages IS NOT NULL
+        AND COALESCE(${alias}.actual_to_surah,${alias}.to_surah)=${alias}.to_surah
+        AND COALESCE(${alias}.actual_to_ayah,${alias}.to_ayah)=${alias}.to_ayah
+        AND ${alias}.review_execution_json IS NULL
+      THEN LEAST(${original},COALESCE(${alias}.target_pages,${original})) ELSE ${original} END`;
+  return `COALESCE((SELECT snapshot.${end === 'actual' ? 'actual_faces' : 'expected_faces'}
+    FROM quran_task_reference_measurements snapshot WHERE snapshot.task_id=${alias}.id
+      AND snapshot.${end}_range_key=${quranRangeFingerprintSql(alias,end)}),${current})`;
 }
 
 export function acceptedQuranExecutionSql(alias='t') {

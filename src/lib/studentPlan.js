@@ -2,6 +2,7 @@ import { hideStudentTaskAmount, isStudentAmountHidden } from '../../shared/stude
 import { getBusinessDate, shiftDateOnly } from '../../shared/business-date.js';
 import { formatQuranRangeText } from './quranRangeText.js';
 import { compactQuranAmount } from '../../shared/quran-display-text.js';
+import { withFacePortionLabel } from '../../shared/quran-face-portion.js';
 
 export const PLAN_TASK_TYPES = ['memorization', 'link', 'review'];
 export const PLAN_TASK_LABELS = { memorization: 'الحفظ', link: 'الربط', review: 'المراجعة' };
@@ -10,11 +11,11 @@ const validDate = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value || '') && getBusin
 export const planWeekStart = (date) => shiftDateOnly(date, -new Date(`${date}T12:00:00Z`).getUTCDay());
 export const planDayName = (date) => new Intl.DateTimeFormat('ar-SA', { weekday: 'long', timeZone: 'Asia/Riyadh' }).format(new Date(`${date}T12:00:00Z`));
 export const planTaskCompleted = (task) => task.teacherCompleted === true || task.teacherCompleted === 1;
-export const planTaskAmount = (task) => task.amountHidden ? '' : (task.reviewExecution && task.actualPreview) || task.ayahPreview || task.preview || formatQuranRangeText({
+export const planTaskAmount = (task) => task.amountHidden ? '' : withFacePortionLabel(task, (task.reviewExecution && task.actualPreview) || task.ayahPreview || task.preview || formatQuranRangeText({
   startSurah: task.fromSurah, startSurahName: task.fromSurahName, startAyah: task.fromAyah,
   endSurah: task.toSurah, endSurahName: task.toSurahName, endAyah: task.toAyah,
   startPage: task.fromPage, endPage: task.toPage,
-});
+}));
 
 export const planCompactAmount = (task) => compactQuranAmount(planTaskAmount(task));
 
