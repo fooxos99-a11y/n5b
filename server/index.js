@@ -133,6 +133,7 @@ import { hashStudentPassword, validateStudentPassword } from './services/student
 import { removedFeaturesMiddleware } from './middleware/removedFeatures.js';
 import { readLocalMushafFont, readLocalMushafPage } from './services/localMushaf.js';
 import { findNextUnmemorizedPosition } from './services/quranMemorizationContinuity.js';
+import { canonicalQuranRange, canonicalQuranRow, quranFacePortion, taskFaceQuantity } from './services/quranPageReference.js';
 import { BUSINESS_DAY_START_TIME, getBusinessDateTimeParts as getSaudiDateTimeParts } from '../shared/business-date.js';
 import { OFFLINE_RECITATION_MAX_BATCH } from '../shared/offline-recitation.js';
 import { getRecitationStatusLabel } from '../shared/recitation-evaluation.js';
@@ -1815,14 +1816,14 @@ async function skipFullyMemorizedTraversalPages(connection, position, endLimit, 
 }
 
 function normalizeQuranRange(range) {
-  return {
+  return canonicalQuranRange({
     startSurah: Number(range.startSurah ?? range.fromSurah ?? 0),
     startAyah: Number(range.startAyah ?? range.fromAyah ?? 0),
     startPage: Number(range.startPage ?? range.fromPage ?? 0),
     endSurah: Number(range.endSurah ?? range.toSurah ?? 0),
     endAyah: Number(range.endAyah ?? range.toAyah ?? 0),
     endPage: Number(range.endPage ?? range.toPage ?? 0),
-  };
+  });
 }
 
 function canonicalizeQuranRange(range) {
@@ -3048,6 +3049,8 @@ function pickAvailablePages(availablePages, startPage, count) {
 function formatTaskPreview(task, referenceMode = 'ayah') {
   if (!task) return '';
   if (referenceMode === 'page' && task.fromPage && task.toPage) {
+    const portion = quranFacePortion(task);
+    if (portion) return `${portion === 'remainder' ? 'بقية الوجه' : 'جزء من الوجه'} ${task.fromPage}`;
     const samePage = Number(task.fromPage) === Number(task.toPage);
     const startLayout = getQuranVerseLine({ surah: task.fromSurah, ayah: task.fromAyah });
     const endLayout = getQuranVerseLine({ surah: task.toSurah, ayah: task.toAyah });
@@ -3106,7 +3109,7 @@ function buildTaskRangePreview(row, referenceMode = 'ayah', endPrefix = 'to') {
   }, referenceMode);
 }
 
-async function insertPlanTask(connection, { plan, date, type, fromPage, toPage, targetPages = null, bounds = null, progress = null, hizbNumber = null, compensationIndex = 0, passingRehifzId = null, compensatedReviewDate = null }) {
+async function insertPlanTask(connection, { plan, date, type, fromPage, toPage, targetPages = null, scheduledPages = null, bounds = null, progress = null, hizbNumber = null, compensationIndex = 0, passingRehifzId = null, compensatedReviewDate = null }) {
   if (!fromPage || !toPage) return;
   const direction = Number(fromPage) <= Number(toPage) ? 1 : -1;
   if (['memorization', 'repeat'].includes(type) && Number(fromPage) !== Number(toPage)) {
@@ -3132,14 +3135,16 @@ async function insertPlanTask(connection, { plan, date, type, fromPage, toPage, 
     endSurah: taskBounds.toSurah,
     endAyah: taskBounds.toAyah,
   });
-  const targetFaces = Number(targetPages || 0) > 0
+  const requestedFaces = Number(targetPages || 0) > 0
     ? roundQuranFaces(targetPages)
     : calculatedFaces || Math.max(1, Math.abs(toPage - fromPage) + 1);
+  const targetFaces = ['memorization', 'repeat'].includes(type)
+    ? taskFaceQuantity(taskBounds, requestedFaces, calculatedFaces) : requestedFaces;
   await connection.query(
     `
     INSERT IGNORE INTO student_quran_tasks
-      (plan_id, student_id, task_date, task_type, track, compensation_index, from_page, to_page, from_surah, from_ayah, to_surah, to_ayah, target_pages, normal_to_page, normal_to_surah, normal_to_ayah, scheduled_to_page, scheduled_to_surah, scheduled_to_ayah, hizb_number, passing_rehifz_id, compensated_review_date)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (plan_id, student_id, task_date, task_type, track, compensation_index, from_page, to_page, from_surah, from_ayah, to_surah, to_ayah, target_pages, scheduled_pages, normal_to_page, normal_to_surah, normal_to_ayah, scheduled_to_page, scheduled_to_surah, scheduled_to_ayah, hizb_number, passing_rehifz_id, compensated_review_date)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       plan.id,
@@ -3155,6 +3160,7 @@ async function insertPlanTask(connection, { plan, date, type, fromPage, toPage, 
       taskBounds.toSurah,
       taskBounds.toAyah,
       targetFaces,
+      ['memorization', 'repeat'].includes(type) ? Number(scheduledPages || requestedFaces) : null,
       progress?.normalEnd?.page || null,
       progress?.normalEnd?.surah || null,
       progress?.normalEnd?.ayah || null,
@@ -3384,9 +3390,12 @@ async function repairUnevaluatedMemorizationTaskRange(connection, plan, date, se
       t.to_ayah AS toAyah,
       t.student_status AS studentStatus,
       t.teacher_completed AS teacherCompleted,
+      t.executed_at AS executedAt, t.evaluated_at AS evaluatedAt,
+      t.execution_state AS executionState, t.actual_to_ayah AS actualToAyah,
+      EXISTS (SELECT 1 FROM student_quran_task_word_marks mark WHERE mark.task_id=t.id) AS hasMarks,
       EXISTS (
         SELECT 1 FROM student_quran_recitation_attempts attempt
-        WHERE attempt.task_id = t.id AND attempt.is_official = 1
+        WHERE attempt.task_id = t.id
       ) AS hasAttempt
     FROM student_quran_tasks t
     WHERE t.plan_id = ?
@@ -3397,11 +3406,13 @@ async function repairUnevaluatedMemorizationTaskRange(connection, plan, date, se
     `,
     [plan.id, date],
   );
-  const memorizationRows = rows.filter((row) => row.taskType === 'memorization');
+  const memorizationRows = rows.filter((row) => row.taskType === 'memorization').map(row => canonicalQuranRow(row));
   if (!memorizationRows.length) return false;
   const safeToRepair = rows.every((row) => (
     row.teacherCompleted == null
     && row.studentStatus !== 'done'
+    && row.executedAt == null && row.evaluatedAt == null && row.executionState == null && row.actualToAyah == null
+    && !Number(row.hasMarks)
     && !Number(row.hasAttempt)
   ));
   if (!safeToRepair) return false;
@@ -3424,16 +3435,23 @@ async function repairUnevaluatedMemorizationTaskRange(connection, plan, date, se
     && compareQuranPositionInDirection(currentStart, nextUnmemorized, direction) > 0;
   if (!startsAfterGap && (!progressContext || compareQuranPositionInDirection(currentEnd, progressContext.normalEnd, direction) === 0)) return false;
 
+  for (const row of rows) {
+    await connection.query(`INSERT INTO quran_task_boundary_repairs(task_id,version,repair_kind,snapshot_json)
+      VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE repair_kind=VALUES(repair_kind)`,
+    [row.id, '2026.10.20.1', 'regeneration', JSON.stringify(row)]);
+  }
   await connection.query(
     `DELETE t FROM student_quran_tasks t
      WHERE t.plan_id = ?
        AND ${studyDateSql('t.task_date', 't.student_id')} AND ${uncompensatedTaskSql('t')} AND t.task_date = ?
-       AND t.task_type IN ('memorization', 'repeat')
+       AND t.task_type IN ('memorization', 'repeat') AND t.compensation_index = 0
        AND t.teacher_completed IS NULL
        AND COALESCE(t.student_status, 'not_done') <> 'done'
+       AND t.executed_at IS NULL AND t.evaluated_at IS NULL AND t.execution_state IS NULL AND t.actual_to_ayah IS NULL
+       AND NOT EXISTS (SELECT 1 FROM student_quran_task_word_marks mark WHERE mark.task_id=t.id)
        AND NOT EXISTS (
          SELECT 1 FROM student_quran_recitation_attempts attempt
-         WHERE attempt.task_id = t.id AND attempt.is_official = 1
+         WHERE attempt.task_id = t.id
        )`,
     [plan.id, date],
   );
@@ -3459,7 +3477,7 @@ async function ensureStudentPlanTasks(connection, plan, date, settings) {
   }
 
   const [existing] = await connection.query(
-    `SELECT task_type AS taskType, target_pages AS targetPages FROM student_quran_tasks WHERE plan_id = ? AND ${studyDateSql('task_date', 'student_quran_tasks.student_id')} AND task_date = ? AND compensation_index = 0`,
+    `SELECT task_type AS taskType, COALESCE(scheduled_pages, target_pages) AS targetPages FROM student_quran_tasks WHERE plan_id = ? AND ${studyDateSql('task_date', 'student_quran_tasks.student_id')} AND task_date = ? AND compensation_index = 0`,
     [plan.id, date]
   );
   const existingTypes = new Set(existing.map((task) => task.taskType));
@@ -3481,6 +3499,7 @@ async function ensureStudentPlanTasks(connection, plan, date, settings) {
       to_surah AS toSurah,
       to_ayah AS toAyah,
       target_pages AS targetPages,
+      scheduled_pages AS scheduledPages,
       teacher_completed AS teacherCompleted
     FROM student_quran_tasks
     WHERE plan_id = ?
@@ -3859,7 +3878,7 @@ async function createRemainingMemorizationTasks({ remainingMemorizationFaces, se
       remainingMemorizationFaces
     );
     const taskRange = progressContext && remainingRange
-      ? { start: memorizationStart, end: remainingRange.end, faces: remainingRange.faces }
+      ? { start: memorizationStart, end: remainingRange.end, faces: remainingRange.faces, segments: remainingRange.segments }
       : null;
     if (taskRange) {
       const taskSegments = taskRange.segments?.length
@@ -3889,12 +3908,12 @@ async function carryUnfinishedPlanTasks({ unfinishedRows, lastCarriedMemorizatio
     if ((!isMemorization && (existingTypes.has(task.taskType) || carriedTypes.has(task.taskType)))
       || (isMemorization && existingTypes.has('memorization') && scheduledMemorizationFaces > 0)) continue;
     if (!canCreateQuranTaskOnDate(settings, date, task.taskType)) continue;
-    const taskFaces = Math.max(0.25, Number(task.targetPages || 0));
+    const taskFaces = Math.max(0.25, Number(task.scheduledPages || task.targetPages || 0));
     if (isMemorization
       && scheduledMemorizationFaces > 0
       && scheduledMemorizationFaces + taskFaces > dailyMemorizationFaces) continue;
     await insertPlanTask(connection, {
-      plan, date, type: task.taskType, fromPage: task.fromPage, toPage: task.toPage, targetPages: task.targetPages, bounds: {
+      plan, date, type: task.taskType, fromPage: task.fromPage, toPage: task.toPage, targetPages: task.targetPages, scheduledPages: task.scheduledPages, bounds: {
         fromSurah: task.fromSurah,
         fromAyah: task.fromAyah,
         toSurah: task.toSurah,
@@ -3921,7 +3940,7 @@ async function carryUnfinishedPlanTasks({ unfinishedRows, lastCarriedMemorizatio
 async function createCarriedRepeatTask(isMemorization, connection, plan, date, task) {
   if (isMemorization) {
     await insertPlanTask(connection, {
-      plan, date, type: 'repeat', fromPage: task.fromPage, toPage: task.toPage, targetPages: task.targetPages, bounds: {
+      plan, date, type: 'repeat', fromPage: task.fromPage, toPage: task.toPage, targetPages: task.targetPages, scheduledPages: task.scheduledPages, bounds: {
         fromSurah: task.fromSurah,
         fromAyah: task.fromAyah,
         toSurah: task.toSurah,
@@ -4143,6 +4162,7 @@ function countUniquePagesWithinPlan(ranges, startPage, endPage) {
 
 function normalizePlanRow(row) {
   if (!row) return null;
+  row = canonicalQuranRow(row, ['start', 'end', 'nextMemorization', 'scheduleAnchor']);
   const startPage = Number(row.startPage);
   const endPage = Number(row.endPage);
   const totalPages = Math.max(1, Math.abs(endPage - startPage) + 1);
@@ -4331,6 +4351,7 @@ async function buildStudentPlanForecast(connection, plan, settings) {
 }
 
 function normalizeTaskRow(row, referenceMode = 'ayah') {
+  row = canonicalQuranRow(row);
   const reviewExecution = parseReviewExecution(row.reviewExecution);
   const targetPages = row.targetPages === null || row.targetPages === undefined ? null : Number(row.targetPages);
   const taskPreview = {
@@ -4389,6 +4410,7 @@ function normalizeTaskRow(row, referenceMode = 'ayah') {
     toSurahName: row.toSurahName,
     toSurahAyahCount: row.toSurahAyahCount,
     targetPages,
+    facePortion: quranFacePortion(row),
     actualFaces: row.reviewExecution ? Number(reviewExecution?.faces || 0) : row.actualFaces === null || row.actualFaces === undefined ? targetPages : Number(row.actualFaces),
     normalEnd: taskPreview.normalEnd,
     scheduledEnd: taskPreview.scheduledEnd,

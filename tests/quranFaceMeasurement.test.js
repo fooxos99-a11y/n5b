@@ -1,15 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
-import { quranFacePositions, measureQuranFaces, quranRangeFacesSql, acceptedQuranExecutionSql } from '../server/services/quranFaceMeasurement.js';
+import { quranFacePositions, measureQuranFaces, quranRangeFacesSql, quranRangeFingerprintSql, acceptedQuranExecutionSql } from '../server/services/quranFaceMeasurement.js';
 
 function fixture() {
   const db=new DatabaseSync(':memory:');
   db.function('GREATEST', {varargs:true}, (...values)=>Math.max(...values));
   db.function('JSON_UNQUOTE', value => value);
   db.function('LEAST', {varargs:true}, (...values)=>Math.min(...values));
+  db.function('CONCAT_WS', {varargs:true}, (separator,...values)=>values.filter(value=>value!=null).join(separator));
   db.exec(`CREATE TABLE quran_face_positions(surah INTEGER,ayah INTEGER,forward_start INTEGER,forward_end INTEGER,reverse_start INTEGER,reverse_end INTEGER,PRIMARY KEY(surah,ayah));
-    CREATE TABLE tasks(from_surah INTEGER,from_ayah INTEGER,to_surah INTEGER,to_ayah INTEGER,actual_to_surah INTEGER,actual_to_ayah INTEGER,teacher_completed INTEGER,student_status TEXT,execution_state TEXT,review_execution_json TEXT);`);
+    CREATE TABLE quran_task_reference_measurements(task_id INTEGER PRIMARY KEY,actual_faces REAL,expected_faces REAL,actual_range_key TEXT,expected_range_key TEXT);
+    CREATE TABLE tasks(id INTEGER PRIMARY KEY,from_surah INTEGER,from_ayah INTEGER,to_surah INTEGER,to_ayah INTEGER,actual_to_surah INTEGER,actual_to_ayah INTEGER,teacher_completed INTEGER,student_status TEXT,execution_state TEXT,review_execution_json TEXT,scheduled_pages REAL,target_pages REAL);`);
   const insert=db.prepare('INSERT INTO quran_face_positions VALUES(?,?,?,?,?,?)');
   for(const r of quranFacePositions)insert.run(r.surah,r.ayah,r.forwardStart,r.forwardEnd,r.reverseStart,r.reverseEnd);
   return db;
@@ -31,6 +33,23 @@ test('SQL and JS measure identical line ranges, including descending surah trans
   db.exec('UPDATE tasks SET from_surah=NULL');
   assert.equal(db.prepare(`SELECT ${quranRangeFacesSql('t')} faces FROM tasks t`).get().faces,0);
  } finally {db.close();}
+});
+
+test('historical face totals remain frozen while a new remainder cannot count as a complete face',()=>{
+ const db=fixture();
+ try {
+  db.exec("INSERT INTO tasks(id,from_surah,from_ayah,to_surah,to_ayah,target_pages,scheduled_pages) VALUES(1,6,125,6,131,1,NULL),(2,6,132,6,137,.75,1)");
+  db.exec(`INSERT INTO quran_task_reference_measurements SELECT t.id,1,1,${quranRangeFingerprintSql('t','actual')},${quranRangeFingerprintSql('t','expected')} FROM tasks t WHERE t.id=1`);
+  const rows=db.prepare(`SELECT t.id,${quranRangeFacesSql('t','actual')} actual,${quranRangeFacesSql('t','expected')} expected FROM tasks t ORDER BY t.id`).all();
+  assert.equal(rows[0].actual,1);
+  assert.equal(rows[0].expected,1);
+  assert.equal(rows[1].actual,.75);
+  assert.equal(rows[1].expected,.75);
+  db.exec('UPDATE tasks SET actual_to_surah=6,actual_to_ayah=125 WHERE id=1');
+  const corrected=db.prepare(`SELECT ${quranRangeFacesSql('t','actual')} actual,${quranRangeFacesSql('t','expected')} expected FROM tasks t WHERE id=1`).get();
+  assert.equal(corrected.actual,measureQuranFaces({surah:6,ayah:125},{surah:6,ayah:125}));
+  assert.equal(corrected.expected,1,'Unchanged expected history remains frozen');
+ }finally{db.close();}
 });
 
 test('completion respects teacher rejection and accepts confirmed partial/student execution consistently',()=>{

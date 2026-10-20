@@ -3,6 +3,7 @@ import { studyDateSql } from '../server/services/seasonalHolidays.js';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { canonicalQuranRow } from '../server/services/quranPageReference.js';
 import vm from 'node:vm';
 import { compareQuranPositionInDirection } from '../shared/quran-execution-policy.js';
 import { findNextUnmemorizedPosition } from '../server/services/quranMemorizationContinuity.js';
@@ -63,7 +64,7 @@ test('cursor update after execution and administrative correction writes the fir
     server.indexOf('async function buildExecutionSegmentDetails('),
   );
   const context = vm.createContext({
-    studyDateSql, uncompensatedTaskSql,
+    studyDateSql, uncompensatedTaskSql, canonicalQuranRow,
     getQuranRangeDirection: () => 1,
     getNextUnmemorizedPlanPosition: async () => findNextUnmemorizedPosition({
       ...options, ranges: [range(ayahs[0], ayahs[1]), range(ayahs[6], ayahs[7])],
@@ -117,7 +118,7 @@ test('single-task endpoint uses the same validation and cannot override its task
   assert.equal(payload.status, 'done');
 });
 
-test('pending tasks beyond a gap are repaired, while evaluated tasks are preserved', async () => {
+test('pending gaps are repaired while evaluated, started, attempted, and marked tasks are preserved', async () => {
   const server = await readFile(new URL('../server/index.js', import.meta.url), 'utf8');
   const implementation = server.slice(
     server.indexOf('async function repairUnevaluatedMemorizationTaskRange('),
@@ -128,17 +129,20 @@ test('pending tasks beyond a gap are repaired, while evaluated tasks are preserv
     getQuranRangeDirection: () => 1,
     compareQuranPositionInDirection,
     getPlanProgressContext: async () => ({ normalEnd: position(23, 147) }),
+    canonicalQuranRow,
   });
   vm.runInContext(implementation, context);
-  for (const evaluated of [false, true]) {
+  for (const protectedState of [null, { teacherCompleted: 1 }, { studentStatus: 'done' },
+    { hasAttempt: 1 }, { hasMarks: 1 }, { executedAt: '2026-10-20' },
+    { evaluatedAt: '2026-10-20' }, { executionState: 'partial' }, { actualToAyah: 146 }]) {
     const queries = [];
     const connection = { query: async (sql) => {
       queries.push(sql);
       return [[{ taskType: 'memorization', fromPage: 23, fromSurah: 2, fromAyah: 146,
-        toPage: 23, toSurah: 2, toAyah: 147, teacherCompleted: evaluated ? 1 : null,
-        studentStatus: evaluated ? 'done' : 'pending', hasAttempt: evaluated ? 1 : 0 }]];
+        toPage: 23, toSurah: 2, toAyah: 147, teacherCompleted: null,
+        studentStatus: 'pending', hasAttempt: 0, ...protectedState }]];
     } };
-    assert.equal(await context.repairUnevaluatedMemorizationTaskRange(connection, { id: 21 }, '2026-09-05', {}, position(22, 142)), !evaluated);
-    assert.equal(queries.some((sql) => /DELETE/.test(sql)), !evaluated);
+    assert.equal(await context.repairUnevaluatedMemorizationTaskRange(connection, { id: 21 }, '2026-09-05', {}, position(22, 142)), !protectedState);
+    assert.equal(queries.some((sql) => /DELETE/.test(sql)), !protectedState);
   }
 });

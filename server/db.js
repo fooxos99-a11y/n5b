@@ -884,6 +884,7 @@ async function initializeDatabase(databaseName, { seedDefaultData } = {}) {
   await addColumnIfMissing('student_quran_tasks', 'target_pages', 'DECIMAL(7,2) NULL');
   await modifyColumn('student_quran_tasks', 'target_pages', 'DECIMAL(7,2) NULL');
   const taskColumns = {
+    scheduled_pages: 'DECIMAL(7,2) NULL AFTER target_pages',
     from_surah: 'INT NULL AFTER to_page',
     from_ayah: 'INT NULL AFTER from_surah',
     to_surah: 'INT NULL AFTER from_ayah',
