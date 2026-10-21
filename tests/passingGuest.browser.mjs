@@ -1,0 +1,145 @@
+import assert from 'node:assert/strict';
+import { readFile, writeFile } from 'node:fs/promises';
+import { chromium } from 'playwright';
+import mysql from 'mysql2/promise';
+
+const base = 'http://127.0.0.1:3048';
+const entry = (await readFile('outputs/passing-entry/private-link.txt', 'utf8')).trim();
+assert.ok(entry.startsWith(base + '/passing-entry/'));
+const { database, staffTokens } = JSON.parse(await readFile('outputs/passing-entry/preview-session.local', 'utf8'));
+assert.equal(database, 'nukhab_guest_preview_20261021');
+const pool = mysql.createPool({ host: '127.0.0.1', port: 3310, user: 'root', password: '', database });
+const browser = await chromium.launch({ headless: true });
+const evidence = [];
+const noOverflow = async page => {
+  await page.waitForFunction(() => globalThis.document.fonts.status === 'loaded');
+  assert.equal(await page.evaluate(() => globalThis.document.documentElement.scrollWidth > globalThis.innerWidth), false);
+  for (const dialog of await page.getByRole('dialog').all()) assert.equal(await dialog.evaluate(el => el.scrollWidth > el.clientWidth + 1), false);
+};
+const entryReady = page => page.waitForFunction(() => {
+  const input = globalThis.document.getElementById('passing-reciter-name');
+  return input && !input.disabled && !input.closest('[inert]') && !globalThis.window.nukhabStartup?.active;
+});
+try {
+  for (const [width, theme] of [[320, 'light'], [390, 'light'], [390, 'dark'], [1440, 'light'], [1440, 'dark']]) {
+    const context = await browser.newContext({ viewport: { width, height: 900 } });
+    await context.addCookies([{ name: 'nukhab_session', value: staffTokens.manager, url: base, httpOnly: true, sameSite: 'Strict' }]);
+    const page = await context.newPage(), errors = [], apiPaths = [];
+    page.on('pageerror', error => errors.push(error.message));
+    page.on('request', request => { const url = new globalThis.URL(request.url()); if (url.pathname.startsWith('/api/')) apiPaths.push({ path: url.pathname, cookie: request.headers().cookie || '' }); });
+    await page.addInitScript(themeValue => {
+      globalThis.localStorage.setItem('nukhab_theme_account', themeValue);
+      globalThis.localStorage.setItem('wajeh_role', 'manager');
+      globalThis.localStorage.setItem('nukhab_web_session', '1');
+      globalThis.localStorage.setItem('wajeh_supervisor_id', '1');
+      globalThis.localStorage.setItem('wajeh_name', 'الإدارة المحلية');
+    }, theme);
+    await page.goto(entry);
+    await entryReady(page);
+    await page.getByLabel('اسم المقرئ', { exact: true }).waitFor();
+    await noOverflow(page);
+    assert.equal(await page.locator('html').evaluate((element, expected) => element.classList.contains(expected), theme), true);
+    assert.equal(await page.locator('header button').count(), 0);
+    assert.equal(await page.locator('aside').count(), 0);
+    assert.equal(await page.getByRole('button', { name: 'دخول', exact: true }).isDisabled(), true);
+    await page.getByLabel('اسم المقرئ', { exact: true }).fill(`مقرئ محلي ${width} ${theme}`);
+    await page.getByRole('button', { name: 'دخول', exact: true }).click();
+    await page.getByRole('button', { name: 'اختبار طالب الاجتياز المحلي', exact: true }).waitFor();
+    await noOverflow(page);
+    assert.equal(await page.locator('header button').count(), 0);
+    const filter = async (name, value) => { await page.getByRole('combobox', { name, exact: true }).click(); await page.getByRole('option', { name: value, exact: true }).click(); };
+    await filter('المجمع', 'المجمع المحلي الأول');
+    assert.equal(await page.getByRole('button', { name: 'اختبار طالب المجمع الثاني', exact: true }).count(), 0);
+    await filter('الحلقة', 'الحلقة المحلية الثالثة');
+    await page.getByRole('button', { name: 'اختبار طالب دون أجزاء مكتملة', exact: true }).click();
+    await page.getByText('لا يوجد جزء محفوظ كامل ومعتمد لهذا الطالب.', { exact: true }).waitFor();
+    await noOverflow(page);
+    await page.getByRole('dialog').getByRole('button', { name: 'إغلاق', exact: true }).click();
+    await filter('المجمع', 'المجمع المحلي الثاني');
+    assert.equal(await page.getByRole('combobox', { name: 'الحلقة', exact: true }).innerText(), 'الكل');
+    await filter('المجمع', 'المجمع المحلي الأول');
+    await filter('الحلقة', 'الحلقة المحلية الأولى');
+    await page.screenshot({ path: `outputs/passing-entry/guest-${width}-${theme}.png`, fullPage: true });
+    await page.getByRole('button', { name: 'اختبار طالب الاجتياز المحلي', exact: true }).click();
+    const part = page.getByRole('region', { name: 'الجزء 1', exact: true });
+    await part.waitFor();
+    const pendingDecision = part.getByRole('button', { name: 'تحديد إعادة الحفظ', exact: true });
+    if (await pendingDecision.count()) {
+      await pendingDecision.click();
+      const decision = page.getByRole('dialog', { name: 'إعادة الحفظ ضمن الخطة', exact: true });
+      await decision.getByRole('button', { name: /إبقاء الخطة|إعادة الاختبار في وقت لاحق/ }).click();
+      await decision.waitFor({ state: 'hidden' });
+    }
+    await part.getByRole('button', { name: /بدء تسميع الجزء|إعادة اختبار الجزء|إعادة تسميع الجزء/ }).click();
+    await page.getByRole('button', { name: 'تسجيل عدد الأخطاء والتنبيهات', exact: true }).click();
+    await page.getByRole('spinbutton', { name: 'عدد الأخطاء', exact: true }).fill('1');
+    if (width === 390 && theme === 'light') {
+      await page.route('**/api/passing/guest/parts/*/attempts', route => route.abort('connectionfailed'));
+      await page.getByRole('button', { name: 'حفظ النتيجة', exact: true }).click();
+      await page.getByRole('alert').filter({ hasText: 'تعذر الاتصال' }).waitFor();
+      assert.equal(await page.getByRole('spinbutton', { name: 'عدد الأخطاء', exact: true }).inputValue(), '1');
+      await page.unroute('**/api/passing/guest/parts/*/attempts');
+    }
+    await page.getByRole('button', { name: 'حفظ النتيجة', exact: true }).click();
+    await page.getByRole('dialog', { name: 'إعادة الحفظ ضمن الخطة', exact: true }).waitFor();
+    await noOverflow(page);
+    const repeat = width === 1440 && theme === 'dark';
+    await page.getByRole('button', { name: repeat ? 'إعادة حفظ الجزء كاملًا' : 'إبقاء الخطة', exact: true }).click();
+    await page.getByRole('dialog', { name: 'إعادة الحفظ ضمن الخطة', exact: true }).waitFor({ state: 'hidden' });
+    await part.getByRole('button', { name: /^تقرير الجزء/ }).click();
+    await page.getByRole('dialog', { name: 'تقرير الجزء 1', exact: true }).waitFor();
+    await page.getByRole('dialog', { name: 'تقرير الجزء 1', exact: true }).getByText(new RegExp(`مقرئ محلي ${width} ${theme}`)).first().waitFor();
+    await noOverflow(page);
+    await page.screenshot({ path: `outputs/passing-entry/report-${width}-${theme}.png`, fullPage: true });
+    assert.equal(await page.evaluate(() => globalThis.localStorage.getItem('wajeh_role')), 'manager', 'guest requests preserve the existing account');
+    assert.equal(apiPaths.some(item => /notifications|offline-recitation|dashboard-bootstrap/.test(item.path)), false);
+    assert.equal(apiPaths.filter(item => item.path.startsWith('/api/passing/guest')).some(item => item.cookie), false);
+    assert.deepEqual(errors, []);
+    evidence.push({ width, theme, flow: repeat ? 'repeat' : 'keep', errors: 0, overflow: false });
+    await context.close();
+  }
+  const context = await browser.newContext({ viewport: { width: 390, height: 900 } });
+  await context.addCookies([{ name: 'nukhab_session', value: staffTokens.manager, url: base, httpOnly: true, sameSite: 'Strict' }]);
+  const page = await context.newPage();
+  await page.addInitScript(() => {
+    globalThis.localStorage.setItem('wajeh_role', 'manager'); globalThis.localStorage.setItem('nukhab_web_session', '1');
+    globalThis.localStorage.setItem('wajeh_supervisor_id', '1'); globalThis.localStorage.setItem('wajeh_name', 'الإدارة المحلية');
+  });
+  await page.goto(base + '/dashboard/passing');
+  await page.getByRole('button', { name: 'اختبار طالب الاجتياز المحلي', exact: true }).waitFor();
+  await page.getByRole('button', { name: /^الإشعارات/ }).click();
+  const notice = page.locator('article').filter({ hasText: 'مقرئ محلي 1440 dark' }).first();
+  await notice.getByRole('link', { name: 'عرض تقرير الاجتياز', exact: true }).click();
+  await page.getByRole('dialog', { name: 'تقرير الجزء 1', exact: true }).waitFor();
+  await page.getByRole('dialog', { name: 'تقرير الجزء 1', exact: true }).getByText(/مقرئ محلي 1440 dark/).first().waitFor();
+  await noOverflow(page);
+  await page.screenshot({ path: 'outputs/passing-entry/administration-notification-report.png', fullPage: true });
+  evidence.push({ administration: 'notification opens matching shared report', verified: true });
+  await context.close();
+  const invalid = await browser.newPage({ viewport: { width: 390, height: 900 } });
+  await invalid.goto(base + '/passing-entry/' + '0'.repeat(64));
+  await entryReady(invalid);
+  await invalid.getByLabel('اسم المقرئ', { exact: true }).fill('مقرئ محلي');
+  await invalid.getByRole('button', { name: 'دخول', exact: true }).click();
+  await invalid.getByRole('alert').filter({ hasText: 'رابط الاجتياز غير صالح أو متوقف' }).waitFor();
+  assert.equal(await invalid.getByRole('combobox').count(), 0);
+  await invalid.close();
+  const expiring = await browser.newPage({ viewport: { width: 390, height: 900 } });
+  await expiring.goto(entry); await entryReady(expiring);
+  await expiring.getByLabel('اسم المقرئ', { exact: true }).fill('مقرئ انتهاء الجلسة');
+  const sessionResponse = expiring.waitForResponse(response => response.url().endsWith('/passing/guest/session'));
+  await expiring.getByRole('button', { name: 'دخول', exact: true }).click();
+  const session = await (await sessionResponse).json();
+  await expiring.getByRole('button', { name: 'اختبار طالب الاجتياز المحلي', exact: true }).waitFor();
+  await pool.query('UPDATE passing_guest_sessions SET expires_at=DATE_SUB(NOW(),INTERVAL 1 SECOND) WHERE token_hash=SHA2(?,256)', [session.token]);
+  await expiring.getByRole('button', { name: 'اختبار طالب الاجتياز المحلي', exact: true }).click();
+  await expiring.getByLabel('اسم المقرئ', { exact: true }).waitFor();
+  await expiring.getByRole('alert').filter({ hasText: 'انتهت جلسة الاجتياز' }).waitFor();
+  assert.equal(await expiring.evaluate(() => globalThis.localStorage.getItem('wajeh_role')), null);
+  await expiring.getByRole('button', { name: 'دخول', exact: true }).click();
+  await expiring.getByRole('button', { name: 'اختبار طالب الاجتياز المحلي', exact: true }).waitFor();
+  await expiring.close();
+  evidence.push({ invalidLink: 'denied', expiredSession: 'returns to name gate and resumes', verified: true });
+  await writeFile('outputs/passing-entry/browser-report.json', JSON.stringify(evidence, null, 2));
+  globalThis.console.log('Passing guest browser: mobile/desktop light/dark, name gate, dependent filters, real save/decisions/history, retry, account isolation and admin notification report verified.');
+} finally { await browser.close(); await pool.end(); }

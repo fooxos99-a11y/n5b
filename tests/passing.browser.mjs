@@ -5,6 +5,7 @@ import { URL } from 'node:url';
 import { chromium } from 'playwright';
 import { parsePassingPolicy, effectivePassingPolicy, evaluatePassingPart, passingExamStatus } from '../shared/passing-policy.js';
 import { readLocalMushafPage } from '../server/services/localMushaf.js';
+import { buildPassingReport } from '../shared/passing-report.js';
 
 const base = process.env.PORTAL_TEST_URL || 'http://127.0.0.1:3000';
 assert.ok(['127.0.0.1', 'localhost'].includes(new URL(base).hostname));
@@ -15,7 +16,7 @@ try {
     const page = await browser.newPage({ viewport: { width, height: 900 } });
     const errors = [], writes = [];
     page.on('pageerror', error => errors.push(error.message));
-    let policy = parsePassingPolicy({}), failSave = false, failDecision = false, failMushaf = true;
+    let policy = parsePassingPolicy({}), failSave = false, failDecision = false, failMushaf = true, failReport = true;
     let globalPause = { paused: false, revision: 0, canManage: true }, individualPause = { ...globalPause };
     const range = { startPage: 1, startSurah: 1, startAyah: 1, startSurahName: 'الفاتحة', endPage: 21, endSurah: 2, endAyah: 141, endSurahName: 'البقرة' };
     const exams = { branch: [], hafiz: [] };
@@ -24,7 +25,7 @@ try {
       { id: 4, name: 'طالب آخر', committeeId: 2, committeeName: 'الحلقة الثانية', complexId: 2, complexName: 'المجمع الثاني' },
       { id: 5, name: 'طالب الحلقة الثالثة', committeeId: 3, committeeName: 'الحلقة الثالثة', complexId: 1, complexName: 'المجمع الأول' },
     ];
-    const eligible = type => (type === 'branch' ? [1, 3] : [1, 2, 3]).map(juzNumber => ({ juzNumber,
+    const eligible = () => [1, 2, 3].map(juzNumber => ({ juzNumber,
       ranges: [juzNumber === 1 ? range : { ...range, startPage: 22, startSurah: 2, startAyah: 142, startSurahName: 'البقرة', endPage: 41, endAyah: 252 }] }));
     await page.addInitScript(() => {
       globalThis.localStorage.setItem('wajeh_role', 'manager'); globalThis.localStorage.setItem('nukhab_web_session', '1');
@@ -45,6 +46,10 @@ try {
         const type = url.searchParams.get('type');
         body = { parts: path.includes('/3/') ? eligible(type) : [], exams: exams[type] };
       }
+      if (/^\/passing\/students\/\d+\/report$/.test(path)) {
+        if (failReport) { status=500;body={message:'تعذر تحميل التقرير التجريبي'}; }
+        else { const type=url.searchParams.get('type');body={type,...buildPassingReport(path.includes('/3/') ? Object.values(exams).flat().filter(exam=>type==='all'||exam.type===type):[],eligible())}; }
+      }
       if (path === '/passing') {
         if (method === 'GET') body = exams[url.searchParams.get('type')];
         else {
@@ -59,7 +64,7 @@ try {
         if (failSave) { status = 500; body = { message: 'تعذر حفظ النتيجة التجريبية' }; }
         else {
           const id = Number(path.split('/')[3]), exam = Object.values(exams).flat().find(item => item.parts.some(part => part.id === id)), part = exam.parts.find(item => item.id === id);
-          const snapshot = effectivePassingPolicy(policy, exam.type, part.juzNumber), result = evaluatePassingPart(snapshot, payload);
+          const snapshot = { ...effectivePassingPolicy(policy, exam.type, part.juzNumber), ratings: globalThis.structuredClone(policy.ratings) }, result = evaluatePassingPart(snapshot, payload);
           const attempt = { id: writes.length, mode: payload.mode, createdAt: '2026-10-09T10:00:00', actorName: 'المدير', result, policy: snapshot, marks: [], rehifzDecision: 'pending' };
           part.attempts.unshift(attempt); part.latestAttempt = attempt; exam.status = passingExamStatus(exam.parts); body = { ok: true, result: { ...result, attemptId: attempt.id } };
         }
@@ -103,6 +108,7 @@ try {
     };
     await page.goto(`${base}/dashboard/passing`);
     await page.getByRole('button', { name: 'اختبار طالب الاجتياز', exact: true }).waitFor();
+    await page.waitForFunction(() => !globalThis.window.nukhabStartup?.active);
     assert.equal(await page.getByRole('button', { name: 'اجتياز جديد', exact: true }).count(), 0);
     assert.equal(await page.getByRole('searchbox').count(), 0);
     for (const label of ['المجمع', 'الحلقة']) assert.equal(await page.getByRole('combobox', { name: label, exact: true }).innerText(), 'الكل');
@@ -122,7 +128,7 @@ try {
     await filter('المجمع', 'المجمع الثاني');
     assert.equal(await page.getByRole('combobox', { name: 'الحلقة', exact: true }).innerText(), 'الكل');
     await page.getByRole('button', { name: 'اختبار طالب آخر', exact: true }).click();
-    await page.getByText('لم يُكمل الطالب جزءًا كاملًا معتمدًا ضمن خطته.', { exact: true }).waitFor();
+    await page.getByText('لا يوجد جزء محفوظ كامل ومعتمد لهذا الطالب.', { exact: true }).waitFor();
     await noOverflow();
     await page.getByRole('dialog').getByRole('button', { name: 'إغلاق', exact: true }).click();
     await filter('المجمع', 'الكل');
@@ -133,8 +139,8 @@ try {
     };
     await create(); await noOverflow();
     assert.equal(exams.branch.length, 0, 'opening parts does not create an exam');
-    assert.equal(await page.getByRole('region', { name: 'الجزء 2', exact: true }).count(), 0, 'branch excludes prior memorization outside the plan');
-    assert.equal(await page.getByRole('button', { name: 'بدء تسميع الجزء', exact: true }).count(), 2);
+    assert.equal(await page.getByRole('region', { name: 'الجزء 2', exact: true }).count(), 1, 'branch includes prior memorization outside the plan');
+    assert.equal(await page.getByRole('button', { name: 'بدء تسميع الجزء', exact: true }).count(), 3);
     assert.equal(await page.getByRole('button', { name: /^تقرير الجزء/ }).count(), 0, 'branch reports are hidden before recitation');
     const count = async label => {
       await page.getByRole('button', { name: label, exact: true }).first().click();
@@ -154,7 +160,7 @@ try {
     await page.getByText('هل تريد إعادة حفظ الجزء 1 كاملًا ضمن خطة الطالب؟',{ exact:true }).waitFor();
     await noOverflow();
     failDecision=true;
-    await page.getByRole('button',{ name:'إبقاء الخطة',exact:true }).click();
+    await page.getByRole('button',{ name:'إعادة الاختبار في وقت لاحق',exact:true }).click();
     await page.getByRole('alert').filter({ hasText:'تعذر حفظ قرار إعادة الحفظ' }).waitFor();
     assert.equal(exams.branch[0].parts[0].attempts.length,1,'decision error never resubmits result');
     // Refresh keeps the recorded result and offers the pending choice again.
@@ -162,10 +168,11 @@ try {
     await page.getByRole('button',{ name:'اختبار طالب الاجتياز',exact:true }).click();
     await page.getByRole('button',{ name:'تحديد إعادة الحفظ',exact:true }).click();
     failDecision=false;
-    await page.getByRole('button',{ name:'إبقاء الخطة',exact:true }).click();
+    await page.getByRole('button',{ name:'إعادة الاختبار في وقت لاحق',exact:true }).click();
     await page.getByRole('button', { name: 'إعادة تسميع الجزء', exact: true }).waitFor();
     await page.getByRole('button', { name: 'تقرير الجزء (1)', exact: true }).click();
     await page.getByText('الدرجة 80/100', { exact: true }).last().waitFor();
+    await page.getByRole('dialog', { name: 'تقرير الجزء 1', exact: true }).getByText('إعادة الاختبار في وقت لاحق', { exact: true }).waitFor();
     await page.getByText('سُجلت الأعداد فقط؛ مواضع الأخطاء غير محددة.', { exact: true }).waitFor();
     await page.getByText('الإعدادات المستخدمة', { exact: true }).click(); await noOverflow();
     await page.getByRole('dialog', { name: 'تقرير الجزء 1', exact: true }).getByRole('button', { name: 'إغلاق', exact: true }).click();
@@ -195,9 +202,22 @@ try {
     assert.equal(exams.hafiz[0].parts[1].latestAttempt.mode,'mushaf');
     await page.getByRole('button', { name: 'تقرير الجزء (1)', exact: true }).waitFor();
     assert.equal(await page.getByRole('button', { name: /^تقرير الجزء/ }).count(), 1, 'only the recited part has a report');
+    await page.getByRole('button',{name:'التقرير المجمّع',exact:true}).click();
+    await page.getByText('تعذر تحميل التقرير التجريبي',{exact:true}).waitFor();
+    failReport=false;await page.getByRole('button',{name:'إعادة المحاولة',exact:true}).click();
+    await page.getByRole('region',{name:'ملخص الاختبارات'}).getByText('100٪',{exact:true}).waitFor();
+    await noOverflow();
+    await filter('نوع الاختبارات','جميع الاختبارات');
+    await page.getByRole('region',{name:'نتائج الجزء 1'}).waitFor();
+    await page.getByRole('button',{name:'سجل الجزء 1',exact:true}).click();
+    await page.getByRole('dialog',{name:'تقرير الجزء 1',exact:true}).getByText('الدرجة 80/100',{exact:true}).waitFor();
+    await page.getByRole('dialog',{name:'تقرير الجزء 1',exact:true}).getByText('الدرجة 100/100',{exact:true}).waitFor();
+    await noOverflow();
+    await page.getByRole('dialog',{name:'تقرير الجزء 1',exact:true}).getByRole('button',{name:'إغلاق',exact:true}).click();
+    await page.getByRole('dialog',{name:'تقرير اختبارات طالب الاجتياز',exact:true}).getByRole('button',{name:'إغلاق',exact:true}).click();
     await page.goto(`${base}/dashboard/settings-passing`);
     await page.getByRole('spinbutton', { name: 'حد الاجتياز', exact: true }).waitFor();
-    assert.equal(await page.getByRole('spinbutton').count(), 5);
+    assert.equal(await page.getByRole('spinbutton').count(), 9);
     assert.equal(await page.getByText(/الحد الأقصى للأخطاء|الحد الأقصى للتنبيهات|الحد الأقصى للترددات|يجتاز الجزء عند/).count(), 0);
     const savePolicy = () => page.waitForResponse(response => response.url().includes('/passing/policy') && response.request().method() === 'PUT');
     let saved = savePolicy(); await page.getByRole('spinbutton', { name: 'حد الاجتياز', exact: true }).fill('90'); await saved;
@@ -214,6 +234,22 @@ try {
     await page.getByText('حد الاجتياز يجب ألا يتجاوز الدرجة الكاملة.', { exact: true }).waitFor();
     await page.waitForTimeout(850); assert.equal(writes.length, writesBefore, 'invalid policy is not saved');
     await page.getByRole('spinbutton', { name: 'حد الاجتياز', exact: true }).fill('95');
+    saved=savePolicy();await page.getByRole('button',{name:'إضافة تقدير',exact:true}).click();await saved;
+    saved=savePolicy();await page.getByLabel('اسم التقدير 5',{exact:true}).fill('تقدير إضافي');await saved;
+    const ratingWrites=writes.length;
+    await page.getByLabel('الحد الأدنى 5 ٪',{exact:true}).fill('95');
+    await page.getByText('حد التقدير مكرر.',{exact:true}).waitFor();
+    await page.waitForTimeout(850);assert.equal(writes.length,ratingWrites,'invalid duplicate bands are not saved');
+    saved=savePolicy();await page.getByLabel('الحد الأدنى 5 ٪',{exact:true}).fill('97');await saved;
+    saved=savePolicy();await page.getByRole('button',{name:'حذف التقدير 5',exact:true}).click();await saved;
+    assert.equal(policy.ratings.length,4);
+    saved=savePolicy();await page.getByLabel('اسم التقدير 1',{exact:true}).fill('ممتاز جديد');await saved;
+    await noOverflow();
+    await page.reload();await page.getByLabel('اسم التقدير 1',{exact:true}).waitFor();
+    assert.equal(await page.getByLabel('اسم التقدير 1',{exact:true}).inputValue(),'ممتاز جديد');
+    await page.goto(`${base}/dashboard/passing`);
+    await page.getByRole('button',{name:'تقرير طالب الاجتياز',exact:true}).click();
+    await page.getByRole('region',{name:'ملخص الاختبارات'}).getByText('ممتاز',{exact:true}).waitFor();
     await noOverflow();
     await page.goto(`${base}/dashboard/student-plans`);
     await page.getByRole('button', { name: 'إيقاف الخطة — طالب الاجتياز', exact: true }).waitFor();
@@ -229,6 +265,6 @@ try {
     await page.getByRole('button', { name: 'استئناف الخطة — طالب الاجتياز', exact: true }).waitFor();
     assert.ok(individualPause.paused); await noOverflow(); assert.deepEqual(errors, []);
     await page.close();
-    globalThis.console.log(`Passing dashboard/settings/plans: dependent complex/circle filters in one row, student test icons, plan-only parts, single-part selection, full hafiz scope, reports, retry/error retention, policy independence/overrides, invalid draft, global/individual pause, RTL overflow passed at ${width}px.`);
+    globalThis.console.log(`Passing dashboard/settings/plans: all memorized parts, combined report/drilldown/filter/retry, frozen ratings, add/delete/validation/autosave, plan decisions, RTL overflow passed at ${width}px.`);
   }
 } finally { await browser.close(); }

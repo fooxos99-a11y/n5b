@@ -1,5 +1,4 @@
 import { memorizedSegments } from './memorizedSegments.js';
-import { currentQuranPlanSql } from './currentQuranPlan.js';
 import { compareQuranPositionInDirection } from '../../shared/quran-execution-policy.js';
 
 const positionKey = row => Number(row.surah) * 1000 + Number(row.ayah);
@@ -37,16 +36,9 @@ export function buildBranchPassingParts(ayahs, tasks, juz) {
   return buildPassingParts(ayahs, toRanges(saved), 'branch', juz);
 }
 
-/** Branch passing credits only teacher-approved memorization in the current plan. */
+/** Both types include recorded prior memorization and teacher-approved completed memorization across plans. */
 export async function loadEligiblePassingParts(connection, { studentId, type, juz, loadMemorizedRanges, loadAyahs }) {
   if (!['branch', 'hafiz'].includes(type)) throw Object.assign(new Error('نوع الاجتياز غير صحيح.'), { status: 422 });
   const ayahs = await loadAyahs(connection);
-  if (type === 'hafiz') return buildPassingParts(ayahs, await loadMemorizedRanges(connection, studentId, { approvedOnly: true }), type);
-  const [tasks] = await connection.query(`SELECT t.from_page AS startPage, t.from_surah AS startSurah, t.from_ayah AS startAyah,
-    COALESCE(t.actual_to_page,t.to_page) AS endPage, COALESCE(t.actual_to_surah,t.to_surah) AS endSurah,
-    COALESCE(t.actual_to_ayah,t.to_ayah) AS endAyah
-    FROM student_quran_tasks t JOIN student_quran_plans p ON p.id=t.plan_id AND p.student_id=t.student_id
-    WHERE t.student_id=? AND t.task_type='memorization' AND t.teacher_completed=1 AND ${currentQuranPlanSql('p')}
-      AND t.from_surah IS NOT NULL AND t.from_ayah IS NOT NULL AND t.to_surah IS NOT NULL AND t.to_ayah IS NOT NULL`, [studentId]);
-  return buildBranchPassingParts(ayahs, tasks, juz);
+  return buildPassingParts(ayahs, await loadMemorizedRanges(connection, studentId, { approvedOnly: true }), type, juz);
 }

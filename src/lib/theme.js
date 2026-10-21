@@ -11,7 +11,7 @@ export const getThemeScopeForPath = (pathname = '/', basePath = import.meta.env?
     return 'login';
   }
   if (/^\/login\/?$/.test(route)) return 'login';
-  return /^\/(dashboard|portal)(\/|$)/.test(route) ? 'account' : 'public';
+  return /^\/(dashboard|portal|passing-entry)(\/|$)/.test(route) ? 'account' : 'public';
 };
 
 export const getPreferredThemeForPath = (pathname, basePath, search) => {

@@ -1,18 +1,13 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef } from 'react';
 import { resolveAssetUrl } from '@/lib/assetUrl';
 import { useStartup } from '@/components/startup/StartupProvider';
 import AccountLoginForm from './AccountLoginForm';
-import { getStartupTiming } from '@/lib/startupTiming';
 import { trackLoginViewport } from '@/lib/loginViewport';
 import { applyTheme, getCurrentTheme } from '@/lib/theme';
 import './account-login.css';
 
 export default function AccountLoginPage({ site, onLogin, loading }) {
   const startup = useStartup();
-  const [timing] = useState(() => {
-    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    return getStartupTiming({ active: startup?.active, startedAt: startup?.startedAt, now: performance.now(), reducedMotion: reduced });
-  });
   const entering = Boolean(startup?.active);
   const contentRef = useRef(null);
   useLayoutEffect(() => {
@@ -29,7 +24,7 @@ export default function AccountLoginPage({ site, onLogin, loading }) {
       root.classList.remove('account-login-active');
     };
   }, []);
-  return <main className={`account-login-page ${entering ? 'account-login-enter' : ''}`} style={{ '--startup-delay': `-${timing.elapsed}ms` }} dir="rtl">
+  return <main className="account-login-page" dir="rtl">
     <section ref={contentRef} className="account-login-content" aria-labelledby="login-title" aria-busy={entering || loading}>
       <header className="account-login-header">
         {site.logo && <img src={resolveAssetUrl(site.logo)} alt={site.name} className="account-login-logo" />}

@@ -2,19 +2,21 @@ import { studentsApi } from '@/services/studentsApi';
 import { studentNewsService } from '@/services/studentNewsService';
 import { loadOfflineSnapshot } from '@/services/offlineOperationsService';
 import { loadPublicSettingsCached } from '@/services/publicSettingsCache';
+import { summitApi } from '@/services/summitApi';
 
 export async function loadStudentHomeExtras({ onUpdate, refresh = false }) {
-  const keys = ['settings', 'news'];
+  const keys = ['settings', 'news', 'journey'];
   const entries = await Promise.allSettled([
     loadPublicSettingsCached({ refresh }),
     studentNewsService.load(),
+    summitApi.journey(),
   ].map((request, index) => Promise.resolve(request).then((value) => {
     onUpdate?.({ [keys[index]]: value, [`${keys[index]}Error`]: false });
     return value;
   }, (error) => { onUpdate?.({ [`${keys[index]}Error`]: true }); throw error; })));
   const value = (index) => entries[index].status === 'fulfilled' ? entries[index].value : null;
   return { settings: value(0), news: value(1), newsError: entries[1].status === 'rejected',
-    settingsError: entries[0].status === 'rejected' };
+    settingsError: entries[0].status === 'rejected', journey: value(2), journeyError: entries[2].status === 'rejected' };
 }
 
 export const loadStudentLevel = (studentId) => loadOfflineSnapshot(studentId, 'student:level-v1', () => studentsApi.getStudentQuranLevel(studentId), { actorRole: 'student' });

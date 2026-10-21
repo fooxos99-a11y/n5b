@@ -77,5 +77,6 @@ test('local app loader preserves production routes/auth and refuses an unknown b
   assert.equal(isolated.includes('\nstartRuntimeDiagnostics();\n'), false);
   assert.equal(isolated.includes('await refreshWhatsAppState({ waitMs: 15000 });'), false);
   assert.throws(() => isolateLocalCallArchiveSource(source.replace('await ensureManagerSupervisorAccount();', 'await alteredStartup();')), /boundaries changed/);
+  assert.throws(() => isolateLocalCallArchiveSource(source.replace('startAutomaticAbsenceScheduler();', 'startAutomaticAbsenceScheduler();\n await refreshWhatsAppState({ waitMs: 15000 });')), /boundaries changed/);
   assert.throws(() => isolateLocalCallArchiveSource(source.replace('startRuntimeDiagnostics();', 'startRuntimeDiagnostics(true);')), /startup changed/);
 });

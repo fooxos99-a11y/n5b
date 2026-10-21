@@ -2,6 +2,7 @@ import { readQuranRange } from './quranReferenceCache.js';
 import { assertSupervisorStudentScope } from './supervisorStudentScope.js';
 import { currentQuranPlanSql } from './currentQuranPlan.js';
 import { getBusinessDate } from '../../shared/business-date.js';
+import { notifyPassingCompletion } from './passingNotification.js';
 
 const parse = value => typeof value === 'string' ? JSON.parse(value) : value;
 const fail = (message, status = 422) => Object.assign(new Error(message), { status, statusCode: status });
@@ -51,6 +52,7 @@ export async function decidePassingRehifz(pool, { partId, attemptId, repeat, act
       }
     }
     await connection.query('UPDATE student_passing_attempts SET rehifz_decision=?,rehifz_id=? WHERE id=?', [decision, rehifzId, attemptId]);
+    await notifyPassingCompletion(connection, { partId, attemptId });
     await connection.commit(); return { decision, rehifzId };
   } catch (error) { await connection.rollback(); throw error; } finally { connection.release(); }
 }

@@ -174,7 +174,9 @@ test('native launch screens match the animation background without a separate lo
   assert.doesNotMatch(androidLoader, /strokeColor/);
   assert.match(androidLoader, /fillColor="@android:color\/transparent"/);
   assert.match(androidTheme, /windowSplashScreenBackground">#04433D/);
-  assert.match(capacitorConfig, /"launchShowDuration": 0/);
+  const splash = JSON.parse(capacitorConfig).plugins.SplashScreen;
+  assert.equal(splash.launchShowDuration, 1, 'iOS needs a positive duration to create its native cover');
+  assert.equal(splash.launchAutoHide, false, 'the painted startup owns the handoff instead of a timer');
   assert.match(capacitorConfig, /"showSpinner": false/);
 });
 

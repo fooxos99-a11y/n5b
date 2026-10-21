@@ -87,6 +87,7 @@ export default defineConfig(({ mode }) => {
     },
   },
   server: {
+    fs: { deny: ['.env', '.env.*', '*.{crt,pem}', '**/.git/**', '**/outputs/passing-entry/private-link.txt', '**/outputs/**/*.local*'] },
     proxy: {
       '/api': 'http://127.0.0.1:3002',
     },

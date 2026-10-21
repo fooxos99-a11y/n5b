@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { db } from '../db.js';
 import { getSessionCookie, setSessionCookie, TENANT_SESSION_COOKIE } from './sessionCookies.js';
+import { authenticatePassingGuest, isPassingGuestRequest } from './passingGuest.js';
 
 const configuredSessionDays = Number(process.env.AUTH_SESSION_DAYS || 400);
 export const AUTH_SESSION_DAYS = Number.isFinite(configuredSessionDays)
@@ -70,8 +71,10 @@ export async function revokeAuthSessionsForUser(connection, roles, userId) {
 }
 
 export function createAuthenticateApiRequest({ isPublicApiRequest }) {
+  const passingGuest = authenticatePassingGuest(db);
   return async function authenticateApiRequest(req, res, next) {
     try {
+      if (isPassingGuestRequest(req)) return passingGuest(req, res, next);
       if (isPublicApiRequest(req)) return next();
       const authorization = String(req.get('authorization') || '');
       const hasToken = authorization.startsWith('Bearer ')

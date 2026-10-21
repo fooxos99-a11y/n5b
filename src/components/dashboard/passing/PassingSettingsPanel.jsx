@@ -10,6 +10,7 @@ import useQueuedAutosave from '@/hooks/useQueuedAutosave';
 import { passingApi } from '@/services/passingApi';
 import { PASSING_TYPES, passingPolicyErrors, effectivePassingPolicy } from '../../../../shared/passing-policy.js';
 import PassingPolicyFields from './PassingPolicyFields';
+import PassingRatingsEditor from './PassingRatingsEditor';
 
 export default function PassingSettingsPanel({ onStatusChange }) {
   const [policy, setPolicy] = useState(null);
@@ -61,6 +62,11 @@ export default function PassingSettingsPanel({ onStatusChange }) {
         setEdited(true); setPolicy(current => { const overrides = { ...current[type].juzOverrides }; delete overrides[juz];
           return { ...current, [type]: { ...current[type], juzOverrides: overrides } }; });
       }}>استخدام الإعدادات الافتراضية لهذا الجزء</Button>}
+    </SettingsGroup>
+    <SettingsGroup>
+      <PassingRatingsEditor ratings={policy.ratings} errors={errors} onChange={ratings => {
+        setEdited(true); setPolicy(current => ({ ...current, ratings }));
+      }} />
     </SettingsGroup>
   </div>;
 }

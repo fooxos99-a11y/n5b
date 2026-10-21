@@ -23,5 +23,9 @@ test('startup owns the branding while later loading uses a neutral progress indi
   assert.doesNotMatch(style, /branding\/nukhab|loading-logo-breathe/);
   assert.doesNotMatch(style, /transform:|rotate\(/);
   assert.match(style, /prefers-reduced-motion/);
-  assert.equal(JSON.parse(native).plugins.SplashScreen.showSpinner, false);
+  const splash = JSON.parse(native).plugins.SplashScreen;
+  assert.equal(splash.showSpinner, false);
+  assert.equal(splash.launchAutoHide, false);
+  assert.equal(splash.launchShowDuration, 1, 'a positive duration enables iOS launch coverage; autoHide=false controls its lifetime');
+  assert.equal(splash.launchFadeOutDuration, 0);
 });

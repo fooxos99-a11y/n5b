@@ -1,3 +1,4 @@
+import { createWhatsAppDispatchJournal, createWhatsAppIdleSession, whatsAppBrowserOptions, withWhatsAppDispatchKey } from './services/whatsAppIdleSession.js';
 import { studentVisibleSessionGrades } from '../shared/student-amount-visibility.js';
 import { computeStudentSessionGrades } from './services/grading.js';
 import { createLivekitWebhookRouter } from './routes/livekitWebhookRoutes.js';
@@ -13,6 +14,7 @@ import { parseStudentPlanPause, studentPlanPauseStatus, isStudentStudyHoliday, w
 import { loadIndividualStudentPlanPauses, assertStudentPlanRunning } from './services/studentPlanPause.js';
 import { ensurePassingRehifzTasks, refreshPassingRehifz, readStudentRehifz, previewPassingRehifz } from './services/passingRehifz.js';
 import { createPassingRouter } from './routes/passingRoutes.js';
+import { createSummitRouter } from './routes/summitRoutes.js';
 import { createStudentPlanPauseRouter } from './routes/studentPlanPauseRoutes.js';
 import { requireRegistrationPlacement, loadRegistrationPlacementOptions } from './services/registrationPlacement.js';
 import { assertStudyDate, studyDateSql } from './services/seasonalHolidays.js';
@@ -558,6 +560,7 @@ function getDashboardPermissionKeysForRequest(req) {
     [path === '/passing/policy' && method !== 'GET', ['settings']],
     [path === '/passing/policy', ['quranPassing', 'settings']],
     [path.startsWith('/passing'), ['quranPassing']],
+    [path.startsWith('/summit'), ['settings']],
     [path === '/grading/policy' && method !== 'GET', ['settings']],
     [path === '/grading/policy', ['settings', 'weeklySession', 'trackSession']],
     [path.startsWith('/account-deletion/requests'), ['settings']],
@@ -628,14 +631,14 @@ async function authorizeApiRequest(req, res, next) {
     const ownAccountDeletion = getOwnAccountDeletionAccess(req, path);
     const { supervisorStudentPlans, supervisorTeacherAttendance, supervisorOwnReports, supervisorTeacherPointsAccess, supervisorTeacherPointsReport } = getSupervisorApiAccess(req, path);
     const accountCallsAccess = ['student', 'supervisor'].includes(req.auth.role) && path.startsWith('/calls');
-    const { studentStoreAccess, studentOfflineAccess } = getStudentFeatureApiAccess(req, path);
+    const { studentStoreAccess, studentOfflineAccess, studentSummitAccess } = getStudentFeatureApiAccess(req, path);
     const accountNotificationsAccess = /^\/notifications(?:\/|$)/.test(path) && ['student', 'supervisor', 'admin', 'reciter'].includes(req.auth.role);
     const studentNotificationsAccess = req.auth.role === 'student' && path.startsWith('/student-notifications');
     const ownStaffAttendanceAccess = ['supervisor', 'admin', 'reciter'].includes(req.auth.role) && path.startsWith('/staff-attendance');
     const ownRecitationPreferencesAccess = ['supervisor', 'reciter'].includes(req.auth.role)
       && path.startsWith('/recitation-preferences');
     const ownOfflineRecitationAccess = hasOfflineRecitationAccountAccess(req.auth.role, path);
-    if (accountNotificationsAccess || sharedGet || sharedPost || ownStudent || ownSupervisor || attendanceStatus || ownAccountDeletion || supervisorStudentPlans || supervisorTeacherAttendance || supervisorOwnReports || supervisorTeacherPointsAccess || supervisorTeacherPointsReport || accountCallsAccess || studentStoreAccess || studentOfflineAccess || studentNotificationsAccess || ownStaffAttendanceAccess || ownRecitationPreferencesAccess || ownOfflineRecitationAccess) return next();
+    if (accountNotificationsAccess || sharedGet || sharedPost || ownStudent || ownSupervisor || attendanceStatus || ownAccountDeletion || supervisorStudentPlans || supervisorTeacherAttendance || supervisorOwnReports || supervisorTeacherPointsAccess || supervisorTeacherPointsReport || accountCallsAccess || studentStoreAccess || studentOfflineAccess || studentSummitAccess || studentNotificationsAccess || ownStaffAttendanceAccess || ownRecitationPreferencesAccess || ownOfflineRecitationAccess) return next();
     if (await canAccessDashboardApi(req)) return next();
     return res.status(403).json({ message: 'لا يمكنك الوصول إلى بيانات حساب آخر.' });
   } catch (error) {
@@ -658,7 +661,8 @@ function getStudentFeatureApiAccess(req, path) {
     || (req.method === 'POST' && path === '/store/purchase')
   );
   const studentOfflineAccess = req.auth.role === 'student' && path.startsWith('/offline-student');
-  return { studentStoreAccess, studentOfflineAccess };
+  const studentSummitAccess = req.auth.role === 'student' && /^\/summit(?:\/|$)/.test(path);
+  return { studentStoreAccess, studentOfflineAccess, studentSummitAccess };
 }
 
 function getSupervisorApiAccess(req, path) {
@@ -1056,16 +1060,43 @@ function fillWhatsAppTemplate(template, person = {}) {
   );
 }
 
+function getWhatsAppIdleSession(runtime) {
+  if (!runtime.idleSession) {
+    runtime.idleSession = createWhatsAppIdleSession({
+      journal: createWhatsAppDispatchJournal(nodePath.join(getWhatsAppAuthPath(), '..', 'whatsapp-outbox', runtime.key)),
+      onSuspend(client, { linked }) {
+        if (runtime.client !== client && runtime.initializingClient !== client) return;
+        runtime.client = null;
+        runtime.initializingClient = null;
+        runtime.starting = null;
+        runtime.startupToken = null;
+        runtime.state.ready = linked;
+        runtime.state.suspended = true;
+        runtime.state.qr = '';
+        runtime.state.status = linked ? 'ready' : 'disconnected';
+        runtime.state.message = linked ? 'واتساب مرتبط ويعمل عند الإرسال.' : 'انتهت مهلة الربط. افتح الباركود للمحاولة مجددًا.';
+      },
+    });
+  }
+  return runtime.idleSession;
+}
+
 async function ensureWhatsAppClient() {
   const runtime = getWhatsAppRuntime();
+  const idleSession = getWhatsAppIdleSession(runtime);
+  await idleSession.waitForClose();
   if (runtime.client) return runtime.client;
   if (runtime.starting) return runtime.starting;
+  const startupToken = Symbol('whatsapp-startup');
+  runtime.startupToken = startupToken;
 
   runtime.starting = (async () => {
     try {
       const module = await import('whatsapp-web.js');
       const { Client, LocalAuth, MessageMedia } = module.default || module;
       WhatsAppMessageMedia = MessageMedia;
+      whatsAppState.ready = false;
+      whatsAppState.suspended = false;
       whatsAppState.status = 'starting';
       whatsAppState.message = 'جاري تشغيل واتساب.';
 
@@ -1074,17 +1105,20 @@ async function ensureWhatsAppClient() {
           clientId: runtime.key,
           dataPath: getWhatsAppAuthPath(),
         }),
-        puppeteer: {
+        puppeteer: await whatsAppBrowserOptions({
           headless: true,
           args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
-        },
+        }),
       });
       runtime.initializingClient = client;
+      idleSession.attach(client);
 
       client.on('qr', async (qr) => {
         if (runtime.initializingClient !== client && runtime.client !== client) return;
+        const qrImage = await QRCode.toDataURL(qr);
+        if (runtime.initializingClient !== client && runtime.client !== client) return;
         runtime.state.ready = false;
-        runtime.state.qr = await QRCode.toDataURL(qr);
+        runtime.state.qr = qrImage;
         runtime.state.status = 'qr';
         runtime.state.message = 'امسح الباركود من تطبيق واتساب.';
       });
@@ -1105,6 +1139,8 @@ async function ensureWhatsAppClient() {
         runtime.client = null;
         runtime.initializingClient = null;
         runtime.starting = null;
+        runtime.startupToken = null;
+        void client.destroy().catch((error) => console.error('WhatsApp cleanup failed:', error.code || error.name));
       });
 
       client.on('auth_failure', async () => {
@@ -1131,10 +1167,12 @@ async function ensureWhatsAppClient() {
           initializationTimer.unref?.();
         }),
       ]).finally(() => clearTimeout(initializationTimer));
+      if (runtime.startupToken !== startupToken) return null;
       runtime.client = client;
       runtime.initializingClient = null;
       return client;
     } catch (error) {
+      if (runtime.startupToken !== startupToken) return null;
       runtime.state.ready = false;
       runtime.state.status = 'error';
       runtime.state.message = error.message;
@@ -1145,7 +1183,7 @@ async function ensureWhatsAppClient() {
       await initializingClient?.destroy().catch(() => {});
       return null;
     } finally {
-      runtime.starting = null;
+      if (runtime.startupToken === startupToken) runtime.starting = null;
     }
   })();
 
@@ -1284,6 +1322,10 @@ async function waitForWhatsAppDelivery(sentMessage, timeoutMs = 8000) {
 
 async function sendWhatsAppMessage(phone, message, attachment = null) {
   const runtime = getWhatsAppRuntime();
+  if (!attachment) {
+    const previous = await getWhatsAppIdleSession(runtime).inspectDispatch([`${phone}@c.us`, message]);
+    if (previous) return previous;
+  }
   await refreshWhatsAppState({ waitMs: 10000 });
   assertWhatsAppClientAvailable(runtime);
   if (!whatsAppState.ready && whatsAppState.status === 'disconnected') {
@@ -1368,6 +1410,9 @@ function randomWhatsAppDelay() {
 
 async function disconnectWhatsAppClient() {
   const runtime = getWhatsAppRuntime();
+  await getWhatsAppIdleSession(runtime).waitForClose();
+  runtime.startupToken = null;
+  runtime.state.suspended = false;
   const client = runtime.client;
   const initializingClient = runtime.initializingClient;
   runtime.client = null;
@@ -1434,7 +1479,9 @@ async function notifyStudentGuardian(studentId, template, context = {}) {
     failureReason = 'رقم الجوال غير صالح.';
   } else {
     try {
-      await sendWhatsAppMessage(phone, message);
+      const dispatchKey = ['absence', 'execution_reminder'].includes(context.messageType) && context.date
+        ? `${student.id}:${context.messageType}:${context.date}` : null;
+      await withWhatsAppDispatchKey(dispatchKey, () => sendWhatsAppMessage(phone, message));
       finalStatus = 'sent';
     } catch (error) {
       failureReason = error.message || 'تعذر الإرسال من واتساب المرتبط.';
@@ -5521,6 +5568,9 @@ async function resetAllProgramPoints(connection) {
   await connection.query("INSERT INTO app_settings (setting_key, setting_value) VALUES ('gradePointsResetDate', ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)", [getSaudiDateTimeParts().date]);
   return runCountedStatements(connection, {
     pointTransactionsDeleted: 'DELETE FROM student_point_transactions',
+    mapProgressDeleted: 'DELETE FROM student_summit_progress',
+    mapArrivalsDeleted: 'DELETE FROM student_summit_arrivals',
+    stationGradesDeleted: 'DELETE FROM student_station_points',
     studentAwardsDeleted: 'DELETE FROM supervisor_student_point_awards',
     familyAwardsDeleted: 'DELETE FROM supervisor_family_point_awards',
     attendanceRowsReset: 'UPDATE attendance_records SET points = 0 WHERE points <> 0',
@@ -6908,6 +6958,7 @@ app.use('/api/staff-attendance', createStaffAttendanceRouter({
 app.use('/api/recitation-preferences', createStaffRecitationPreferencesRouter({ loadSettings }));
 app.use('/api/grading', createGradingRouter({ db, loadSettings, today: () => getSaudiDateTimeParts().date }));
 app.use('/api/student-plans/pause', createStudentPlanPauseRouter({ db, requireRead: requireStudentPlanAccess }));
+app.use('/api/summit', createSummitRouter({ db, loadSettings }));
 app.use('/api/passing', createPassingRouter({ db, loadMemorizedRanges: getStudentMemorizedRanges,
   loadAyahs: connection => getQuranAyahsInPageRange(connection, 1, 604),
   buildMushafData: buildQuranRangeMushafData, normalizeMarks: normalizeQuranRangeWordMarks }));
@@ -11688,7 +11739,23 @@ app.get('/api/students', async (req, res, next) => {
   }
 });
 
-app.get('/api/whatsapp/status', requirePermission('whatsappSend'), async (_req, res) => {
+app.post('/api/whatsapp/connect', requirePermission('whatsappSend'), async (_req, res) => {
+  const runtime = getWhatsAppRuntime();
+  if (runtime.client || runtime.starting || runtime.initializingClient) return res.status(202).json(runtime.state);
+  runtime.state.ready = false;
+  runtime.state.suspended = false;
+  runtime.state.status = 'starting';
+  runtime.state.message = 'جاري تشغيل واتساب.';
+  void ensureWhatsAppClient().catch((error) => {
+    console.error('WhatsApp connection failed:', error.code || error.name);
+  });
+  res.status(202).json(runtime.state);
+});
+
+app.get('/api/whatsapp/status', requirePermission('whatsappSend'), async (req, res) => {
+  const runtime = getWhatsAppRuntime();
+  // Older native builds request their QR through GET. Observers never create a browser.
+  if (req.query.observe === '1' || runtime.state.suspended) return res.json(runtime.state);
   try {
     await refreshWhatsAppState({ waitMs: 2000 });
   } catch (error) {
@@ -16054,8 +16121,7 @@ try {
     await reconcileAllTenantStartupState();
     startAutomaticAbsenceScheduler();
     app.listen(port, process.env.API_HOST || undefined);
-    try { await refreshWhatsAppState({ waitMs: 15000 }); }
-    catch (error) { console.error('WhatsApp warmup failed:', error.message); }
+    // WhatsApp starts only for an explicit connection or an outbound operation.
 } catch (error) {
     console.error('MySQL initialization failed:', error);
     process.exit(1);

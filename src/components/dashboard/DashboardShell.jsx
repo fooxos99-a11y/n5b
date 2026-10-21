@@ -25,11 +25,11 @@ const DashboardShell = ({
   showSectionTitle = true,
   replaceHeaderTitle = false,
   maxWidthClass = 'max-w-[1480px]',
+  showNavigation = true,
 }) => {
   const site = useSiteConfig();
   const dashboardTitle = title || site.name;
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [entered, setEntered] = useState(false);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -57,7 +57,7 @@ const DashboardShell = ({
       <CustomCursor />
       <Helmet><title>{dashboardTitle}</title></Helmet>
 
-      <aside
+      {showNavigation && <aside
         className="fixed bottom-0 right-0 top-0 z-50 hidden w-[276px] overflow-hidden border-l border-white/[0.06] shadow-[0_0_35px_rgba(7,28,43,.18)] lg:block"
       >
         <DashboardSidebarContent
@@ -68,12 +68,12 @@ const DashboardShell = ({
           onChooseSection={chooseSection}
           onLogout={onLogout}
         />
-      </aside>
+      </aside>}
 
       <header
-        className="dashboard-header fixed left-0 right-0 top-0 z-40 flex h-[68px] items-center gap-3 border-b border-border/90 bg-card/95 px-3 backdrop-blur-xl sm:px-5 lg:right-[276px] lg:h-[84px] lg:px-8"
+        className={`dashboard-header fixed left-0 right-0 top-0 z-40 flex h-[68px] items-center gap-3 border-b border-border/90 bg-card/95 px-3 backdrop-blur-xl sm:px-5 lg:h-[84px] lg:px-8 ${showNavigation ? 'lg:right-[276px]' : ''}`}
       >
-        <Button
+        {showNavigation && <Button
           type="button"
           variant="outline"
           size="icon"
@@ -82,7 +82,7 @@ const DashboardShell = ({
           aria-label="فتح القائمة الجانبية"
         >
           <Menu className="h-5 w-5" />
-        </Button>
+        </Button>}
 
         {replaceHeaderTitle ? <div key="page-header-content" id={DASHBOARD_HEADER_CONTENT_ID} className="min-w-0 flex-1" /> : <div key="page-header-title" className="min-w-0">
           {showSectionTitle && <h1 className="truncate text-base font-black text-foreground sm:text-lg">{activeItem?.label || 'لوحة التحكم'}</h1>}
@@ -95,7 +95,7 @@ const DashboardShell = ({
       </header>
 
       <AnimatePresence>
-        {sidebarOpen && (
+        {showNavigation && sidebarOpen && (
           <>
             <motion.div
               className="fixed inset-0 z-[70] bg-[#071c2b]/55 backdrop-blur-[2px] lg:hidden"
@@ -126,11 +126,11 @@ const DashboardShell = ({
       </AnimatePresence>
 
       <main
-        className="dashboard-main min-h-[100dvh] min-w-0 px-3 pb-[calc(1.5rem+env(safe-area-inset-bottom))] pt-[84px] sm:px-5 sm:pt-[92px] lg:px-8 lg:pb-8 lg:pr-[308px] lg:pt-[114px]"
+        className={`dashboard-main min-h-[100dvh] min-w-0 px-3 pb-[calc(1.5rem+env(safe-area-inset-bottom))] pt-[84px] sm:px-5 sm:pt-[92px] lg:px-8 lg:pb-8 lg:pt-[114px] ${showNavigation ? 'lg:pr-[308px]' : ''}`}
       >
         <div className={`mx-auto w-full ${maxWidthClass}`}>
           {persistentContent}
-          <PageLoadingBoundary key={contentKey} scope="dashboard" initialScreen={!entered} onReady={() => setEntered(true)}>
+          <PageLoadingBoundary key={contentKey} scope="dashboard">
               {children}
           </PageLoadingBoundary>
         </div>

@@ -1,6 +1,6 @@
 import StartupProvider from '@/components/startup/StartupProvider';
 import React, { lazy, Suspense, useEffect, useState } from 'react';
-import { Redirect, Route, Switch } from 'wouter';
+import { Redirect, Route, Switch, useLocation } from 'wouter';
 import ScreenLoadingProvider from '@/components/ui/screen-loading-provider';
 import AppErrorBoundary from '@/components/AppErrorBoundary';
 import LoadingScreen from '@/components/LoadingScreen';
@@ -12,6 +12,7 @@ import { isRegistrationEntry } from '../shared/registration-link';
 const AccountPortal = lazy(() => import('@/pages/AccountPortal'));
 const WajehDashboard = lazy(() => import('@/pages/WajehDashboard'));
 const PublicRegistration = lazy(() => import('@/pages/PublicRegistration'));
+const PassingEntry = lazy(() => import('@/pages/PassingEntry'));
 const PrivacyPolicy = lazy(() => import('@/pages/PrivacyPolicy'));
 const TermsOfUse = lazy(() => import('@/pages/TermsOfUse'));
 const SupportPage = lazy(() => import('@/pages/SupportPage'));
@@ -24,6 +25,7 @@ const RootEntry = () => {
 };
 
 function App() {
+  const [pathname] = useLocation();
   const [syncEnabled, setSyncEnabled] = useState(() => Boolean(localStorage.getItem('wajeh_role')));
 
   useEffect(() => {
@@ -39,7 +41,7 @@ function App() {
   return (
     <AppErrorBoundary><StartupProvider><ScreenLoadingProvider>
       <RouteThemeController />
-      {syncEnabled && (
+      {syncEnabled && !pathname.startsWith('/passing-entry/') && (
         <Suspense fallback={null}><OfflineRecitationSyncBridge /></Suspense>
       )}
       <Suspense fallback={<LoadingScreen />}>
@@ -48,6 +50,7 @@ function App() {
         <Route path="/login"><LoginGateway loginPage /></Route>
         <Route path="/account-deletion"><LoginGateway deletionPage /></Route>
         <Route path="/register" component={PublicRegistration} />
+        <Route path="/passing-entry/:token" component={PassingEntry} />
         <Route path="/privacy" component={PrivacyPolicy} />
         <Route path="/terms" component={TermsOfUse} />
         <Route path="/support" component={SupportPage} />

@@ -490,7 +490,8 @@ export const studentsApi = {
       timeoutMs: 0,
       body: JSON.stringify(payload),
     }),
-  getWhatsAppStatus: () => request('/whatsapp/status'),
+  getWhatsAppStatus: () => request('/whatsapp/status?observe=1'),
+  connectWhatsApp: () => request('/whatsapp/connect', { method: 'POST' }),
   disconnectWhatsApp: () =>
     request('/whatsapp/disconnect', {
       method: 'POST',

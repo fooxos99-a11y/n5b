@@ -7,13 +7,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 export default function StudentHomeWindow({ title, onClose, children, wide = false, compact = false, surfaceKey = title }) {
   const mobile = useMediaQuery('(max-width: 899px)');
   const storePage = surfaceKey === 'store';
-  const readerPage = surfaceKey === 'mushaf';
+  const readerPage = surfaceKey === 'mushaf' || surfaceKey === 'journey';
   const fullPage = readerPage || (storePage && !mobile);
   const heading = useRef(null);
   const body = useRef(null);
   const positions = useRef(new Map());
   useLayoutEffect(() => { if (body.current) body.current.scrollTop = positions.current.get(surfaceKey) || 0; }, [surfaceKey]);
-  const content = <div ref={body} onScroll={(event) => positions.current.set(surfaceKey, event.currentTarget.scrollTop)} className={`student-home-window-body ${storePage ? '!p-4 sm:!p-6' : ''}`}>{children}</div>;
+  const content = <div ref={body} onScroll={(event) => positions.current.set(surfaceKey, event.currentTarget.scrollTop)} className={`student-home-window-body ${surfaceKey === 'journey' ? '!p-0' : storePage ? '!p-4 sm:!p-6' : ''}`}>{children}</div>;
   useEffect(() => {
     if (!mobile && !fullPage) return;
     const overflow = document.body.style.overflow;

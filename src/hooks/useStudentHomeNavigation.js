@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 
-const views = new Set(['sessions', 'mushaf', 'store', 'calls']);
+const views = new Set(['sessions', 'mushaf', 'store', 'calls', 'journey']);
 const readView = () => {
   const value = window.location.hash.replace('#student/', '');
   return window.location.hash.startsWith('#student/') && views.has(value) ? value : null;

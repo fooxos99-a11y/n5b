@@ -13,7 +13,7 @@ export function isolateLocalCallArchiveSource(raw) {
   if (source.split(start).length !== 2 || source.split('\nstartRuntimeDiagnostics();\n').length !== 2) throw new Error('Production startup changed; review the local call API loader before running it.');
   const from = source.indexOf(start), to = source.indexOf(end, from);
   const boot = source.slice(from, to);
-  if (to < from || !['await initPlatformDatabase(currentComplex);', 'await ensureManagerSupervisorAccount();', 'await reconcileAllTenantStartupState();', 'startAutomaticAbsenceScheduler();', 'await refreshWhatsAppState({ waitMs: 15000 });', 'process.exit(1);'].every(text => boot.includes(text))) throw new Error('Production startup boundaries changed; local API startup was refused.');
+  if (to < from || boot.includes('refreshWhatsAppState(') || !['await initPlatformDatabase(currentComplex);', 'await ensureManagerSupervisorAccount();', 'await reconcileAllTenantStartupState();', 'startAutomaticAbsenceScheduler();', 'app.listen(port, process.env.API_HOST || undefined);', 'process.exit(1);'].every(text => boot.includes(text))) throw new Error('Production startup boundaries changed; local API startup was refused.');
   source = source.slice(0, from) + '\n' + source.slice(to);
   source = source.replace('\nstartRuntimeDiagnostics();\n', '\n');
   return source + '\nexport { app as localCallArchiveApp };\n';
