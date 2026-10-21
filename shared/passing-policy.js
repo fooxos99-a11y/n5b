@@ -1,3 +1,5 @@
+import { normalizePassingRatings, passingRatingErrors, passingPercentage, passingRating } from './passing-ratings.js';
+
 export const PASSING_POLICY_KEY = 'passingPolicy';
 export const PASSING_TYPES = Object.freeze({ branch: 'اجتياز فرعي', hafiz: 'اجتياز حافظ' });
 export const PASSING_FIELDS = Object.freeze([
@@ -12,13 +14,13 @@ const defaults = Object.freeze({ maxScore: 100, passScore: 85, mistakeDeduction:
 const policyFields = row => Object.fromEntries(PASSING_FIELDS.filter(({ key }) => row && Object.hasOwn(row, key)).map(({ key }) => [key, row[key]]));
 export function parsePassingPolicy(value) {
   const source = typeof value === 'string' ? JSON.parse(value) : value || {};
-  return Object.fromEntries(Object.keys(PASSING_TYPES).map(type => [type, {
+  return { ratings: normalizePassingRatings(source.ratings), ...Object.fromEntries(Object.keys(PASSING_TYPES).map(type => [type, {
     ...defaults, ...policyFields(source[type]),
     juzOverrides: Object.fromEntries(Object.entries(source[type]?.juzOverrides || {}).map(([juz, override]) => [juz, policyFields(override)])),
-  }]));
+  }])) };
 }
 export function passingPolicyErrors(policy) {
-  const errors = {};
+  const errors = policy?.ratings === undefined ? {} : passingRatingErrors(policy.ratings);
   for (const type of Object.keys(PASSING_TYPES)) {
     const section = policy?.[type];
     if (!section || typeof section !== 'object' || Array.isArray(section)) { errors[type] = 'إعدادات الاجتياز غير مكتملة.'; continue; }
@@ -50,7 +52,9 @@ export function evaluatePassingPart(policy, { mistakeCount = 0, warningCount = 0
     - warningCount * policy.warningDeduction - hesitationCount * policy.hesitationDeduction) * 10000) / 10000;
   const reasons = [];
   if (score < policy.passScore) reasons.push('الدرجة أقل من حد الاجتياز');
-  return { score, maxScore: policy.maxScore, passed: reasons.length === 0, reasons, mistakeCount, warningCount, hesitationCount };
+  const percentage = passingPercentage({ score, maxScore: policy.maxScore });
+  return { score, maxScore: policy.maxScore, percentage, rating: passingRating(percentage, policy.ratings),
+    passed: reasons.length === 0, reasons, mistakeCount, warningCount, hesitationCount };
 }
 export function passingExamStatus(parts) {
   if (parts.length && parts.every(part => part.latestAttempt?.result.passed)) return 'passed';

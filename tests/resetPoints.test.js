@@ -26,6 +26,9 @@ test('manager can reset only point data from the ranking settings', async () => 
 
   for (const expected of [
     'DELETE FROM student_point_transactions',
+    'DELETE FROM student_summit_progress',
+    'DELETE FROM student_summit_arrivals',
+    'DELETE FROM student_station_points',
     'DELETE FROM supervisor_student_point_awards',
     'DELETE FROM supervisor_family_point_awards',
     'UPDATE attendance_records SET points = 0',

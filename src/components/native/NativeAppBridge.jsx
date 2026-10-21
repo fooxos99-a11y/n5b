@@ -2,7 +2,6 @@ import { useEffect } from 'react';
 import NativeUpdateDialog from '@/components/native/NativeUpdateDialog';
 import { App as CapacitorApp } from '@capacitor/app';
 import { Capacitor } from '@capacitor/core';
-import { SplashScreen } from '@capacitor/splash-screen';
 import { useLocation, useNavigate } from '@/lib/router';
 import useNativeSystemBars from '@/hooks/useNativeSystemBars';
 
@@ -13,8 +12,6 @@ const NativeAppBridge = () => {
 
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return undefined;
-
-    SplashScreen.hide().catch(() => {});
 
     let backButtonListener;
     CapacitorApp.addListener('backButton', ({ canGoBack }) => {

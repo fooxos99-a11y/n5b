@@ -1,0 +1,10 @@
+.student-home-journey{position:relative;overflow:hidden;min-height:185px;border-radius:22px;background:linear-gradient(120deg,#034656,#003943 72%);color:#ecd6a3;padding:25px;font-family:var(--font-ui)}
+.student-home-journey-content{position:relative;z-index:1;display:flex;flex-direction:column;align-items:flex-start;min-width:0}
+.student-home-journey h2{font-size:23px;font-weight:850}
+.student-home-journey-score{display:flex;align-items:baseline;gap:7px;margin:7px 0}
+.student-home-journey-score>strong{font-size:29px;font-weight:850}
+.student-home-next{display:flex;align-items:center;gap:7px;font-size:10px;color:#b9c9c6}
+.student-home-next strong{color:#ecd6a3}
+.student-home-journey .student-home-feature-action{width:auto;min-width:150px;min-height:44px;padding:11px 16px;font-size:13px;gap:12px;margin-top:4px;align-self:flex-end}
+.student-home-route{position:absolute;left:-80px;bottom:-25px;width:440px;height:220px;color:#e5bf73;pointer-events:none;opacity:.85}
+@media(min-width:640px){.student-home-journey{padding:25px;min-height:190px}.student-home-route{left:0;width:560px;height:260px}}

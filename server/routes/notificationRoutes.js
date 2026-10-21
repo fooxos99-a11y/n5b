@@ -5,6 +5,7 @@ import { loadNotificationAudience, normalizeNotification, selectNotificationReci
 import { deviceTokenHash, getNotificationPushConfig } from '../services/notificationPush.js';
 import { notificationStaffRoles } from '../../shared/notification-roles.js';
 import { createNotificationReadHandler } from './notificationReadHandler.js';
+import { parsePassingNotificationAction } from '../../shared/passing-notification.js';
 
 export const notificationRouter = express.Router();
 export const notificationManagementRouter = express.Router();
@@ -39,12 +40,12 @@ notificationRouter.delete('/devices', async (req, res, next) => {
 
 notificationRouter.get('/', async (req, res, next) => {
   try {
-    const [rows] = await db().query(`SELECT n.id, n.title, COALESCE(r.body_override, n.body) AS body,
+    const [rows] = await db().query(`SELECT n.id, n.title, COALESCE(r.body_override, n.body) AS body, n.action_json AS action,
       DATE_FORMAT(n.created_at, '%Y-%m-%d %H:%i') AS createdAt, r.read_at IS NOT NULL AS isRead
       FROM app_notification_recipients r JOIN app_notifications n ON n.id = r.notification_id
       WHERE r.user_role = ? AND r.user_id = ?
       ORDER BY n.id DESC LIMIT 100`, [req.auth.role, req.auth.id]);
-    res.json(rows.map((row) => ({ ...row, id: String(row.id), isRead: Boolean(row.isRead) })));
+    res.json(rows.map((row) => ({ ...row, action: parsePassingNotificationAction(row.action), id: String(row.id), isRead: Boolean(row.isRead) })));
   } catch (error) { next(error); }
 });
 notificationRouter.post('/read', createNotificationReadHandler(db));

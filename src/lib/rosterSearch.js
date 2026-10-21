@@ -16,3 +16,8 @@ export function filterRosterByName(rows, search) {
     return terms.every(term => name.includes(term));
   });
 }
+
+export function selectVisibleRoster(current, visible, checked) {
+  const ids = visible.map(row => row.id);
+  return checked ? [...new Set([...current, ...ids])] : current.filter(id => !ids.includes(id));
+}

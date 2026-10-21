@@ -72,7 +72,8 @@ test('when execution is disabled only teacher completion counts toward today', (
 test('student home uses the real feature settings and site restrictions', () => {
   const off = studentHomeFeatures({}, {});
   assert.equal(off.store, false);
-  assert.equal('journey' in off || 'challenge' in off, false);
+  assert.equal(off.journey, true);
+  assert.equal('challenge' in off, false);
   const on = studentHomeFeatures({ learningPathsEnabled: true, storeEnabled: true }, { store: true });
   assert.equal('programs' in on, false);
   assert.equal(on.store, true);

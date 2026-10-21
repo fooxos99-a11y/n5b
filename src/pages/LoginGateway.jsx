@@ -1,5 +1,6 @@
 import React, { lazy, Suspense, useEffect, useState } from 'react';
 import LoadingIndicator from '@/components/ui/loading-indicator';
+import ErrorState from '@/components/ui/error-state';
 import { Toaster } from '@/components/ui/toaster';
 import { useToast } from '@/components/ui/use-toast';
 import { useNavigate } from '@/lib/router';
@@ -36,6 +37,8 @@ const LoginGateway = ({ loginPage = false, deletionPage = false }) => {
   const logout = useAccountLogout();
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [featuresReady, setFeaturesReady] = useState(false);
+  const [entryError, setEntryError] = useState('');
+  const [entryVersion, setEntryVersion] = useState(0);
   const [storedUser, setStoredUser] = useState(() => {
     const role = localStorage.getItem('wajeh_role') || '';
     if (role === 'platform_owner' || !hasAuthSession(role)) return null;
@@ -70,12 +73,20 @@ const LoginGateway = ({ loginPage = false, deletionPage = false }) => {
   useEffect(() => {
     let active = true;
     setFeaturesReady(false);
+    setEntryError('');
     // Refresh the public settings before showing the account; the cached copy stays usable offline.
-    loadPublicSettingsCached({ refresh: true })
-      .catch(() => readPublicSettingsCache())
+    Promise.all([
+      loadPublicSettingsCached({ refresh: true }).catch(() => readPublicSettingsCache()),
+      storedUser?.role === 'student' && navigator.onLine !== false ? studentsApi.getMyDashboardPermissions() : Promise.resolve(),
+    ])
+      .catch((error) => {
+        if (!active) return;
+        if (error.status === 401) setStoredUser(null);
+        else setEntryError('تعذر التحقق من الجلسة. تحقق من الاتصال ثم أعد المحاولة.');
+      })
       .finally(() => { if (active) setFeaturesReady(true); });
     return () => { active = false; };
-  }, [storedUser?.id]);
+  }, [storedUser?.id, storedUser?.role, entryVersion]);
 
   const handleLogin = async (loginNumber, password) => {
     if (!loginNumber) {
@@ -112,6 +123,7 @@ const LoginGateway = ({ loginPage = false, deletionPage = false }) => {
   </Suspense><Toaster /></>;
 
   if (!featuresReady) return <LoadingIndicator mode="screen" delayMs={0} />;
+  if (entryError) return <div className="mx-auto max-w-lg p-4 pt-16"><ErrorState message={entryError} onRetry={() => setEntryVersion(value => value + 1)} /></div>;
 
   return (
     <div className="min-h-[100svh] overflow-x-clip bg-background text-foreground [font-family:var(--font-ui)]" dir="rtl">

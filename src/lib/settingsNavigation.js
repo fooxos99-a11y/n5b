@@ -6,6 +6,7 @@ import {
   CalendarRange,
   Route,
   Trophy,
+  Map,
 } from 'lucide-react';
 
 export const settingsNavigationItems = Object.freeze([
@@ -15,6 +16,7 @@ export const settingsNavigationItems = Object.freeze([
   { key: 'settingsNarration', slug: 'settings-narration', label: 'يوم السرد', icon: BookOpenCheck },
   { key: 'settingsPassing', slug: 'settings-passing', label: 'الاجتياز', icon: BookOpenCheck },
   { key: 'settingsPoints', slug: 'settings-points', label: 'النقاط والترتيب', icon: Trophy },
+  { key: 'settingsMap', slug: 'settings-map', label: 'الخريطة', icon: Map },
   { key: 'settingsNotifications', slug: 'settings-notifications', label: 'إعدادات الإشعارات', icon: Bell },
   { key: 'settingsTerm', slug: 'settings-term', label: 'إنهاء الفصل وطلبات الحذف', icon: ArchiveX },
 ]);

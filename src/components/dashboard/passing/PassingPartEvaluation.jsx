@@ -8,7 +8,7 @@ import NarrationMethodDialog from '../NarrationMethodDialog';
 import { passingApi } from '@/services/passingApi';
 import { secureRandomId } from '../../../../shared/secure-random.js';
 
-export default function PassingPartEvaluation({ part, onClose, onSaved }) {
+export default function PassingPartEvaluation({ part, onClose, onSaved, api = passingApi }) {
   const pending = part.latestAttempt?.rehifzDecision === 'pending' ? part.latestAttempt : null;
   const [mode, setMode] = useState(pending ? 'decision' : '');
   const [savedAttempt, setSavedAttempt] = useState(pending);
@@ -16,9 +16,9 @@ export default function PassingPartEvaluation({ part, onClose, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [requestId] = useState(() => secureRandomId('passing'));
-  const loadTask = useCallback(task => passingApi.mushaf(part.id, task.segmentIndex), [part.id]);
+  const loadTask = useCallback(task => api.mushaf(part.id, task.segmentIndex), [part.id, api]);
   const save = async payload => {
-    const result = await passingApi.saveAttempt(part.id, { ...payload, requestId, previousAttemptId: Number(part.latestAttempt?.id || 0) });
+    const result = await api.saveAttempt(part.id, { ...payload, requestId, previousAttemptId: Number(part.latestAttempt?.id || 0) });
     const attempt = { id: result.result.attemptId, result: result.result };
     savedRef.current = attempt;
     setSavedAttempt(attempt);
@@ -27,7 +27,7 @@ export default function PassingPartEvaluation({ part, onClose, onSaved }) {
   const decide = async repeat => {
     setSaving(true); setError('');
     try {
-      await passingApi.decideRehifz(part.id, { attemptId: Number(savedAttempt.id), repeat });
+      await api.decideRehifz(part.id, { attemptId: Number(savedAttempt.id), repeat });
       await onSaved();
       onClose();
     } catch (cause) { setError(cause.message); } finally { setSaving(false); }
@@ -59,7 +59,7 @@ export default function PassingPartEvaluation({ part, onClose, onSaved }) {
         <p className="text-xs leading-6 text-muted-foreground">يُوزّع الجزء على المقدار اليومي، ثم تتابع الخطة من موضعها السابق. إذا كانت الخطة موقوفة، تبدأ إعادة الحفظ بعد استئنافها.</p>
         {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
         <DialogFooter>
-          <Button autoFocus variant="outline" className="min-h-11" disabled={saving} onClick={() => decide(false)}>إبقاء الخطة</Button>
+          <Button autoFocus variant="outline" className="min-h-11" disabled={saving} onClick={() => decide(false)}>{savedAttempt?.result?.passed ? 'إبقاء الخطة' : 'إعادة الاختبار في وقت لاحق'}</Button>
           <Button className="min-h-11" loading={saving} onClick={() => decide(true)}>إعادة حفظ الجزء كاملًا</Button>
         </DialogFooter>
       </DialogContent>

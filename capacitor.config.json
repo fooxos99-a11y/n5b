@@ -27,8 +27,9 @@
       "style": "DARK"
     },
     "SplashScreen": {
-      "launchShowDuration": 0,
-      "launchAutoHide": true,
+      "launchShowDuration": 1,
+      "launchAutoHide": false,
+      "launchFadeOutDuration": 0,
       "backgroundColor": "#04433D",
       "showSpinner": false
     },

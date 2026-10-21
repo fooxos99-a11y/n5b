@@ -7,8 +7,9 @@ import { passingApi } from '@/services/passingApi';
 import { PASSING_TYPES } from '../../../../shared/passing-policy.js';
 import PassingAttemptReport, { PassingResultSummary } from './PassingAttemptReport';
 import PassingPartEvaluation from './PassingPartEvaluation';
+import PassingStudentReport from './PassingStudentReport';
 
-export default function PassingStudentDialog({ student, type, onClose }) {
+export default function PassingStudentDialog({ student, type, onClose, api = passingApi, initialReportJuz = 0 }) {
   const [parts, setParts] = useState([]);
   const [exams, setExams] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -17,16 +18,24 @@ export default function PassingStudentDialog({ student, type, onClose }) {
   const [saveError, setSaveError] = useState('');
   const [evaluating, setEvaluating] = useState(null);
   const [report, setReport] = useState(null);
+  const [showStudentReport, setShowStudentReport] = useState(false);
   const loadRevision = useRef(0);
+  const reportOpened = useRef(0);
   const load = useCallback(async () => {
     const revision = ++loadRevision.current;
     setLoading(true); setLoadError('');
     try {
-      const result = await passingApi.studentParts(student.id, type);
-      if (revision === loadRevision.current) { setParts(result.parts); setExams(result.exams); }
+      const result = await api.studentParts(student.id, type);
+      if (revision === loadRevision.current) {
+        setParts(result.parts); setExams(result.exams);
+        if (initialReportJuz && reportOpened.current !== initialReportJuz) {
+          const attempts = result.exams.flatMap(exam => exam.parts.filter(part => Number(part.juzNumber) === initialReportJuz).flatMap(part => part.attempts));
+          if (attempts.length) { setReport({ juzNumber: initialReportJuz, attempts }); reportOpened.current = initialReportJuz; }
+        }
+      }
     } catch (error) { if (revision === loadRevision.current) setLoadError(error.message); }
     finally { if (revision === loadRevision.current) setLoading(false); }
-  }, [student.id, type]);
+  }, [student.id, type, api, initialReportJuz]);
   useEffect(() => {
     const revision = loadRevision;
     load();
@@ -42,22 +51,22 @@ export default function PassingStudentDialog({ student, type, onClose }) {
     }
     setSaving(true); setSaveError('');
     try {
-      const exam = await passingApi.create({ studentId: Number(student.id), type, ...(type === 'branch' ? { juz: eligible.juzNumber } : {}) });
+      const exam = await api.create({ studentId: Number(student.id), type, ...(type === 'branch' ? { juz: eligible.juzNumber } : {}) });
       setExams(current => [exam, ...current]);
       setEvaluating(exam.parts.find(part => Number(part.juzNumber) === eligible.juzNumber));
     } catch (error) { setSaveError(error.message); }
     finally { setSaving(false); }
   };
   return <>
-    <Dialog open={!evaluating} onOpenChange={open => !open && !saving && !evaluating && !report && onClose()}>
+    <Dialog open={!evaluating && !report && !showStudentReport} onOpenChange={open => !open && !saving && !evaluating && !report && !showStudentReport && onClose()}>
       <DialogContent dir="rtl" className="max-h-[88dvh] max-w-3xl overflow-y-auto bg-card [font-family:var(--font-ui)]">
         <DialogHeader><DialogTitle>{student.name}، {PASSING_TYPES[type]}</DialogTitle></DialogHeader>
+        <Button variant="outline" className="min-h-11 justify-self-start" disabled={saving} onClick={() => setShowStudentReport(true)}>التقرير المجمّع</Button>
         {loading ? <DashboardLoader /> : loadError ? <ErrorState message={loadError} onRetry={load} /> : !parts.length
-          ? <p className="py-6 text-center text-sm text-muted-foreground">{type === 'branch'
-            ? 'لم يُكمل الطالب جزءًا كاملًا معتمدًا ضمن خطته.' : 'لا يوجد جزء محفوظ كامل ومعتمد لهذا الطالب.'}</p>
+          ? <p className="py-6 text-center text-sm text-muted-foreground">لا يوجد جزء محفوظ كامل ومعتمد لهذا الطالب.</p>
           : parts.map(eligible => {
             const existing = examPart(eligible.juzNumber);
-            const history = exams.flatMap(exam => exam.parts.filter(part => Number(part.juzNumber) === eligible.juzNumber).flatMap(part => part.attempts));
+            const history = exams.flatMap(exam => exam.parts.filter(part => Number(part.juzNumber) === eligible.juzNumber).flatMap(part => part.attempts)).sort((first, second) => second.id - first.id);
             const pendingDecision = existing?.latestAttempt?.rehifzDecision === 'pending';
             const waiting = Boolean(openHafiz && (!existing || existing.latestAttempt?.result.passed) && !pendingDecision);
             return <section key={eligible.juzNumber} className="space-y-3 border-b border-border pb-4" aria-label={`الجزء ${eligible.juzNumber}`}>
@@ -82,6 +91,7 @@ export default function PassingStudentDialog({ student, type, onClose }) {
       </DialogContent>
     </Dialog>
     <PassingAttemptReport part={report} onClose={() => setReport(null)} />
-    {evaluating && <PassingPartEvaluation key={evaluating.id} part={evaluating} onClose={() => setEvaluating(null)} onSaved={load} />}
+    {showStudentReport && <PassingStudentReport student={student} api={api} initialType={type} onClose={() => setShowStudentReport(false)} />}
+    {evaluating && <PassingPartEvaluation key={evaluating.id} api={api} part={evaluating} onClose={() => setEvaluating(null)} onSaved={load} />}
   </>;
 }

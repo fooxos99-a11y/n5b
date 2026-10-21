@@ -5,7 +5,7 @@ import { URL } from 'node:url';
 import { chromium, webkit } from 'playwright';
 const base = process.env.PORTAL_TEST_URL || 'http://127.0.0.1:5192';
 assert.ok(['127.0.0.1','localhost'].includes(new URL(base).hostname));
-const out = 'outputs/startup-review';
+const out = process.env.STARTUP_TEST_OUT || 'outputs/startup-review';
 await mkdir(out,{recursive:true});
 const results=[];
 const behaviorOnly=process.env.STARTUP_TEST_SCOPE==='behavior';
@@ -130,15 +130,16 @@ for(const [engine,type] of Object.entries({chromium,webkit})) {
    let release,reports=0;const gate=new Promise(resolve=>{release=resolve;});
    await page.route('**/reports/overview*',async route=>{reports++;await gate;await route.fulfill({json:{period:{from:'2026-10-01',to:'2026-10-16'},totals:{familiesCount:12},grades:{}}});});
    await page.goto(`${base}/dashboard/reports`);
-   await page.waitForTimeout(2300);
-   assert.equal(await page.evaluate(()=>globalThis.nukhabStartup.active),true);
-   assert.equal(await page.locator('.startup-brand').evaluate(el=>globalThis.getComputedStyle(el).opacity),'1');
+   await finished(page);
+   assert.equal(await page.locator('.dashboard-header').isVisible(),true);
+   assert.equal(await page.locator('[data-loading-indicator="content"]').count(),1);
+   assert.equal(await page.locator('.startup-brand').count(),0);
    assert.equal(await page.locator('[data-loading-indicator="screen"]').count(),0);
    await page.screenshot({path:`${out}/slow-data-${engine}.png`});
-   release();await finished(page);
+   release();
    await page.getByRole('region',{name:'مؤشرات الأداء',exact:true}).waitFor();
    assert.equal(reports,1);assert.deepEqual(errors,[]);assert.deepEqual(writes,[]);
-   results.push({engine,scenario:'slow-data-hold-and-complete-without-replay',passed:true});await context.close();
+   results.push({engine,scenario:'slow-data-local-loader-and-complete-without-replay',passed:true});await context.close();
   }
   if(!process.env.STARTUP_TEST_ROLE) {
    const {context,page,errors,writes}=await setup(browser,{width:390,height:844});

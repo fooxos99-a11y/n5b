@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ClipboardCheck } from 'lucide-react';
+import { ClipboardCheck, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import ManagementIconButton from '@/components/ui/management-icon-button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -9,11 +9,15 @@ import DashboardLoader from '../DashboardLoader';
 import { passingApi } from '@/services/passingApi';
 import { PASSING_TYPES } from '../../../../shared/passing-policy.js';
 import PassingStudentDialog from './PassingStudentDialog';
+import PassingStudentReport from './PassingStudentReport';
+import { useSearch } from 'wouter';
 
 const optionsFrom = (students, idKey, nameKey) => [...new Map(students.filter(student => student[idKey])
   .map(student => [String(student[idKey]), { id: String(student[idKey]), name: student[nameKey] }])).values()];
 
-export default function PassingSection() {
+export default function PassingSection({ api = passingApi }) {
+  const search = useSearch();
+  const target = useMemo(() => new URLSearchParams(search), [search]);
   const [type, setType] = useState('branch');
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -21,17 +25,23 @@ export default function PassingSection() {
   const [complexId, setComplexId] = useState('all');
   const [committeeId, setCommitteeId] = useState('all');
   const [selected, setSelected] = useState(null);
+  const [reportStudent, setReportStudent] = useState(null);
   const loadRevision = useRef(0);
   const load = useCallback(async () => {
     const revision = ++loadRevision.current;
     setLoadError(''); setLoading(true);
     try {
-      const rows = await passingApi.students();
+      const rows = await api.students();
       if (revision === loadRevision.current) setStudents(rows);
     } catch (error) { if (revision === loadRevision.current) setLoadError(error.message); }
     finally { if (revision === loadRevision.current) setLoading(false); }
-  }, []);
+  }, [api]);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    const student = students.find(row => String(row.id) === target.get('studentId'));
+    if (!student || !['branch', 'hafiz'].includes(target.get('type'))) return;
+    setType(target.get('type')); setSelected({ ...student, initialReportJuz: Number(target.get('juz')) });
+  }, [students, target]);
   const complexes = useMemo(() => optionsFrom(students, 'complexId', 'complexName'), [students]);
   const complexStudents = students.filter(student => complexId === 'all' || String(student.complexId) === complexId);
   const committees = optionsFrom(complexStudents, 'committeeId', 'committeeName');
@@ -58,10 +68,14 @@ export default function PassingSection() {
       {loading ? <DashboardLoader /> : loadError ? <ErrorState message={loadError} onRetry={load} /> : !visible.length ? <ManagementEmpty>لا يوجد طلاب.</ManagementEmpty>
         : <ManagementList label="طلاب الاجتياز">{visible.map(student => <ManagementRow key={student.id} title={student.name}
           subtitle={[student.complexName, student.committeeName || 'بدون حلقة'].filter(Boolean).join('، ')}
-          actions={<ManagementIconButton tone="primary" aria-label={`اختبار ${student.name}`} title="اختبار" onClick={() => setSelected(student)}>
+          actions={<><ManagementIconButton tone="primary" aria-label={`تقرير ${student.name}`} title="تقرير الاختبارات" onClick={() => setReportStudent(student)}>
+            <FileText className="h-5 w-5" aria-hidden="true" />
+          </ManagementIconButton><ManagementIconButton tone="primary" aria-label={`اختبار ${student.name}`} title="اختبار" onClick={() => setSelected(student)}>
             <ClipboardCheck className="h-5 w-5" aria-hidden="true" />
-          </ManagementIconButton>} />)}</ManagementList>}
+          </ManagementIconButton></>} />)}</ManagementList>}
     </ManagementPanel>
-    {selected && <PassingStudentDialog key={`${type}:${selected.id}`} student={selected} type={type} onClose={() => setSelected(null)} />}
+    {selected && <PassingStudentDialog key={`${type}:${selected.id}`} api={api} student={selected} type={type}
+      initialReportJuz={selected.initialReportJuz || 0} onClose={() => setSelected(null)} />}
+    {reportStudent && <PassingStudentReport api={api} student={reportStudent} onClose={() => setReportStudent(null)} />}
   </div>;
 }

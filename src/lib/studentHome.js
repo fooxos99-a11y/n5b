@@ -27,5 +27,6 @@ export function studentHomeFeatures(settings, siteFeatures = {}) {
     sessions: true,
     mushaf: true,
     calls: true,
+    journey: true,
   };
 }

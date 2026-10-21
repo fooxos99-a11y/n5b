@@ -7,6 +7,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { studentsApi } from '@/services/studentsApi';
 import { formatHijriDateTime } from '../../../shared/hijri-calendar.js';
 import { enableDeviceNotifications, isNativeNotificationsAvailable, listenForDeviceNotifications } from '@/services/nativeNotifications';
+import { Link } from 'wouter';
+import { passingNotificationTarget } from '../../../shared/passing-notification.js';
 
 const NotificationButton = ({ showTrigger = true, presentation = 'dialog', open: controlledOpen, onOpenChange, onUnreadCountChange }) => {
   const [localOpen, setLocalOpen] = useState(false);
@@ -68,6 +70,9 @@ const NotificationButton = ({ showTrigger = true, presentation = 'dialog', open:
                 <div className="break-words font-black text-foreground">{notification.title}</div>
                 <p className="mt-1 whitespace-pre-wrap break-words text-sm font-bold leading-6 text-muted-foreground">{notification.body}</p>
                 <div className="mt-2 text-xs font-bold text-muted-foreground">{formatHijriDateTime(notification.createdAt)}</div>
+                {passingNotificationTarget(notification.action) && <Button asChild variant="outline" className="mt-3 min-h-11">
+                  <Link href={passingNotificationTarget(notification.action)} onClick={() => setOpen(false)}>عرض تقرير الاجتياز</Link>
+                </Button>}
               </article>
             ));
     }

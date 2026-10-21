@@ -5,6 +5,7 @@ import { chromium } from 'playwright';
 
 const root = process.cwd();
 const background = '#F7FAF6';
+const startupBackground = JSON.parse(await readFile(path.join(root, 'capacitor.config.json'), 'utf8')).backgroundColor;
 const appLogo = await readFile(path.join(root, 'public/branding/nukhab/nukhab-app.png'), 'base64');
 const colorLogo = await readFile(path.join(root, 'public/branding/nukhab/nukhab-color.png'), 'base64');
 const appLogoUrl = `data:image/png;base64,${appLogo}`;
@@ -23,7 +24,7 @@ const writeGeneratedImage = async (output, content) => {
   }
 };
 
-const render = async ({ destination, width, height, logoScale = 0.78, transparent = false, logoUrl = colorLogoUrl }) => {
+const render = async ({ destination, width, height, logoScale = 0.78, transparent = false, logoUrl = colorLogoUrl, backgroundColor = background }) => {
   const output = path.join(root, destination);
   await mkdir(path.dirname(output), { recursive: true });
   const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 1 });
@@ -37,7 +38,7 @@ const render = async ({ destination, width, height, logoScale = 0.78, transparen
         overflow: hidden;
         display: grid;
         place-items: center;
-        background: ${transparent ? 'transparent' : background};
+        background: ${transparent ? 'transparent' : backgroundColor};
       }
       img { width: ${logoSize}px; height: ${logoSize}px; object-fit: contain; }
     </style>
@@ -50,35 +51,39 @@ const render = async ({ destination, width, height, logoScale = 0.78, transparen
 };
 
 try {
-  await render({ destination: 'public/branding/nukhab/icon-192.png', width: 192, height: 192, logoScale: 1, logoUrl: appLogoUrl });
-  await render({ destination: 'public/branding/nukhab/icon-512.png', width: 512, height: 512, logoScale: 1, logoUrl: appLogoUrl });
-  await render({
-    destination: 'ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png',
-    width: 1024,
-    height: 1024,
-    logoScale: 1,
-    logoUrl: appLogoUrl,
-  });
+  if (!process.argv.includes('--splash-only')) {
+    await render({
+      destination: 'public/branding/nukhab/icon-192.png', width: 192, height: 192, logoScale: 1, logoUrl: appLogoUrl,
+    });
+    await render({ destination: 'public/branding/nukhab/icon-512.png', width: 512, height: 512, logoScale: 1, logoUrl: appLogoUrl });
+    await render({
+      destination: 'ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png',
+      width: 1024,
+      height: 1024,
+      logoScale: 1,
+      logoUrl: appLogoUrl,
+    });
 
-  const androidDensities = { ldpi: 36, mdpi: 48, hdpi: 72, xhdpi: 96, xxhdpi: 144, xxxhdpi: 192 };
-  for (const [density, size] of Object.entries(androidDensities)) {
-    const directory = `android/app/src/main/res/mipmap-${density}`;
-    await render({ destination: `${directory}/ic_launcher.png`, width: size, height: size, logoScale: 1, logoUrl: appLogoUrl });
-    await copyFile(path.join(root, `${directory}/ic_launcher.png`), path.join(root, `${directory}/ic_launcher_round.png`));
-    await render({
-      destination: `${directory}/ic_launcher_foreground.png`,
-      width: Math.round(size * 2.25),
-      height: Math.round(size * 2.25),
-      logoScale: 0.59,
-      transparent: true,
-      logoUrl: colorLogoUrl,
-    });
-    await render({
-      destination: `${directory}/ic_launcher_background.png`,
-      width: size,
-      height: size,
-      logoScale: 0,
-    });
+    const androidDensities = { ldpi: 36, mdpi: 48, hdpi: 72, xhdpi: 96, xxhdpi: 144, xxxhdpi: 192 };
+    for (const [density, size] of Object.entries(androidDensities)) {
+      const directory = `android/app/src/main/res/mipmap-${density}`;
+      await render({ destination: `${directory}/ic_launcher.png`, width: size, height: size, logoScale: 1, logoUrl: appLogoUrl });
+      await copyFile(path.join(root, `${directory}/ic_launcher.png`), path.join(root, `${directory}/ic_launcher_round.png`));
+      await render({
+        destination: `${directory}/ic_launcher_foreground.png`,
+        width: Math.round(size * 2.25),
+        height: Math.round(size * 2.25),
+        logoScale: 0.59,
+        transparent: true,
+        logoUrl: colorLogoUrl,
+      });
+      await render({
+        destination: `${directory}/ic_launcher_background.png`,
+        width: size,
+        height: size,
+        logoScale: 0,
+      });
+    }
   }
 
   const androidSplashDirectory = path.join(root, 'android/app/src/main/res');
@@ -115,8 +120,8 @@ try {
       destination: path.relative(root, path.join(androidSplashDirectory, relativePath)),
       width,
       height,
-      logoScale: 0.33,
-      logoUrl: appLogoUrl,
+      logoScale: 0,
+      backgroundColor: startupBackground,
     });
   }
 
@@ -133,8 +138,8 @@ try {
     destination: `${iosSplashDirectory}/${iosSplashNames[0]}`,
     width: 2732,
     height: 2732,
-    logoScale: 0.33,
-    logoUrl: appLogoUrl,
+    logoScale: 0,
+    backgroundColor: startupBackground,
   });
   for (const name of iosSplashNames.slice(1)) {
     await copyFile(path.join(root, `${iosSplashDirectory}/${iosSplashNames[0]}`), path.join(root, `${iosSplashDirectory}/${name}`));

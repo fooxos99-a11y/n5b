@@ -67,6 +67,7 @@ const NotificationsSection = lazy(() => import('@/components/dashboard/Notificat
 const ReportsSection = lazy(() => import('@/components/dashboard/ReportsSection'));
 const StudentNewsEditor = lazy(() => import('@/components/dashboard/StudentNewsEditor'));
 const SettingsSection = lazy(() => import('@/components/dashboard/SettingsSection'));
+const SummitSettingsSection = lazy(() => import('@/components/dashboard/SummitSettingsSection'));
 const StoreSection = lazy(() => import('@/components/dashboard/StoreSection'));
 const StudentPlansSection = lazy(() => import('@/components/dashboard/StudentPlansSection'));
 const TeacherEvaluationSection = lazy(() => import('@/components/dashboard/TeacherEvaluationSection'));
@@ -242,7 +243,8 @@ const WajehDashboard = () => {
           storeDashboardPermissions(permissions);
           setDashboardPermissions(permissions);
         })
-        .catch(() => {
+        .catch((error) => {
+          if (error.status === 401) { navigate('/login', { replace: true }); return; }
           setSettings(defaultSettings);
           if (!isManager) {
             storeDashboardPermissions([]);
@@ -253,7 +255,7 @@ const WajehDashboard = () => {
     } else {
       setIsDashboardLoading(false);
     }
-  }, [isAdmin, isManager, isOnline, isSupervisor, isReciter, isTeacher]);
+  }, [isAdmin, isManager, isOnline, isSupervisor, isReciter, isTeacher, navigate]);
 
   const staffAttendanceActive = settings.staffAttendanceSource === 'teacher' && (isSupervisor || isAdmin);
   const staffAttendanceState = useStaffAttendance(staffAttendanceActive);
@@ -357,6 +359,7 @@ const WajehDashboard = () => {
       case 'manualAttendance': return <ManualAttendanceSection teacherScoped={isSupervisor} />;
       case 'staffAttendance': return <StaffAttendanceSection attendanceState={staffAttendanceState} />;
       case 'mushaf': return <StudentMushafSection />;
+      case 'settingsMap': return <SummitSettingsSection />;
     }
     if (isSettingsNavigationKey(visibleActiveSection)) return (
       <SettingsSection
