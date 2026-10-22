@@ -38,6 +38,8 @@ test('login entry and dashboards default to light', () => {
   assert.equal(getDefaultThemeForPath('/download'), 'dark');
   assert.equal(getDefaultThemeForPath('/dashboard'), 'light');
   assert.equal(getDefaultThemeForPath('/passing-entry/private-token'), 'light');
+  assert.equal(getDefaultThemeForPath('/test'), 'light');
+  assert.equal(getDefaultThemeForPath('/campus/test', '/campus/'), 'light');
   assert.equal(getDefaultThemeForPath('/campus/passing-entry/private-token', '/campus/'), 'light');
   assert.equal(getDefaultThemeForPath('/dashboard/students'), 'light');
   assert.equal(getDefaultThemeForPath('/campus/dashboard/students', '/campus/'), 'light');
@@ -71,7 +73,7 @@ test('public and account choices persist independently, including unavailable st
     assert.equal(stored.get('nukhab_theme_public'), 'light');
     assert.equal(stored.get('nukhab_theme_account'), 'dark');
     assert.equal(getPreferredThemeForPath('/download'), 'light');
-    for (const path of ['/portal/my-plan', '/portal/recitation-sessions', '/dashboard/attendance', '/passing-entry/private-token']) {
+    for (const path of ['/portal/my-plan', '/portal/recitation-sessions', '/dashboard/attendance', '/passing-entry/private-token', '/test']) {
       assert.equal(getPreferredThemeForPath(path), 'dark');
     }
     storage.getItem = storage.setItem = () => { throw new Error('Storage unavailable'); };
@@ -90,7 +92,7 @@ test('initial HTML and route controller agree before React loads', async () => {
   assert.match(html, /<script src="%BASE_URL%theme-bootstrap.js" data-base="%BASE_URL%"><\/script>/);
   const script = await readFile(new URL('../public/theme-bootstrap.js', import.meta.url), 'utf8');
   for (const basePath of ['/', '/campus/']) {
-    for (const route of ['/', '/login', '/login/', '/portal', '/portal/quran-sessions', '/dashboard', '/dashboard/students', '/dashboard-other', '/passing-entry/private-token']) {
+    for (const route of ['/', '/login', '/login/', '/portal', '/portal/quran-sessions', '/dashboard', '/dashboard/students', '/dashboard-other', '/passing-entry/private-token', '/test', '/test/', '/testing']) {
       const pathname = basePath.replace(/\/$/, '') + route;
       for (const preference of [null, 'light', 'dark', 'invalid']) {
         let applied;

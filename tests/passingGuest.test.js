@@ -50,6 +50,23 @@ test('guest middleware blocks settings, notification access, wrong verbs and ord
     }
   } finally { await new Promise(resolve => server.close(resolve)); }
 });
+
+test('public entry requires a valid name, hashes random sessions and still expires without a private link', async () => {
+  let session, expired = false;
+  const connection = { query: async (sql, params) => {
+    if (sql.startsWith('DELETE')) return [{}];
+    if (sql.startsWith('INSERT')) { session = { hash: params[0], scope: params[1], name: params[2] }; return [{}]; }
+    if (sql.startsWith('SELECT g.id')) return [[!expired && session?.hash === params[1] && session.scope === params[2] ? { id: 21, name: session.name } : undefined].filter(Boolean)];
+    throw new Error('Public entry must not require private link settings');
+  } };
+  await assert.rejects(openPassingGuestSession(connection, { publicEntry: true, name: ' ' }), { status: 422 });
+  const opened = await openPassingGuestSession(connection, { publicEntry: true, name: ' مقرئ عام ' });
+  assert.equal(session.hash, passingTokenHash(opened.token));
+  assert.notEqual(session.hash, opened.token);
+  assert.deepEqual(await loadPassingGuestSession(connection, opened.token), { role: 'passing_guest', id: 21, name: 'مقرئ عام' });
+  expired = true;
+  await assert.rejects(loadPassingGuestSession(connection, opened.token), { status: 401 });
+});
 test('notification links accept only an internal passing report with valid student, type and juz', () => {
   const action = { kind: 'passing', studentId: 3, type: 'hafiz', juz: 30 };
   assert.equal(passingNotificationTarget(action), '/dashboard/passing?studentId=3&type=hafiz&juz=30');

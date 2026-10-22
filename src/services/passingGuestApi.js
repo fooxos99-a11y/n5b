@@ -23,7 +23,7 @@ async function guestRequest(path, { token, linkToken, body, registrationNumber =
     throw error;
   } finally { timed.cleanup(); }
 }
-export const enterPassing = ({ linkToken, name, registrationNumber }) => guestRequest('/session', { linkToken, registrationNumber, body: { name } });
+export const enterPassing = ({ linkToken, name, registrationNumber }) => guestRequest(linkToken ? '/session' : '/session/public', { linkToken, registrationNumber, body: { name } });
 export function createPassingGuestApi(token, registrationNumber, onExpired) {
   const request = (path, body) => guestRequest(path, { token, registrationNumber, onExpired, body });
   return {

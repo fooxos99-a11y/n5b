@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { enterPassing, createPassingGuestApi } from '@/services/passingGuestApi';
 
 const sections = [{ key: 'quranPassing', label: 'الاجتياز' }];
-export default function PassingEntry({ params }) {
+export default function PassingEntry({ params = {} }) {
   const [name, setName] = useState('');
   const [session, setSession] = useState(null);
   const [saving, setSaving] = useState(false);
