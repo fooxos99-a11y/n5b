@@ -14,7 +14,7 @@
   const publicRegistration = route === '/' && new globalThis.URLSearchParams(globalThis.location.search || '').get('registration') === '1';
   let studentHome = false;
   try { studentHome = !publicRegistration && route === '/' && globalThis.localStorage.getItem('wajeh_role') === 'student'; } catch { /* Storage can be unavailable. */ }
-  const scope = studentHome || /^\/(dashboard|portal|passing-entry)(\/|$)/.test(route) ? 'account' : 'public';
+  const scope = studentHome || /^\/(dashboard|portal|passing-entry)(\/|$)/.test(route) || /^\/test\/?$/.test(route) ? 'account' : 'public';
   let preference;
   try {
     preference = globalThis.localStorage.getItem(`nukhab_theme_${scope}`);

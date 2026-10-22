@@ -4,6 +4,8 @@ import { createIpRateLimiter } from '../middleware/security.js';
 
 export const PASSING_LINK_KEY = 'passingEntryTokenHash';
 export const passingTokenHash = token => createHash('sha256').update(token).digest('hex');
+// A scope marker for public entry, never a credential. Sessions still use random tokens.
+const publicLinkHash = passingTokenHash('nukhab:public-passing-entry:v1');
 const fail = (message, status = 403) => Object.assign(new Error(message), { status });
 const tokenPattern = /^[a-f0-9]{64}$/;
 const entryLimiter = createIpRateLimiter({ keyPrefix: 'passing-entry', windowMs: 60_000, maxRequests: 20 });
@@ -30,10 +32,13 @@ async function currentLinkHash(connection) {
   const [[row]] = await connection.query('SELECT setting_value AS hash FROM app_settings WHERE setting_key=?', [PASSING_LINK_KEY]);
   return tokenPattern.test(row?.hash || '') ? row.hash : '';
 }
-export async function openPassingGuestSession(connection, { linkToken, name }) {
-  if (typeof linkToken !== 'string' || !tokenPattern.test(linkToken)) throw fail('رابط الاجتياز غير صالح أو متوقف.');
-  const linkHash = await currentLinkHash(connection);
-  if (!linkHash || !timingSafeEqual(Buffer.from(linkHash, 'hex'), Buffer.from(passingTokenHash(linkToken), 'hex'))) throw fail('رابط الاجتياز غير صالح أو متوقف.');
+export async function openPassingGuestSession(connection, { linkToken, name, publicEntry = false }) {
+  let linkHash = publicLinkHash;
+  if (!publicEntry) {
+    if (typeof linkToken !== 'string' || !tokenPattern.test(linkToken)) throw fail('رابط الاجتياز غير صالح أو متوقف.');
+    linkHash = await currentLinkHash(connection);
+    if (!linkHash || !timingSafeEqual(Buffer.from(linkHash, 'hex'), Buffer.from(passingTokenHash(linkToken), 'hex'))) throw fail('رابط الاجتياز غير صالح أو متوقف.');
+  }
   const reciterName = normalizeReciterName(name);
   const token = randomBytes(32).toString('hex');
   await connection.query('DELETE FROM passing_guest_sessions WHERE expires_at <= NOW()');
@@ -44,8 +49,8 @@ export async function openPassingGuestSession(connection, { linkToken, name }) {
 export async function loadPassingGuestSession(connection, token) {
   if (typeof token !== 'string' || !tokenPattern.test(token)) throw fail('أدخل اسم المقرئ لبدء الاجتياز.', 401);
   const [[session]] = await connection.query(`SELECT g.id,g.reciter_name AS name FROM passing_guest_sessions g
-    JOIN app_settings a ON a.setting_key=? AND a.setting_value=g.link_hash
-    WHERE g.token_hash=? AND g.expires_at>NOW()`, [PASSING_LINK_KEY, passingTokenHash(token)]);
+    LEFT JOIN app_settings a ON a.setting_key=? AND a.setting_value=g.link_hash
+    WHERE g.token_hash=? AND g.expires_at>NOW() AND (g.link_hash=? OR a.setting_value IS NOT NULL)`, [PASSING_LINK_KEY, passingTokenHash(token), publicLinkHash]);
   if (!session) throw fail('انتهت جلسة الاجتياز. أدخل اسم المقرئ من جديد.', 401);
   return { role: 'passing_guest', id: Number(session.id), name: session.name };
 }
@@ -54,9 +59,9 @@ export function authenticatePassingGuest(connection) {
     try {
       const path = passingGuestPath(req);
       res.set({ 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' });
-      if (path === '/session' && req.method === 'POST') {
+      if ((path === '/session' || path === '/session/public') && req.method === 'POST') {
         return entryLimiter(req, res, () => {
-          void openPassingGuestSession(connection(), { linkToken: req.get('x-passing-link'), name: req.body?.name })
+          void openPassingGuestSession(connection(), { linkToken: req.get('x-passing-link'), name: req.body?.name, publicEntry: path === '/session/public' })
             .then(session => res.status(201).json(session)).catch(next);
         });
       }

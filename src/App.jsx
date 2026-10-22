@@ -41,7 +41,7 @@ function App() {
   return (
     <AppErrorBoundary><StartupProvider><ScreenLoadingProvider>
       <RouteThemeController />
-      {syncEnabled && !pathname.startsWith('/passing-entry/') && (
+      {syncEnabled && !/^\/(?:test\/?$|passing-entry\/)/.test(pathname) && (
         <Suspense fallback={null}><OfflineRecitationSyncBridge /></Suspense>
       )}
       <Suspense fallback={<LoadingScreen />}>
@@ -50,6 +50,7 @@ function App() {
         <Route path="/login"><LoginGateway loginPage /></Route>
         <Route path="/account-deletion"><LoginGateway deletionPage /></Route>
         <Route path="/register" component={PublicRegistration} />
+        <Route path="/test" component={PassingEntry} />
         <Route path="/passing-entry/:token" component={PassingEntry} />
         <Route path="/privacy" component={PrivacyPolicy} />
         <Route path="/terms" component={TermsOfUse} />

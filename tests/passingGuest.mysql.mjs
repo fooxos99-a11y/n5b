@@ -21,7 +21,10 @@ try {
   status(await call('/passing/guest/students'), 401);
   status(await call('/passing/guest/session', { link: '0'.repeat(64), body: { name: 'مقرئ محلي' } }), 403);
   status(await call('/passing/guest/session', { link: linkToken, body: { name: ' ' } }), 422);
-  const session = status(await call('/passing/guest/session', { link: linkToken, body: { name: 'مقرئ محلي فعلي' } }), 201);
+  status(await call('/passing/guest/session/public', { body: { name: ' ' } }), 422);
+  status(await call('/passing/guest/session/public', { method: 'GET' }), 403);
+  const legacySession = status(await call('/passing/guest/session', { link: linkToken, body: { name: 'مقرئ الرابط السابق' } }), 201);
+  const session = status(await call('/passing/guest/session/public', { body: { name: 'مقرئ محلي فعلي', publicEntry: false } }), 201);
   const token = session.token;
   const otherSession = status(await call('/passing/guest/session', { link: linkToken, body: { name: 'المقرئ الثاني' } }), 201);
   const students = status(await call('/passing/guest/students', { token }), 200);
@@ -70,8 +73,16 @@ try {
   await pool.query('UPDATE passing_guest_sessions SET expires_at=DATE_SUB(NOW(),INTERVAL 1 SECOND) WHERE token_hash=?', [passingTokenHash(otherSession.token)]);
   status(await call('/passing/guest/students', { token: otherSession.token }), 401);
   await pool.query('UPDATE app_settings SET setting_value=? WHERE setting_key=?', [passingTokenHash('rotated'), PASSING_LINK_KEY]);
-  status(await call('/passing/guest/students', { token }), 401);
+  status(await call('/passing/guest/students', { token: legacySession.token }), 401);
+  status(await call('/passing/guest/students', { token }), 200);
   status(await call('/passing/guest/session', { link: linkToken, body: { name: 'مقرئ محلي' } }), 403);
+  status(await call('/passing/guest/session', { body: { name: 'مقرئ محلي', publicEntry: true } }), 403);
+  await pool.query('DELETE FROM app_settings WHERE setting_key=?', [PASSING_LINK_KEY]);
+  status(await call('/passing/guest/students', { token }), 200);
+  const publicWithoutSettings = status(await call('/passing/guest/session/public', { body: { name: 'مقرئ عام جديد' } }), 201);
+  status(await call('/passing/guest/students', { token: publicWithoutSettings.token }), 200);
+  await pool.query('UPDATE passing_guest_sessions SET expires_at=DATE_SUB(NOW(),INTERVAL 1 SECOND) WHERE token_hash=?', [passingTokenHash(token)]);
+  status(await call('/passing/guest/students', { token }), 401);
   status(await call('/passing/students', { staff: staffTokens.manager }), 200);
   globalThis.console.log(`Passing guest real API/MySQL: ${checks} HTTP checks passed; shared history, server-scoped access, cookie isolation, duplicate protection, both decisions, notifications, expiry and revocation verified.`);
 } finally {
