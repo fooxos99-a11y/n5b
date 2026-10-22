@@ -105,12 +105,6 @@ const PublicRegistration = () => {
     setForm((current) => ({ ...current, [key]: value, ...(key === 'complexId' ? { committeeId: '' } : {}) }));
   };
 
-  const showFormError = (message) => {
-    setFormError(message);
-    toast({ title: message, variant: 'destructive' });
-    return false;
-  };
-
   const addMemorizedRange = () => {
     if (!rangeDraft.startJuz || !rangeDraft.endJuz) {
       toast({ title: 'حدد بداية ونهاية نطاق الأجزاء', variant: 'destructive' });
@@ -126,26 +120,22 @@ const PublicRegistration = () => {
     setRangeDraft(emptyDraft);
   };
 
-  const validateForm = () => {
-    const name = String(form.name || '').replace(/\s+/g, ' ').trim();
-    if (name.length < 2) {
-      return showFormError('اكتب اسم الطالب.');
-    }
-    const age = Number(form.age);
-    if (!Number.isInteger(age) || age < 4 || age > 120) {
-      return showFormError('العمر غير صحيح.');
-    }
-    if (!complexes.some(row => String(row.id) === form.complexId)) return showFormError('اختر المجمع.');
-    if (!committees.some(row => String(row.id) === form.committeeId && String(row.complexId) === form.complexId)) return showFormError('اختر الحلقة.');
-    if (Object.values(rangeDraft).some(Boolean)) {
-      return showFormError('أضف نطاق المحفوظ أو امسحه قبل إرسال الطلب.');
-    }
-    return true;
+  const fieldErrors = {
+    ...(String(form.name).replace(/\s+/g, ' ').trim().length < 2 ? { name: 'اكتب اسم الطالب.' } : {}),
+    ...(!Number.isInteger(Number(form.age)) || Number(form.age) < 4 || Number(form.age) > 120 ? { age: 'أدخل عمرًا من 4 إلى 120 سنة.' } : {}),
+    ...(!complexes.some(row => String(row.id) === form.complexId) ? { complexId: 'اختر المجمع.' } : {}),
+    ...(!committees.some(row => String(row.id) === form.committeeId && String(row.complexId) === form.complexId) ? { committeeId: 'اختر الحلقة.' } : {}),
   };
+  const ready = enabled && !loadError && !Object.keys(fieldErrors).length && !Object.values(rangeDraft).some(Boolean);
+  const [touched, setTouched] = useState({});
+  const fieldError = key => touched[key] ? fieldErrors[key] : null;
+  const fieldAccess = key => ({ id: `registration-${key}`, 'aria-invalid': Boolean(touched[key] && fieldErrors[key]),
+    'aria-describedby': touched[key] && fieldErrors[key] ? `registration-${key}-error` : undefined,
+    onBlur: () => setTouched(current => ({ ...current, [key]: true })) });
 
   const submit = async (event) => {
     event.preventDefault();
-    if (submissionPending.current || submitSuccess || !validateForm()) return;
+    if (submissionPending.current || submitSuccess || !ready) return;
     submissionPending.current = true;
     setIsSubmitting(true);
     setSubmitSuccess('');
@@ -220,8 +210,8 @@ const PublicRegistration = () => {
             ) : (
               <form className="space-y-6" onSubmit={submit} noValidate>
                 <div className="grid gap-4 md:grid-cols-2">
-                  <LabeledField label="اسم الطالب">
-                    <Input value={form.name} onChange={(event) => setFormField('name', event.target.value)} required />
+                  <LabeledField label="اسم الطالب" htmlFor="registration-name" error={fieldError('name')}>
+                    <Input {...fieldAccess('name')} value={form.name} onChange={(event) => setFormField('name', event.target.value)} required />
                   </LabeledField>
                   <LabeledField label="رقم جوال ولي الأمر">
                     <Input
@@ -239,23 +229,24 @@ const PublicRegistration = () => {
                       maxLength={40}
                     />
                   </LabeledField>
-                  <LabeledField label="العمر">
+                  <LabeledField label="العمر" htmlFor="registration-age" error={fieldError('age')}>
                     <Input
                       inputMode="numeric"
+                      {...fieldAccess('age')}
                       value={form.age}
                       onChange={(event) => setFormField('age', digitsOnly(event.target.value, 3))}
                       required
                     />
                   </LabeledField>
-                  <LabeledField label="المجمع">
+                  <LabeledField label="المجمع" htmlFor="registration-complexId" error={fieldError('complexId')}>
                     <Select value={form.complexId} onValueChange={value => setFormField('complexId', value)} disabled={!complexes.length}>
-                      <SelectTrigger aria-label="المجمع"><SelectValue placeholder={complexes.length ? 'اختر المجمع' : 'لا توجد مجمعات متاحة'} /></SelectTrigger>
+                      <SelectTrigger {...fieldAccess('complexId')} aria-label="المجمع"><SelectValue placeholder={complexes.length ? 'اختر المجمع' : 'لا توجد مجمعات متاحة'} /></SelectTrigger>
                       <SelectContent>{complexes.map(row => <SelectItem key={row.id} value={String(row.id)}>{row.name}</SelectItem>)}</SelectContent>
                     </Select>
                   </LabeledField>
-                  <LabeledField label="الحلقة">
+                  <LabeledField label="الحلقة" htmlFor="registration-committeeId" error={fieldError('committeeId')}>
                     <Select value={form.committeeId} onValueChange={value => setFormField('committeeId', value)} disabled={!form.complexId || !formCommittees.length}>
-                      <SelectTrigger aria-label="الحلقة"><SelectValue placeholder={!form.complexId ? 'اختر المجمع أولًا' : formCommittees.length ? 'اختر الحلقة' : 'لا توجد حلقات في هذا المجمع'} /></SelectTrigger>
+                      <SelectTrigger {...fieldAccess('committeeId')} aria-label="الحلقة"><SelectValue placeholder={!form.complexId ? 'اختر المجمع أولًا' : formCommittees.length ? 'اختر الحلقة' : 'لا توجد حلقات في هذا المجمع'} /></SelectTrigger>
                       <SelectContent>{formCommittees.map(row => <SelectItem key={row.id} value={String(row.id)}>{row.name}</SelectItem>)}</SelectContent>
                     </Select>
                   </LabeledField>
@@ -295,13 +286,14 @@ const PublicRegistration = () => {
                   </div>
                 </section>
 
+                {Object.values(rangeDraft).some(Boolean) && <p role="status" className="text-sm text-muted-foreground">أضف نطاق المحفوظ أو امسحه لإرسال الطلب.</p>}
                 {formError ? (
                   <div role="alert" className="rounded-2xl border border-destructive/30 bg-destructive/10 p-4 text-sm font-black text-destructive">
                     {formError}
                   </div>
                 ) : null}
 
-                <Button type="submit" loading={isSubmitting} className="ms-auto flex h-12 w-full gap-2 sm:w-auto">
+                <Button type="submit" disabled={!ready || Boolean(submitSuccess)} loading={isSubmitting} className="ms-auto flex h-12 w-full gap-2 sm:w-auto">
                   {!isSubmitting && <Send className="h-4 w-4" />}
                   إرسال الطلب
                 </Button>

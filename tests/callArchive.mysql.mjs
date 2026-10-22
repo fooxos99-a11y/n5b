@@ -57,7 +57,7 @@ try {
   const [created] = await pool.query("INSERT INTO call_rooms(name,livekit_room_name,committee_id,created_by_role,created_by_id,created_by_name) VALUES('Persistent room','archive-room',1,'supervisor',7,'Teacher')");
   const roomId = created.insertId;
   const run = action => runWithDatabase(database,{tenant:{registrationNumber:'',databaseName:database}},action);
-  const config = getCallArchiveConfig(), storage = createCallArchiveStorage(config);
+  const config = { ...getCallArchiveConfig(), rejoinGraceMs: 0 }, storage = createCallArchiveStorage(config);
   const batch = () => run(() => processCallArchiveBatch({ config, provider, storage, ai }));
   people=[{identity:'supervisor:7',role:'supervisor',id:7,name:'Teacher',tracks:['TR_A']}];
   await run(() => reconcileCallArchivePresence('archive-room',{config,provider}));
@@ -235,6 +235,48 @@ try {
   await run(()=>finishCallArchiveRoom('fast-return'));await pool.query("UPDATE call_rooms SET status='closed' WHERE id=?",[pairRoom.insertId]);
   await batch();await pool.query('UPDATE call_archive_jobs SET next_at=CURRENT_TIMESTAMP(3)');await batch();await batch();
   await pool.query('DELETE FROM call_rooms WHERE id=?',[pairRoom.insertId]);
+  // Real SQL state with a mocked recorder: temporary loss preserves the mixed capture,
+  // expiry produces the next independent call and numbering survives pagination.
+  const graceConfig = { ...config, rejoinGraceMs: 8000 };
+  const [graceRoom] = await pool.query("INSERT INTO call_rooms(name,livekit_room_name,committee_id,created_by_role,created_by_id,created_by_name) VALUES('Grace pair','grace-pair',2,'supervisor',7,'Teacher')");
+  const graceBatch = () => run(() => processCallArchiveBatch({ config: graceConfig, provider, storage, ai }));
+  people = [{ identity:'supervisor:7', connectionSid:'PA_GRACE_A', role:'supervisor', id:7, name:'Teacher', tracks:['TR_GRACE_A'] },
+    { identity:'student:3', connectionSid:'PA_GRACE_B', role:'student', id:3, name:'Student', tracks:['TR_GRACE_B'] }];
+  await graceBatch();
+  const [[graceFirst]] = await pool.query('SELECT * FROM call_archive_sessions WHERE active_room_id=?', [graceRoom.insertId]);
+  const [[graceMixed]] = await pool.query("SELECT egress_id FROM call_archive_media WHERE session_id=? AND kind='mixed'", [graceFirst.id]);
+  assert.equal(Number(graceFirst.recording_gap), 0, 'Healthy recordings never start flagged as incomplete');
+  people[1].tracks.push('TR_OPTIONAL_FAILURE');
+  const optionalFailure = { ...provider, start: async (room, media) => {
+    if (media.track_id === 'TR_OPTIONAL_FAILURE') throw new Error('Optional track unavailable');
+    return provider.start(room, media);
+  } };
+  await run(() => processCallArchiveBatch({ config: graceConfig, provider: optionalFailure, storage, ai }));
+  assert.equal(Number((await pool.query('SELECT recording_gap FROM call_archive_sessions WHERE id=?', [graceFirst.id]))[0][0].recording_gap), 0,
+    'A failed optional participant recorder does not invent a gap in the healthy mixed recording');
+  const returning = people[1]; people = people.slice(0, 1);
+  await run(() => reconcileCallArchivePresence('grace-pair', { config: graceConfig, provider }));
+  assert.equal((await pool.query('SELECT state FROM call_archive_sessions WHERE id=?', [graceFirst.id]))[0][0].state, 'recording');
+  people.push({ ...returning, connectionSid:'PA_GRACE_RETURN', tracks:['TR_GRACE_RETURN'] });
+  await graceBatch();
+  assert.equal((await pool.query('SELECT id FROM call_archive_sessions WHERE active_room_id=?', [graceRoom.insertId]))[0][0].id, graceFirst.id);
+  assert.equal((await pool.query("SELECT egress_id FROM call_archive_media WHERE session_id=? AND kind='mixed'", [graceFirst.id]))[0][0].egress_id, graceMixed.egress_id, 'Same mixed audio file survives a transient reconnect');
+  people = people.slice(0, 1);
+  await run(() => reconcileCallArchivePresence('grace-pair', { config: graceConfig, provider }));
+  await pool.query('UPDATE call_archive_sessions SET empty_since=DATE_SUB(CURRENT_TIMESTAMP(3),INTERVAL 9 SECOND) WHERE id=?', [graceFirst.id]);
+  await run(() => reconcileCallArchivePresence('grace-pair', { config: graceConfig, provider }));
+  assert.equal((await pool.query('SELECT active_room_id FROM call_archive_sessions WHERE id=?', [graceFirst.id]))[0][0].active_room_id, null);
+  people.push(returning); await graceBatch();
+  const [[graceSecond]] = await pool.query('SELECT id FROM call_archive_sessions WHERE active_room_id=?', [graceRoom.insertId]);
+  assert.notEqual(graceSecond.id, graceFirst.id);
+  const numbered = JSON.parse((await request(`/rooms/${graceRoom.insertId}?limit=1`)).text);
+  assert.equal(numbered.sessions[0].sequence, 2); assert.equal(numbered.sessions[0].participants.length, 2);
+  const previousPage = JSON.parse((await request(`/rooms/${graceRoom.insertId}?limit=1&before=${numbered.nextCursor}`)).text);
+  assert.equal(previousPage.sessions[0].sequence, 1);
+  assert.equal(JSON.parse((await request(`/sessions/${graceSecond.id}`)).text).session.sequence, 2);
+  await run(() => finishCallArchiveRoom('grace-pair'));
+  await pool.query("UPDATE call_rooms SET status='closed' WHERE id=?", [graceRoom.insertId]);
+  await graceBatch(); await graceBatch();
   const unrelated=Array.from({length:501},() => [randomUUID(),999,'unrelated-room','Other room','reciter',9,new Date()]);
   await pool.query('INSERT INTO call_archive_sessions(id,room_id,livekit_room_name,room_name,owner_role,owner_id,started_at) VALUES ?',[unrelated]);
   assert.equal((await request('/',{role:'student',id:3})).status,403,'Participants cannot list archives regardless of pagination');
@@ -290,7 +332,7 @@ try {
     await pool.query("UPDATE call_archive_jobs SET next_at=CURRENT_TIMESTAMP(3) WHERE session_id=? AND kind='capture'",[failedSession.id]);
   }
   const [[partial]]=await pool.query('SELECT * FROM call_archive_sessions WHERE id=?',[failedSession.id]);
-  assert.equal(partial.state,'recording','A failed separate microphone does not hide a still-active mixed recorder');assert.ok(partial.last_error);assert.equal(Number(partial.recording_gap),1);
+  assert.equal(partial.state,'recording','A failed separate microphone does not hide a still-active mixed recorder');assert.ok(partial.last_error);assert.equal(Number(partial.recording_gap),1,'The earlier recorder startup failure remains recorded after recovery');
   await run(()=>finishCallArchiveRoom('failure-room'));
   await pool.query("UPDATE call_rooms SET status='closed' WHERE id=?",[failureRoom.insertId]);
   const failingStop={...provider,list:async()=>{throw new Error('Mock provider stop outage');}};

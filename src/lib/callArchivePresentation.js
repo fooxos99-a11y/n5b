@@ -28,3 +28,10 @@ export function callArchiveLink(roomId, sessionId, href = window.location.href) 
   else url.searchParams.delete('callSession');
   return url.href;
 }
+
+export function callSessionTitle(session) {
+  return `المكالمة ${session.sequence || 'المحفوظة'}`;
+}
+export function callSessionPeople(participants = []) {
+  return participants.map(person => person.name || person.identity).filter(Boolean).join('، ');
+}

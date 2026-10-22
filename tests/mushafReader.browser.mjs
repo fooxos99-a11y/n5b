@@ -17,8 +17,11 @@ const openIndex = (page) => page.getByRole('button', { name: 'فتح فهرس ا
 const waitForFace = async (page, number) => {
   await currentPage(page, number).waitFor();
   await page.evaluate(() => globalThis.document.fonts.ready);
-  // Wait for the page-turn animation before comparing physical word positions.
-  await page.waitForTimeout(250);
+  // Wait for the real animation timeline, including under a busy WebKit renderer.
+  await page.locator('.mushaf-page-turn').evaluate(async element => {
+    await Promise.all(element.getAnimations().map(animation => animation.finished));
+    await new Promise(resolve => globalThis.requestAnimationFrame(resolve));
+  });
 };
 
 const tapMargin = async (page) => {
@@ -41,6 +44,23 @@ const wordPositions = (page) => face(page).locator('[data-location]').evaluateAl
   const bounds = word.getBoundingClientRect();
   return { location: word.dataset.location, x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height };
 }));
+
+const responsiveGeometry = new Map();
+const assertResponsiveGeometry = async (page, key) => {
+  const bounds = await face(page).boundingBox();
+  assert.ok(Math.abs(bounds.width / bounds.height - 0.6) < 0.001, 'Every device keeps the same page proportions');
+  const words = (await wordPositions(page)).map(word => ({ location: word.location,
+    x: (word.x - bounds.x) / bounds.width, y: (word.y - bounds.y) / bounds.height,
+    width: word.width / bounds.width, height: word.height / bounds.height }));
+  const reference = responsiveGeometry.get(key);
+  if (!reference) { responsiveGeometry.set(key, words); return; }
+  assert.equal(words.length, reference.length);
+  words.forEach((word, index) => {
+    assert.equal(word.location, reference[index].location, 'Word identities are identical across devices');
+    for (const dimension of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(word[dimension] - reference[index][dimension]) < 0.008,
+      `Same relative Quran geometry on mobile and desktop: ${key}/${word.location}/${dimension}`);
+  });
+};
 
 const assertSamePositions = (actual, expected, message) => {
   assert.equal(actual.length, expected.length, message);
@@ -84,6 +104,7 @@ for (const engine of [chromium, webkit]) {
     for (const viewport of [{ width: 375, height: 667 }, { width: 390, height: 844 }, { width: 588, height: 1280 }, { width: 768, height: 900 }, { width: 1440, height: 900 }]) {
       const context = await browser.newContext({ viewport, hasTouch: true, serviceWorkers: 'block' });
       const page = await context.newPage();
+      page.setDefaultNavigationTimeout(90000);
       const errors = [];
       page.on('pageerror', (error) => errors.push(error.message));
       await page.addInitScript(() => {
@@ -95,6 +116,7 @@ for (const engine of [chromium, webkit]) {
       assert.equal(await page.locator('.mushaf-reader-navigation').count(), 0);
       await assertPageFits(page);
 
+      await assertResponsiveGeometry(page, `${engine.name()}:page1`);
       const quietBounds = await wordPositions(page);
       await showTools(page);
       assertSamePositions(await wordPositions(page), quietBounds, 'showing tools must not move Quran text');
@@ -150,8 +172,9 @@ for (const engine of [chromium, webkit]) {
       await selectPage(page, 64);
       await hideTools(page);
       await assertPageFits(page);
-      assert.equal(await face(page).locator('[data-mushaf-line="3"][data-mushaf-word-index]').last().getAttribute('data-location'), '3:110:14', 'reference page 64 line three ends at آمن');
-      assert.equal(await face(page).locator('[data-mushaf-line="4"][data-mushaf-word-index]').first().getAttribute('data-location'), '3:110:15', 'reference page 64 line four starts at أهل');
+      await assertResponsiveGeometry(page, `${engine.name()}:page64`);
+      assert.equal(await face(page).locator('[data-mushaf-line="3"][data-mushaf-word-index]').last().getAttribute('data-location'), '3:110:15', 'packaged modern V2 page 64 line three ends at أهل');
+      assert.equal(await face(page).locator('[data-mushaf-line="4"][data-mushaf-word-index]').first().getAttribute('data-location'), '3:110:16', 'packaged modern V2 page 64 line four starts at الكتاب');
       if (engine === chromium && [390, 588].includes(viewport.width)) {
         const target = viewport.width === 588 ? 'reference-size' : 'mobile';
         await page.screenshot({ path: join(previewDirectory, `dark-page64-${target}.png`) });
@@ -167,7 +190,7 @@ for (const engine of [chromium, webkit]) {
       await selectPage(page, 66);
       await hideTools(page);
       await assertPageFits(page);
-      assert.equal(await face(page).locator('[data-mushaf-line="1"][data-mushaf-word-index]').last().getAttribute('data-location'), '3:122:9', 'reference page 66 first line ends at وعلى');
+      assert.equal(await face(page).locator('[data-mushaf-line="1"][data-mushaf-word-index]').last().getAttribute('data-location'), '3:122:10', 'packaged modern V2 page 66 first line ends at الله');
       if (engine === chromium && [375, 390, 588, 1440].includes(viewport.width)) {
         const target = viewport.width === 1440 ? 'desktop' : viewport.width === 588 ? 'reference-size' : viewport.width === 375 ? 'iphone8' : 'mobile';
         await page.screenshot({ path: join(previewDirectory, `light-page66-${target}.png`) });

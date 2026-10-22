@@ -62,7 +62,7 @@ export default function MetricCard({ metric, onSelect }) {
 function GaugeMetricCard({ metric, onSelect }) {
   const animated = useCountUp(metric.value);
   const animatedCount = useCountUp(metric.countValue ?? 0);
-  const center = metric.countValue === undefined ? `${formatNumber(animated)}%` : formatNumber(animatedCount);
+  const center = (metric.staticDisplay || metric.empty) ? metric.display : metric.countValue === undefined ? `${formatNumber(animated)}%` : formatNumber(animatedCount);
   return (
     <button
       type="button"
@@ -77,6 +77,7 @@ function GaugeMetricCard({ metric, onSelect }) {
         </strong>
       </div>
       <h2 className="text-center text-sm font-bold leading-5 text-foreground">{metric.label}</h2>
+      {metric.caption && <p className="text-center text-xs leading-5 text-muted-foreground">{metric.caption}</p>}
     </button>
   );
 }

@@ -60,27 +60,38 @@ export async function loadOfflineSnapshot(accountId, resourceKey, loader, {
   actorRole = 'supervisor',
   preferCache = false,
   onRefresh,
+  onStatus,
 } = {}) {
   const key = `${offlineActorKey(accountId, actorRole)}:resource:${resourceKey}`;
   const cached = await offlineRecitationStore.getSnapshot(key).catch(error => {
     if (!isOnline()) throw error;
     return null;
   });
+  const returnCached = async () => {
+    const info = onStatus && !cached?.generatedAt
+      ? await offlineRecitationStore.getSnapshotInfo?.(key).catch(() => null) : null;
+    onStatus?.({ cached: true, generatedAt: cached?.generatedAt || info?.cachedAt || null });
+    return cached;
+  };
   if (!isOnline()) {
-    if (cached !== null && cached !== undefined) return cached;
+    if (cached !== null && cached !== undefined) return returnCached();
     throw new Error('هذه البيانات غير محفوظة للعمل دون إنترنت. اتصل بالإنترنت مرة واحدة أولًا.');
   }
   if (preferCache && cached !== null && cached !== undefined) {
+    await returnCached();
     void fetchSnapshot(key, getAuthSessionVersion(), loader).then((value) => {
+      onStatus?.({ cached: false, generatedAt: value?.generatedAt || new Date().toISOString() });
       onRefresh?.(value);
     }).catch(() => undefined);
     return cached;
   }
   try {
-    return await fetchSnapshot(key, getAuthSessionVersion(), loader);
+    const value = await fetchSnapshot(key, getAuthSessionVersion(), loader);
+    onStatus?.({ cached: false, generatedAt: value?.generatedAt || new Date().toISOString() });
+    return value;
   } catch (error) {
     if ([401, 403].includes(Number(error.status))) throw error;
-    if (cached !== null && cached !== undefined) return cached;
+    if (cached !== null && cached !== undefined) return returnCached();
     throw error;
   }
 }

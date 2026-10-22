@@ -72,7 +72,15 @@ export function ManagementList({ label, children }) {
 }
 
 /** One record: title (opens it), secondary line, optional meta and actions. */
-export function ManagementRow({ title, subtitle, meta, actions, onOpen, openLabel, disabled = false, icon = null }) {
+export function ManagementRow({ title, subtitle, meta, actions, onOpen, openLabel, disabled = false, icon = null, fullRow = false }) {
+  if (fullRow && onOpen && !actions) return <li>
+    <button type="button" onClick={onOpen} disabled={disabled} aria-label={openLabel}
+      className="flex min-h-14 w-full items-center gap-3 px-4 py-3 text-start transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:opacity-50 sm:px-6">
+      {icon}<span className="min-w-0 flex-1"><span className="block break-words text-base font-bold text-foreground">{title}</span>
+        {subtitle && <span className="mt-1 block text-sm text-muted-foreground">{subtitle}</span>}</span>
+      {meta && <span className="shrink-0 text-sm">{meta}</span>}
+    </button>
+  </li>;
   return (
     <li className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-muted/40 sm:px-6">
       <div className="min-w-0 flex-1">

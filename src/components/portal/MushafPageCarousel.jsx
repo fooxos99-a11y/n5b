@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useRef } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { animate, motion, useMotionValue, useReducedMotion } from 'framer-motion';
 import MushafPageControls from '@/components/portal/MushafPageControls';
 import { useMushafReader } from '@/components/portal/MushafReaderLayout';
@@ -16,7 +16,8 @@ const MushafPageCarousel = ({ index, total, pageNumber, pageNumbers = [], isSavi
   const suppressClick = useRef(false);
   const previousPageNumber = useRef(Number(pageNumber));
   const currentPageNumber = Number(pageNumber);
-  const _resolveTurnDirection = () => {
+  // A pending successor must not remove the displayed page's turn transform.
+  const turnDirection = useMemo(() => {
     if (currentPageNumber > previousPageNumber.current) {
       return 'forward';
     }
@@ -24,8 +25,7 @@ const MushafPageCarousel = ({ index, total, pageNumber, pageNumbers = [], isSavi
       return 'backward';
     }
     return '';
-  };
-  const turnDirection = _resolveTurnDirection();
+  }, [currentPageNumber]);
 
   useEffect(() => {
     previousPageNumber.current = currentPageNumber;

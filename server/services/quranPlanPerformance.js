@@ -10,6 +10,12 @@ const number = value => Number(value || 0);
 const covered = (plan, ranges) => Math.max(0, remainingPlanFaces(plan, []) - remainingPlanFaces(plan, ranges));
 const percentage = (done, expected) => expected > 0 ? Math.round(done / expected * 1000) / 10 : null;
 
+/** Revisions and queued successors apply from their effective date, never retroactively. */
+export function selectPlanForDate(plans, date) {
+  return plans.filter(plan => plan.startDate <= date && (plan.effectiveFrom || plan.startDate) <= date)
+    .sort((a, b) => (b.effectiveFrom || b.startDate).localeCompare(a.effectiveFrom || a.startDate) || number(b.id) - number(a.id))[0];
+}
+
 /** Cumulative approved faces against the current plan schedule, retaining the latest rate-change anchor. */
 export function planPerformanceSeries({ plan, dates, schedule, executions, prior = [], requirements = [] }) {
   const totalFaces = remainingPlanFaces(plan, []);
@@ -59,8 +65,10 @@ export async function loadQuranPlanPerformance(scope, { from, to, workDays, read
     p.daily_pages AS dailyPages, p.reading_faces AS readingFaces, p.schedule_days_json AS scheduleDays,
     p.schedule_anchor_surah AS anchorSurah, p.schedule_anchor_ayah AS anchorAyah
     FROM student_quran_plans p
-    WHERE p.id = (SELECT MAX(latest.id) FROM student_quran_plans latest WHERE latest.student_id = p.student_id AND latest.start_date <= ?)
-      AND p.status IN ('active', 'completed') AND p.start_date IS NOT NULL AND ${scope.student('p.student_id')}`, [to]);
+    WHERE p.start_date <= ? AND (p.status IN ('active', 'completed')
+      OR EXISTS (SELECT 1 FROM student_quran_plans successor WHERE successor.previous_plan_id = p.id))
+      AND p.start_date IS NOT NULL AND ${scope.student('p.student_id')}
+    ORDER BY p.student_id, COALESCE(p.effective_from, p.start_date), p.id`, [to]);
   if (!plans.length) return { students: [], series: [] };
   const [rows] = await scope.query(`SELECT t.student_id AS studentId, t.plan_id AS planId,
     DATE_FORMAT(t.task_date, '%Y-%m-%d') AS date, t.from_surah AS startSurah, t.from_ayah AS startAyah, t.from_page AS startPage,
@@ -108,6 +116,11 @@ export async function loadQuranPlanPerformance(scope, { from, to, workDays, read
     priorByStudent.set(key, [...(priorByStudent.get(key) || []), row]);
   }
   const calendars = new Map();
+  const plansByStudent = new Map();
+  for (const plan of plans) {
+    const key = String(plan.studentId);
+    plansByStudent.set(key, [...(plansByStudent.get(key) || []), plan]);
+  }
   const individualPauses = await loadIndividualStudentPlanPauses(scope);
   const readingSchedule = readingDays.length ? await planScheduleDates(scope, earliest, to, readingDays, 'readingDays') : [];
   for (const plan of plans) {
@@ -120,17 +133,22 @@ export async function loadQuranPlanPerformance(scope, { from, to, workDays, read
     for (const date of readingSchedule) {
       if (isStudentPlanPausedOn(date, individualPauses[plan.studentId])) continue;
       if (date < (plan.effectiveFrom || plan.startDate)) continue;
+      if (selectPlanForDate(plansByStudent.get(String(plan.studentId)), date)?.id !== plan.id) continue;
       if (!requirements.some(row => String(row.studentId) === String(plan.studentId) && row.taskType === 'reading' && row.date === date)) {
         requirements.push({ studentId: plan.studentId, planId: plan.id, date, taskType: 'reading', expected: number(plan.readingFaces), done: 0 });
       }
     }
   }
-  const students = plans.map(plan => ({
-    studentId: number(plan.studentId),
-    series: planPerformanceSeries({ plan, dates: plotted,
+  const versions = new Map(plans.map(plan => [String(plan.id), planPerformanceSeries({ plan, dates: plotted,
       schedule: calendars.get(plan.calendarKey).filter(date => date >= (plan.effectiveFrom || plan.startDate) && !isStudentPlanPausedOn(date, individualPauses[plan.studentId])),
       executions: executionByStudent.get(String(plan.studentId)) || [], prior: priorByStudent.get(String(plan.studentId)) || [],
-      requirements: requirements.filter(row => String(row.studentId) === String(plan.studentId)) }),
+      requirements: requirements.filter(row => String(row.studentId) === String(plan.studentId)) })]));
+  const students = [...plansByStudent].map(([studentId, history]) => ({ studentId: number(studentId),
+    series: plotted.map((date, index) => {
+      const plan = selectPlanForDate(history, date);
+      return plan ? { ...versions.get(String(plan.id))[index], planId: number(plan.id) }
+        : { date, done: 0, expected: 0, percentage: null };
+    }),
   }));
   return { students, series: aggregatePlanPerformance(students, plotted) };
 }

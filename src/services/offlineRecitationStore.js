@@ -214,6 +214,17 @@ class OfflineRecitationStore {
     return this.#getPayload('snapshots', 'offline_snapshots', actorKey);
   }
 
+  async getSnapshotInfo(actorKey) {
+    await this.init();
+    if (this.driver === 'sqlite') {
+      const result = await this.connection.query('SELECT cached_at AS cachedAt FROM offline_snapshots WHERE key = ?', [actorKey]);
+      return result.values?.[0] || null;
+    }
+    const transaction = this.connection.transaction('snapshots', 'readonly');
+    const row = await idbRequest(transaction.objectStore('snapshots').get(actorKey));
+    return row ? { cachedAt: row.cachedAt } : null;
+  }
+
   async cacheTask(actorKey, taskId, payload) {
     await this.#putPayload('task_cache', 'offline_task_cache', `${actorKey}:${taskId}`, payload);
   }

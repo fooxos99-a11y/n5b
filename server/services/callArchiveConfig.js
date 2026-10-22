@@ -26,6 +26,7 @@ export function getCallArchiveConfig(environment = process.env) {
     enabled, configured: Boolean(enabled && storageReady && livekit), storage, s3,
     joinPaused: environment.CALL_ARCHIVE_JOIN_PAUSED === 'true',
     localPath, egressPath, livekit,
+    rejoinGraceMs: Math.max(1000, Math.min(30000, Number(environment.CALL_ARCHIVE_REJOIN_GRACE_MS) || 8000)),
     maxSessionMs: Math.max(300000, Math.min(86400000, Number(environment.CALL_ARCHIVE_MAX_SESSION_MS) || 4 * 3600000)),
     maxAiBytes: Math.min(providerAudioLimit, Math.max(1024, Number(environment.CALL_ARCHIVE_AI_MAX_BYTES) || providerAudioLimit)),
     ffmpegPath: String(environment.CALL_ARCHIVE_FFMPEG_PATH || '').trim(),

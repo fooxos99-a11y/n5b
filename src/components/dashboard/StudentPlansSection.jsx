@@ -1,5 +1,6 @@
 import QueuedPlanRanges from './QueuedPlanRanges';
 import AutomaticPlanControl from './AutomaticPlanControl';
+import AutomaticStageNote from './AutomaticStageNote';
 import StudentPlansPauseControl from './StudentPlansPauseControl';
 import ErrorState from '@/components/ui/error-state';
 import { formatHijriDate } from '../../../shared/hijri-calendar.js';
@@ -449,6 +450,7 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
         mode: startsNewPlan ? PLAN_SAVE_MODES.new : PLAN_SAVE_MODES.continue,
         track: form.track,
         automatic: form.automatic === true,
+        automaticStageJuz: form.stageJuz || null,
         automaticPlanId: selectedRow.plan?.id || null,
         queuedRanges: form.queuedRanges,
         startDate: _resolveStartDate(),
@@ -597,7 +599,7 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
   };
 
   const setSurahWithDefaultAyah = async ({ value, mode, setAyahs, setState, surahKey, ayahKey }) => {
-    setState((current) => ({ ...current, [surahKey]: value, [ayahKey]: '' }));
+    setState((current) => ({ ...current, ...(setState === setForm ? { automatic: false, stageJuz: undefined, label: undefined } : {}), [surahKey]: value, [ayahKey]: '' }));
     try {
       const ayahs = await loadOfflineSnapshot(
         getAccountId(),
@@ -822,6 +824,7 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
             />
           </div>
           <div className="space-y-5 py-2">
+            <AutomaticStageNote range={form} chapters={chapters} />
             <FormGrid>
               <FormField label="بداية الخطة">
                 {/* A plan that already started keeps its start; one starting today or later can move forward. */}
@@ -865,7 +868,7 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
                       surahKey: 'startSurah',
                       ayahKey: 'startAyah',
                     })}
-                    onAyahChange={(value) => setForm((current) => ({ ...current, startAyah: value }))}
+                    onAyahChange={(value) => setForm((current) => ({ ...current, startAyah: value, automatic: false, stageJuz: undefined, label: undefined }))}
                   />
                 )}
               </FormField>
@@ -893,7 +896,7 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
                       surahKey: 'endSurah',
                       ayahKey: 'endAyah',
                     })}
-                    onAyahChange={(value) => setForm((current) => ({ ...current, endAyah: value }))}
+                    onAyahChange={(value) => setForm((current) => ({ ...current, endAyah: value, automatic: false, stageJuz: undefined, label: undefined }))}
                   />
                 )}
               </FormField>

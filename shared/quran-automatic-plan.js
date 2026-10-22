@@ -23,7 +23,9 @@ export function resolveAutomaticRange(ayahs, input) {
   const start = endpoint('start'), end = endpoint('end');
   if (!start || !end || (start.surah === end.surah && start.ayah > end.ayah)) throw invalid('اختر بداية ونهاية صحيحتين لكل خطة.');
   const label = String(input?.label || '').trim().slice(0, 100);
-  return rangeFromAyahs([start, end], label ? { label } : {});
+  const stageJuz = Number(input?.stageJuz);
+  return rangeFromAyahs([start, end], { ...(label ? { label } : {}),
+    ...(Number.isInteger(stageJuz) && stageJuz >= 2 && stageJuz <= 30 && stageJuz % 2 === 0 ? { stageJuz } : {}) });
 }
 
 export function traverseAutomaticRange(ayahs, range) {
@@ -34,22 +36,41 @@ export function traverseAutomaticRange(ayahs, range) {
 }
 
 export function defaultAutomaticTemplate(ayahs) {
-  const ranges = [];
+  const ranges = [], assigned = new Set();
   const ordered = [...ayahs].sort((a, b) => b.surah - a.surah || a.ayah - b.ayah);
   for (let high = 30; high >= 2; high -= 2) {
-    let rows = [], found = false;
-    const close = () => {
-      if (rows.length) ranges.push(rangeFromAyahs(rows, { label: `الجزآن ${high} و${high - 1}` }));
-      rows = [];
-    };
-    for (const row of ordered) {
-      if (row.juz === high || row.juz === high - 1) { rows.push(row); found = true; }
-      else close();
-    }
-    close();
-    if (!found) throw invalid('تعذر تحميل حدود أجزاء المصحف. أعد المحاولة.');
+    const target = ordered.filter(row => row.juz === high || row.juz === high - 1);
+    if (!target.length) throw invalid('تعذر تحميل حدود أجزاء المصحف. أعد المحاولة.');
+    const surahs = new Set(target.map(row => row.surah));
+    const rows = ordered.filter(row => surahs.has(row.surah) && !assigned.has(row.surah));
+    for (const row of rows) assigned.add(row.surah);
+    if (rows.length) ranges.push(rangeFromAyahs(rows, { label: `الجزآن ${high} و${high - 1}`, stageJuz: high }));
   }
   return { name: 'جزآن من 30 إلى 1', revision: 0, ranges };
+}
+
+/** Rebuild only recognized automatic stages; manual queues and custom templates retain their exact order. */
+export function coalesceAutomaticStages(ayahs, ranges) {
+  const stages = new Map();
+  for (const range of ranges) {
+    const match = /^الجزآن (\d+) و(\d+)$/.exec(range.label || '');
+    const high = Number(range.stageJuz || match?.[1]);
+    if (range.automatic !== true || !match || high !== Number(match[1]) || Number(match[2]) !== high - 1
+      || high < 2 || high > 30 || high % 2 !== 0) return ranges;
+    const rows = traverseAutomaticRange(ayahs, resolveAutomaticRange(ayahs, range));
+    if (!rows.length || rows.some(row => ![high, high - 1].includes(row.juz)) && !range.stageJuz) return ranges;
+    const entry = stages.get(high) || new Set();
+    rows.forEach(row => entry.add(row.surah));
+    stages.set(high, entry);
+  }
+  const assigned = new Set(), result = [];
+  const ordered = [...ayahs].sort((a, b) => b.surah - a.surah || a.ayah - b.ayah);
+  for (const [high, surahs] of stages) {
+    const rows = ordered.filter(row => surahs.has(row.surah) && !assigned.has(row.surah));
+    rows.forEach(row => assigned.add(row.surah));
+    if (rows.length) result.push(rangeFromAyahs(rows, { label: `الجزآن ${high} و${high - 1}`, stageJuz: high }));
+  }
+  return result;
 }
 
 export function validateAutomaticTemplate(ayahs, input) {
@@ -73,21 +94,33 @@ export function generateAutomaticRanges(ayahs, ranges, memorized = [], reserved 
   const blocked = new Set(memorized.flatMap(range => traverseAutomaticRange(ayahs, resolveAutomaticRange(ayahs, range))).map(key));
   const occupied = new Set(reserved.flatMap(range => traverseAutomaticRange(ayahs, resolveAutomaticRange(ayahs, range))).map(key));
   const result = [], stages = [];
-  for (const raw of ranges) {
+  let carry = [];
+  for (const [index, raw] of ranges.entries()) {
     const range = resolveAutomaticRange(ayahs, raw);
-    const rows = traverseAutomaticRange(ayahs, range);
+    const rows = [...carry, ...traverseAutomaticRange(ayahs, range)];
+    carry = [];
+    const pending = rows.filter(row => !blocked.has(key(row)) && !occupied.has(key(row)));
+    if (range.stageJuz && Number(ranges[index + 1]?.stageJuz) === range.stageJuz - 2
+      && !pending.some(row => row.juz === range.stageJuz || row.juz === range.stageJuz - 1)) {
+      carry = pending;
+      stages.push({ ...range, totalAyahs: rows.length, excludedAyahs: rows.filter(row => blocked.has(key(row))).length,
+        reservedAyahs: rows.filter(row => occupied.has(key(row))).length, advanceAyahs: 0, remainingAyahs: 0 });
+      continue;
+    }
     let segment = [], excluded = 0, held = 0;
     const close = () => {
-      if (segment.length) result.push(rangeFromAyahs(segment, { automatic: true, ...(range.label ? { label: range.label } : {}) }));
+      if (segment.length) result.push(rangeFromAyahs(segment, { automatic: true, ...(range.label ? { label: range.label } : {}),
+        ...(range.stageJuz ? { stageJuz: range.stageJuz } : {}) }));
       segment = [];
     };
     for (const row of rows) {
-      if (blocked.has(key(row))) { excluded++; close(); }
-      else if (occupied.has(key(row))) { held++; close(); }
+      if (occupied.has(key(row))) { held++; close(); }
+      else if (blocked.has(key(row))) { excluded++; if (!range.stageJuz) close(); }
       else { segment.push(row); occupied.add(key(row)); }
     }
     close();
-    stages.push({ ...range, totalAyahs: rows.length, excludedAyahs: excluded, reservedAyahs: held,
+    const advanceAyahs = range.stageJuz ? rows.filter(row => row.juz < range.stageJuz - 1).length : 0;
+    stages.push({ ...range, totalAyahs: rows.length, excludedAyahs: excluded, reservedAyahs: held, advanceAyahs,
       remainingAyahs: rows.length - excluded - held });
   }
   if (result.length > MAX_AUTOMATIC_RANGES) throw invalid('المتبقي يتجاوز 100 مقطع. طبّق جزءًا من القالب أولًا.');
