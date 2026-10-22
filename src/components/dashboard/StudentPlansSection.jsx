@@ -1,4 +1,5 @@
 import QueuedPlanRanges from './QueuedPlanRanges';
+import AutomaticPlanControl from './AutomaticPlanControl';
 import StudentPlansPauseControl from './StudentPlansPauseControl';
 import ErrorState from '@/components/ui/error-state';
 import { formatHijriDate } from '../../../shared/hijri-calendar.js';
@@ -49,6 +50,7 @@ const emptyForm = {
   reviewMinDailyPages: 1,
   priorMemorization: [],
   queuedRanges: [],
+  automatic: false,
 };
 
 
@@ -218,11 +220,10 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
     () => [...savedPriorPageRanges, ...stagedPriorPageRanges, ...completedPageRanges],
     [completedPageRanges, savedPriorPageRanges, stagedPriorPageRanges]
   );
-  const currentPlanBoundaryPages = useMemo(() => new Set(
-    !isCreatingNewPlan && selectedRow?.plan
-      ? [selectedRow.plan.startPage, selectedRow.plan.endPage].filter(Boolean).map(String)
-      : []
-  ), [isCreatingNewPlan, selectedRow]);
+  const currentPlanBoundaryPages = useMemo(() => new Set([
+    ...(!isCreatingNewPlan && selectedRow?.plan ? [selectedRow.plan.startPage, selectedRow.plan.endPage] : []),
+    ...(form.automatic ? [form.startPage, form.endPage] : []),
+  ].filter(Boolean).map(String)), [isCreatingNewPlan, selectedRow, form.automatic, form.startPage, form.endPage]);
   const availablePlanPages = useMemo(
     () => quranPages.filter((page) => (
       form.track === 'mastery' || currentPlanBoundaryPages.has(String(page)) || !pageInRanges(page, unavailablePageRanges)
@@ -381,6 +382,7 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
       reviewWeekEndDay: String(plan.reviewWeekEndDay ?? 6),
       reviewMinDailyPages: plan.reviewMinDailyPages || 1,
       queuedRanges: plan.queuedRanges || [],
+      automatic: (plan.queuedRanges || []).some(range => range.automatic === true),
       priorMemorization: Array.isArray(plan.priorMemorization) ? plan.priorMemorization : [],
     };
       }
@@ -390,7 +392,7 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
   };
 
   useEffect(() => {
-    if (quranReferenceMode !== 'page' || form.track === 'mastery') return;
+    if (quranReferenceMode !== 'page' || form.track === 'mastery' || form.automatic) return;
     setForm((current) => {
       const startBlocked = current.startPage
         && !currentPlanBoundaryPages.has(String(current.startPage))
@@ -405,11 +407,11 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
         endPage: endBlocked ? '' : current.endPage,
       };
     });
-  }, [form.track, currentPlanBoundaryPages, quranReferenceMode, unavailablePageRanges]);
+  }, [form.track, form.automatic, currentPlanBoundaryPages, quranReferenceMode, unavailablePageRanges]);
 
   const savePlan = async ({ confirmed = false, mode = PLAN_SAVE_MODES.continue } = {}) => {
     if (!selectedRow) return;
-    const isPageMode = quranReferenceMode === 'page';
+    const isPageMode = quranReferenceMode === 'page' && !form.automatic;
     const planRangeMissing = isPageMode
       ? (!form.startPage || !form.endPage)
       : (!form.startSurah || !form.startAyah || !form.endSurah || !form.endAyah);
@@ -446,6 +448,8 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
       await studentsApi.saveStudentPlan(selectedRow.studentId, {
         mode: startsNewPlan ? PLAN_SAVE_MODES.new : PLAN_SAVE_MODES.continue,
         track: form.track,
+        automatic: form.automatic === true,
+        automaticPlanId: selectedRow.plan?.id || null,
         queuedRanges: form.queuedRanges,
         startDate: _resolveStartDate(),
         ...(isPageMode ? {
@@ -803,6 +807,20 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
               المحفوظ المجتاز
             </Button>
           </DialogHeader>
+          <div className="flex flex-wrap gap-2">
+            <AutomaticPlanControl
+              studentId={selectedRow?.studentId}
+              currentPlanId={selectedRow?.plan && !isCreatingNewPlan ? selectedRow.plan.id : null}
+              priorMemorization={form.priorMemorization}
+              disabled={form.track !== 'memorization' || isSaving}
+              onPriorSaved={() => { setSelectedRow(null); loadRows(); }}
+              onApply={ranges => setForm(current => {
+                if (selectedRow?.plan && !isCreatingNewPlan) return { ...current, automatic: true, queuedRanges: ranges };
+                const [first, ...queuedRanges] = ranges;
+                return { ...current, ...first, automatic: true, queuedRanges };
+              })}
+            />
+          </div>
           <div className="space-y-5 py-2">
             <FormGrid>
               <FormField label="بداية الخطة">
@@ -818,16 +836,16 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
                 )}
               </FormField>
               <FormField label="المسار">
-                <Select value={form.track} onValueChange={track => setForm(current => ({ ...current, track }))}>
+                <Select value={form.track} onValueChange={track => setForm(current => ({ ...current, track, automatic: track === 'memorization' && current.automatic }))}>
                   <SelectTrigger aria-label="مسار الخطة"><SelectValue /></SelectTrigger>
                   <SelectContent><SelectItem value="memorization">حفظ</SelectItem><SelectItem value="mastery">إتقان</SelectItem></SelectContent>
                 </Select>
               </FormField>
-              <FormField label="بداية الخطة">
+              <FormField label="من">
                 {quranReferenceMode === 'page' ? (
                   <PageSelect
                     value={form.startPage}
-                    onChange={(value) => setForm((current) => ({ ...current, startPage: value }))}
+                    onChange={(value) => setForm((current) => ({ ...current, startPage: value, automatic: false }))}
                     placeholder="صفحة البداية"
                     pages={availablePlanPages}
                   />
@@ -851,11 +869,11 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
                   />
                 )}
               </FormField>
-              <FormField label="نهاية الخطة">
+              <FormField label="إلى">
                 {quranReferenceMode === 'page' ? (
                   <PageSelect
                     value={form.endPage}
-                    onChange={(value) => setForm((current) => ({ ...current, endPage: value }))}
+                    onChange={(value) => setForm((current) => ({ ...current, endPage: value, automatic: false }))}
                     placeholder="صفحة النهاية"
                     pages={availablePlanPages}
                   />
@@ -881,7 +899,7 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
               </FormField>
             </FormGrid>
 
-            <QueuedPlanRanges value={form.queuedRanges} onChange={queuedRanges => setForm(current => ({ ...current, queuedRanges }))} chapters={chapters} pageMode={quranReferenceMode === 'page'} currentRange={form} />
+            <QueuedPlanRanges value={form.queuedRanges} onChange={queuedRanges => setForm(current => ({ ...current, queuedRanges }))} chapters={chapters} pageMode={quranReferenceMode === 'page'} />
 
             <FormGrid className="items-end border-t border-border pt-5 min-[390px]:grid-cols-2">
               <PlanAmount label="المقدار اليومي" form={form} setForm={setForm} presetKey="dailyPreset" valueKey="dailyPages" options={dailyPageOptions} min="0.25" step="0.25" inputMode="decimal" />

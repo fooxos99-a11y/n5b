@@ -134,8 +134,8 @@ jobs:
           CREATE_VERSION_IF_MISSING: "true"
           TARGET_BUILD_NUMBER: ${{ inputs.build_number }}
           TESTFLIGHT_GROUP_ID: "19fde5d2-840a-4afd-8a54-eb3c35dad1cf"
-          APP_RELEASE_NOTES_AR: "تحسين المكالمات وإدارة الحسابات ومؤشرات الحلقات، ومعالجة مشكلات الاتصال والتنقل."
-          APP_RELEASE_NOTES_EN: "Improved calls, account management, and circle reports, with fixes for connection and navigation issues."
+          APP_RELEASE_NOTES_AR: "إضافة الخطط التلقائية مع مراعاة المحفوظ السابق، وتحسين تقارير الاجتياز وخريطة رحلة الطالب واستقرار بدء التطبيق."
+          APP_RELEASE_NOTES_EN: "Added automatic memorization plans that account for previous memorization, improved passing reports and the student journey map, and made app startup more stable."
         run: |
           python3 -m venv "$RUNNER_TEMP/app-store-status-venv"
           "$RUNNER_TEMP/app-store-status-venv/bin/pip" install --quiet PyJWT cryptography

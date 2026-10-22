@@ -16,6 +16,8 @@ import { ensurePassingRehifzTasks, refreshPassingRehifz, readStudentRehifz, prev
 import { createPassingRouter } from './routes/passingRoutes.js';
 import { createSummitRouter } from './routes/summitRoutes.js';
 import { createStudentPlanPauseRouter } from './routes/studentPlanPauseRoutes.js';
+import { createAutomaticPlanRouter } from './routes/automaticPlanRoutes.js';
+import { prepareAutomaticRanges } from './services/quranAutomaticPlan.js';
 import { requireRegistrationPlacement, loadRegistrationPlacementOptions } from './services/registrationPlacement.js';
 import { assertStudyDate, studyDateSql } from './services/seasonalHolidays.js';
 import { forecastQuranPlan } from './services/quranPlanForecast.js';
@@ -6958,6 +6960,7 @@ app.use('/api/staff-attendance', createStaffAttendanceRouter({
 app.use('/api/recitation-preferences', createStaffRecitationPreferencesRouter({ loadSettings }));
 app.use('/api/grading', createGradingRouter({ db, loadSettings, today: () => getSaudiDateTimeParts().date }));
 app.use('/api/student-plans/pause', createStudentPlanPauseRouter({ db, requireRead: requireStudentPlanAccess }));
+app.use('/api/student-plans/automatic', createAutomaticPlanRouter({ db, requireRead: requireStudentPlanAccess }));
 app.use('/api/summit', createSummitRouter({ db, loadSettings }));
 app.use('/api/passing', createPassingRouter({ db, loadMemorizedRanges: getStudentMemorizedRanges,
   loadAyahs: connection => getQuranAyahsInPageRange(connection, 1, 604),
@@ -8191,7 +8194,7 @@ app.put('/api/student-plans/:studentId', requireStudentPlanAccess, async (req, r
       await connection.rollback();
       return res.status(422).json({ message: 'السورة أو الآية غير صحيحة.' });
     }
-    const direction = getQuranRangeDirection(start, end);
+    let direction = getQuranRangeDirection(start, end);
     const submittedPriorMemorization = await normalizePriorMemorizationRanges(connection, req.body.priorMemorization);
     const [[existingPlan]] = await connection.query(
       `
@@ -8238,12 +8241,36 @@ app.put('/api/student-plans/:studentId', requireStudentPlanAccess, async (req, r
       await connection.rollback();
       return res.status(422).json({ message: 'اختر بدء خطة جديدة لتغيير مسار خطة بدأ تنفيذها.' });
     }
-    const queueInput = req.body.queuedRanges === undefined ? readQueuedPlanRanges(continuedPlan?.queuedRanges) : req.body.queuedRanges;
+    let queueInput = req.body.queuedRanges === undefined ? readQueuedPlanRanges(continuedPlan?.queuedRanges) : req.body.queuedRanges;
+    if (req.body.automatic === true) {
+      if (track !== 'memorization') throw Object.assign(new Error('الخطط التلقائية مخصصة لمسار الحفظ.'), { statusCode: 422 });
+      if (continuedPlan && Number(req.body.automaticPlanId) !== Number(continuedPlan.id)) throw Object.assign(new Error('تغيّرت خطة الطالب. أعد فتحها.'), { statusCode: 409 });
+      if (!Array.isArray(queueInput)) throw Object.assign(new Error('قائمة الخطط التالية غير صحيحة.'), { statusCode: 422 });
+      const generated = await prepareAutomaticRanges(connection, {
+        studentId, priorMemorization: submittedPriorMemorization,
+        current: continuedPlan,
+        ranges: continuedPlan ? queueInput : [{ startSurah, startAyah, endSurah, endAyah }, ...queueInput],
+      });
+      if (!continuedPlan) {
+        const first = generated.ranges.shift();
+        if (!first) throw Object.assign(new Error('كل النطاق المحدد محفوظ. حدّث المعاينة.'), { statusCode: 422 });
+        ({ startSurah, startAyah, endSurah, endAyah } = first);
+        start = { page: first.startPage, surah: first.startSurah, ayah: first.startAyah };
+        end = { page: first.endPage, surah: first.endSurah, ayah: first.endAyah };
+      } else {
+        ({ startSurah, startAyah, endSurah, endAyah } = continuedPlan);
+        start = { page: continuedPlan.startPage, surah: startSurah, ayah: startAyah };
+        end = { page: continuedPlan.endPage, surah: endSurah, ayah: endAyah };
+      }
+      direction = getQuranRangeDirection(start, end);
+      queueInput = generated.ranges;
+    }
     const queuedRanges = await validateQueuedPlanRanges(queueInput,
       { startSurah, startAyah, startPage: start.page, endSurah, endAyah, endPage: end.page }, {
         expand: range => expandQuranTraversalRange(connection, range),
         resolve: async raw => {
-          const startPage = Number(raw?.startPage || 0), endPage = Number(raw?.endPage || 0);
+          const startPage = raw?.automatic === true ? 0 : Number(raw?.startPage || 0);
+          const endPage = raw?.automatic === true ? 0 : Number(raw?.endPage || 0);
           if (startPage && (!Number.isInteger(startPage) || startPage < 1 || startPage > 604)) return null;
           if (endPage && (!Number.isInteger(endPage) || endPage < 1 || endPage > 604)) return null;
           if ((!startPage && (!Number.isInteger(Number(raw?.startSurah)) || Number(raw.startSurah) < 1 || Number(raw.startSurah) > 114 || !Number.isInteger(Number(raw.startAyah)) || Number(raw.startAyah) < 1))
@@ -8272,7 +8299,8 @@ app.put('/api/student-plans/:studentId', requireStudentPlanAccess, async (req, r
       ...submittedPriorMemorization,
     ]);
     const memorizedPlanAyahs = await countMemorizedAyahsInRange(connection, track === 'mastery' ? [] : priorMemorization, start, end);
-    const rejectFullyMemorizedPlanResult = await rejectFullyMemorizedPlan({ memorizedPlanAyahs, connection, res });
+    const rejectFullyMemorizedPlanResult = req.body.automatic === true && continuedPlan
+      ? false : await rejectFullyMemorizedPlan({ memorizedPlanAyahs, connection, res });
     if (rejectFullyMemorizedPlanResult) { return rejectFullyMemorizedPlanResult; }
 
     if (continuedPlan) {

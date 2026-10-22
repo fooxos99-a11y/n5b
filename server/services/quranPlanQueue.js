@@ -1,4 +1,5 @@
 import { planRangesOverlap, readQueuedPlanRanges } from '../../shared/quran-plan-queue.js';
+import { prepareAutomaticRanges } from './quranAutomaticPlan.js';
 
 export async function validateQueuedPlanRanges(input, current, { resolve, expand }) {
   if (!Array.isArray(input) || input.length > 100) throw Object.assign(new Error('قائمة الخطط التالية غير صحيحة.'), { statusCode: 422 });
@@ -12,7 +13,8 @@ export async function validateQueuedPlanRanges(input, current, { resolve, expand
       throw Object.assign(new Error('نطاق الخطة التالية يتداخل مع إحدى الخطط السابقة.'), { statusCode: 422 });
     }
     occupied.push(...segments);
-    ranges.push(range);
+    ranges.push({ ...range, ...(raw.automatic === true ? { automatic: true } : {}),
+      ...(raw.label ? { label: String(raw.label).slice(0, 100) } : {}) });
   }
   return ranges;
 }
@@ -23,7 +25,18 @@ export async function activateQueuedQuranPlan(connection, { planId, startDate, m
   if (!plan || (!manual && plan.status !== 'completed') || !['active', 'completed'].includes(plan.status)) return null;
   const [[latest]] = await connection.query('SELECT MAX(id) AS id FROM student_quran_plans WHERE student_id = ?', [plan.student_id]);
   if (Number(latest.id) !== Number(plan.id)) return null;
-  const [range, ...remaining] = readQueuedPlanRanges(plan.queued_ranges_json);
+  const queue = readQueuedPlanRanges(plan.queued_ranges_json);
+  let range;
+  while (queue.length && !range) {
+    const candidate = queue.shift();
+    if (candidate.automatic === true && plan.track === 'memorization') {
+      const generated = await prepareAutomaticRanges(connection, { ranges: [candidate], studentId: plan.student_id });
+      range = generated.ranges.shift();
+      queue.unshift(...generated.ranges);
+    } else range = candidate;
+  }
+  const remaining = queue;
+  if (!range && plan.queued_ranges_json) await connection.query('UPDATE student_quran_plans SET queued_ranges_json = NULL WHERE id = ?', [plan.id]);
   if (!range) return null;
   const columns = ['student_id', 'previous_plan_id', 'queue_parent_id', 'status', 'plan_version', 'start_date', 'effective_from',
     'schedule_days_json', 'track', 'start_surah', 'start_ayah', 'start_page', 'end_surah', 'end_ayah', 'end_page',

@@ -14,6 +14,7 @@ import ManualAttendanceSection from '../../src/components/dashboard/ManualAttend
 import WhatsAppSendSection from '../../src/components/dashboard/WhatsAppSendSection';
 import StudentPlansSection from '../../src/components/dashboard/StudentPlansSection';
 import { Button } from '../../src/components/ui/button';
+import { Toaster } from '../../src/components/ui/toaster';
 import '../../src/index.css';
 if (!import.meta.env.DEV || !['localhost', '127.0.0.1'].includes(location.hostname)) throw new Error('Local only');
 function Fixture() {
@@ -29,4 +30,4 @@ function Fixture() {
   if (section === 'students') return <main className="p-3"><StudentsSection /></main>;
   return <main className="p-3 [font-family:var(--font-ui)]"><Button onClick={() => setShow(false)}>مغادرة الإعدادات</Button><NotificationButton presentation="popover" />{show && <GradingSettingsPanel />}</main>;
 }
-createRoot(document.getElementById('root')).render(<Fixture />);
+createRoot(document.getElementById('root')).render(<><Fixture /><Toaster /></>);
