@@ -47,17 +47,21 @@ def prepare_build(app_id, version, number, group_id, request, sleep=time.sleep, 
         "filter[builds]": build["id"],
         "filter[isInternalGroup]": "true", "limit": 200,
     })
-    if not any(item["id"] == group_id for item in request(membership).get("data", [])):
-        request(f"/betaGroups/{group_id}/relationships/builds", method="POST",
-                payload={"data": [{"type": "builds", "id": build["id"]}]})
-    if not any(item["id"] == group_id for item in request(membership).get("data", [])):
-        raise RuntimeError("TestFlight group membership was not confirmed")
+    # Apple's all-builds groups grant access implicitly and reject manual assignment.
+    all_builds = group["attributes"].get("hasAccessToAllBuilds") is True
+    if not all_builds:
+        if not any(item["id"] == group_id for item in request(membership).get("data", [])):
+            request(f"/betaGroups/{group_id}/relationships/builds", method="POST",
+                    payload={"data": [{"type": "builds", "id": build["id"]}]})
+        if not any(item["id"] == group_id for item in request(membership).get("data", [])):
+            raise RuntimeError("TestFlight group membership was not confirmed")
     details = request(f"/builds/{build['id']}/buildBetaDetail")["data"]["attributes"]
     if details.get("internalBuildState") != "IN_BETA_TESTING":
         raise RuntimeError("Build is not available for internal testing: " + str(details))
     return {"appId": app_id, "version": version, "buildNumber": number,
             "buildId": build["id"], "processingState": "VALID", "internalGroupId": group_id,
-            "internalBuildState": details["internalBuildState"], "groupName": group["attributes"]["name"]}
+            "internalBuildState": details["internalBuildState"], "groupName": group["attributes"]["name"],
+            "groupHasAccessToAllBuilds": all_builds}
 
 
 def verify_submission(app_id, version, build_id, request):

@@ -55,6 +55,23 @@ class TestFlightReleaseTests(unittest.TestCase):
             self.run_release()
         self.assertEqual(self.writes, [])
 
+    def test_all_builds_group_is_verified_without_manual_assignment(self):
+        self.group["attributes"]["hasAccessToAllBuilds"] = True
+        result = self.run_release()
+        self.assertTrue(result["groupHasAccessToAllBuilds"])
+        self.assertEqual(result["internalBuildState"], "IN_BETA_TESTING")
+        self.assertEqual(self.writes, [])
+
+    def test_all_builds_group_does_not_bypass_testing_state(self):
+        self.group["attributes"]["hasAccessToAllBuilds"] = True
+        def not_ready(path, **kwargs):
+            if path.endswith("/buildBetaDetail"):
+                return {"data": {"attributes": {"internalBuildState": "READY_FOR_BETA_TESTING"}}}
+            return self.request(path, **kwargs)
+        with self.assertRaisesRegex(RuntimeError, "not available"):
+            self.run_release(not_ready)
+        self.assertEqual(self.writes, [])
+
     def test_foreign_or_external_group_is_denied(self):
         self.group["attributes"]["isInternalGroup"] = False
         with self.assertRaisesRegex(RuntimeError, "does not belong"):

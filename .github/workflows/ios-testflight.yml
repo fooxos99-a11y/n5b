@@ -251,7 +251,7 @@ jobs:
           "$RUNNER_TEMP/push-profile-venv/bin/python" scripts/testflight_release.py
 
       - name: Store signed IPA artifact
-        if: ${{ inputs.publish }}
+        if: ${{ always() && inputs.publish && env.IPA_PATH != '' }}
         continue-on-error: true
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
