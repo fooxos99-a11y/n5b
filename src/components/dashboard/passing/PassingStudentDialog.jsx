@@ -7,7 +7,6 @@ import { passingApi } from '@/services/passingApi';
 import { PASSING_TYPES } from '../../../../shared/passing-policy.js';
 import PassingAttemptReport, { PassingResultSummary } from './PassingAttemptReport';
 import PassingPartEvaluation from './PassingPartEvaluation';
-import PassingStudentReport from './PassingStudentReport';
 
 export default function PassingStudentDialog({ student, type, onClose, api = passingApi, initialReportJuz = 0 }) {
   const [parts, setParts] = useState([]);
@@ -18,7 +17,6 @@ export default function PassingStudentDialog({ student, type, onClose, api = pas
   const [saveError, setSaveError] = useState('');
   const [evaluating, setEvaluating] = useState(null);
   const [report, setReport] = useState(null);
-  const [showStudentReport, setShowStudentReport] = useState(false);
   const loadRevision = useRef(0);
   const reportOpened = useRef(0);
   const load = useCallback(async () => {
@@ -58,10 +56,9 @@ export default function PassingStudentDialog({ student, type, onClose, api = pas
     finally { setSaving(false); }
   };
   return <>
-    <Dialog open={!evaluating && !report && !showStudentReport} onOpenChange={open => !open && !saving && !evaluating && !report && !showStudentReport && onClose()}>
+    <Dialog open={!evaluating && !report} onOpenChange={open => !open && !saving && !evaluating && !report && onClose()}>
       <DialogContent dir="rtl" className="max-h-[88dvh] max-w-3xl overflow-y-auto bg-card [font-family:var(--font-ui)]">
         <DialogHeader><DialogTitle>{student.name}، {PASSING_TYPES[type]}</DialogTitle></DialogHeader>
-        <Button variant="outline" className="min-h-11 justify-self-start" disabled={saving} onClick={() => setShowStudentReport(true)}>التقرير المجمّع</Button>
         {loading ? <DashboardLoader /> : loadError ? <ErrorState message={loadError} onRetry={load} /> : !parts.length
           ? <p className="py-6 text-center text-sm text-muted-foreground">لا يوجد جزء محفوظ كامل ومعتمد لهذا الطالب.</p>
           : parts.map(eligible => {
@@ -91,7 +88,6 @@ export default function PassingStudentDialog({ student, type, onClose, api = pas
       </DialogContent>
     </Dialog>
     <PassingAttemptReport part={report} onClose={() => setReport(null)} />
-    {showStudentReport && <PassingStudentReport student={student} api={api} initialType={type} onClose={() => setShowStudentReport(false)} />}
     {evaluating && <PassingPartEvaluation key={evaluating.id} api={api} part={evaluating} onClose={() => setEvaluating(null)} onSaved={load} />}
   </>;
 }

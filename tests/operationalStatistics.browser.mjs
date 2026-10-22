@@ -2,21 +2,23 @@ import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import process from 'node:process';
 
 const browser=await chromium.launch({ headless:true });
 try {
   for(const width of [320,390,1440]) {
     const page=await browser.newPage({ viewport:{ width,height:950 } });
     const errors=[];page.on('pageerror',error=>errors.push(error.message));
-    await page.goto('http://127.0.0.1:3019/tests/fixtures/statistics.html');
-    await page.getByRole('button',{ name:'اختبارات الاجتياز الفرعي: 50%',exact:true }).waitFor();
+    await page.goto(`${process.env.PORTAL_TEST_URL || 'http://127.0.0.1:3019'}/tests/fixtures/statistics.html`, { waitUntil:'domcontentloaded', timeout:90000 });
+    await page.getByRole('button',{ name:'متوسط نتائج الاجتياز الفرعي: 80٪',exact:true }).waitFor();
+    await page.getByRole('button',{ name:'متوسط نتائج اجتياز حافظ: 90٪',exact:true }).waitFor();
     assert.equal(await page.getByText('يوم السرد',{ exact:true }).count(),0);
     assert.equal(await page.getByText('مستويات الطلاب',{ exact:true }).count(),0);
     assert.ok(await page.getByRole('button',{ name:/الطلاب:/ }).count());
     assert.ok(await page.locator('body').evaluate(el=>el.scrollWidth<=globalThis.innerWidth));
-    await page.getByRole('button',{ name:'اختبارات الاجتياز الفرعي: 50%',exact:true }).click();
+    await page.getByRole('button',{ name:'متوسط نتائج الاجتياز الفرعي: 80٪',exact:true }).click();
     let dialog=page.getByRole('dialog');
-    await dialog.getByRole('heading',{ name:'تفاصيل اختبارات الاجتياز الفرعي' }).waitFor();
+    await dialog.getByRole('heading',{ name:'تفاصيل متوسط نتائج الاجتياز الفرعي' }).waitFor();
     await dialog.getByText('المستحقون للاختبار',{ exact:true }).waitFor();
     await dialog.getByText('اختُبروا',{ exact:true }).waitFor();
     await dialog.getByText('لم يُختبروا',{ exact:true }).waitFor();
@@ -46,5 +48,5 @@ try {
     assert.deepEqual(errors,[]);
     await page.close();
   }
-  globalThis.console.log('Operational statistics browser passed at 320/390/1440: tested-student percentage/details, Students title, personal attendance, recording counts/empty state, RTL and no overflow.');
+  globalThis.console.log('Operational statistics browser passed at 320/390/1440: independent branch/hafiz result averages and details, Students title, personal attendance, recording counts/empty state, RTL and no overflow.');
 } finally { await browser.close(); }

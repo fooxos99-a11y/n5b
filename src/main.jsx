@@ -11,7 +11,6 @@ import { recoverFromStaleAppAsset } from '@/lib/appVersionRecovery';
 import '@/index.css';
 
 const NativeAppBridge = React.lazy(() => import('@/components/native/NativeAppBridge'));
-const WebUpdateDialog = React.lazy(() => import('@/components/native/WebUpdateDialog'));
 
 const initialTheme = applyTheme(getPreferredThemeForPath(window.location.pathname));
 
@@ -120,7 +119,7 @@ const mountApp = () => {
         <SiteProvider>
           <ScrollToTop />
           <React.Suspense fallback={null}>
-            {Capacitor.isNativePlatform() ? <NativeAppBridge /> : <WebUpdateDialog />}
+            {Capacitor.isNativePlatform() && <NativeAppBridge />}
           </React.Suspense>
           <App />
         </SiteProvider>

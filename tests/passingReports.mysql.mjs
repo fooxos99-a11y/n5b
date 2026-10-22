@@ -3,6 +3,8 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import mysql from 'mysql2/promise';
 import process from 'node:process';
 import { createPassingGuestFixture } from './helpers/passingGuestFixture.mjs';
+import { loadPassingOverview } from '../server/services/passingOverview.js';
+import { createOverviewReportScope } from '../server/services/overviewReportScope.js';
 import { readQuranRange } from '../server/services/quranReferenceCache.js';
 
 const database = `nukhab_guest_test_${randomBytes(8).toString('hex')}`;
@@ -84,6 +86,16 @@ try {
   assert.deepEqual(status(await call('/passing/guest/students/11/report',{token:guest})),report,'staff and guest see the same report');
   assert.equal(status(await call('/passing/students/11/report?type=branch')).summary.percentage,87.5);
   assert.equal(status(await call('/passing/students/11/report?type=hafiz')).summary.percentage,90);
+  const [[selectedStudent]] = await pool.query('SELECT committee_id FROM students WHERE id=11');
+  const statistics = await loadPassingOverview(createOverviewReportScope(pool, { auth: { role:'manager', id:1 }, committeeId: selectedStudent.committee_id }),
+    { from:'2000-01-01', to:'2100-01-01', referenceConnection:pool });
+  assert.equal(statistics.branchPassing.studentsList.find(row => row.id === 11).percentage, 87.5, 'Statistics and the branch report use identical latest-attempt results');
+  assert.equal(statistics.hafizPassing.studentsList.find(row => row.id === 11).percentage, 90, 'Hafiz statistics stay independent');
+  const parts = status(await call('/passing/students/11/parts?type=branch')).parts;
+  assert.equal(statistics.branchPassing.studentsList.find(row => row.id === 11).eligibleParts, parts.length, 'Batched statistics match live passing eligibility');
+  const emptyStatistics = await loadPassingOverview(createOverviewReportScope(pool, { auth: {role:'manager',id:1} }),
+    { from:'2000-01-01', to:'2000-01-02', referenceConnection:pool });
+  assert.equal(emptyStatistics.branchPassing.percentage, null, 'An empty period never invents a zero grade');
   const [snapshots]=await pool.query('SELECT id,result_json,policy_json FROM student_passing_attempts ORDER BY id');
   policy.ratings=[{label:'مقياس جديد',minimumPercentage:0}];policy.branch.mistakeDeduction=30;
   status(await call('/passing/policy',{method:'PUT',body:{policy}}));

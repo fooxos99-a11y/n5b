@@ -76,6 +76,6 @@ export default function PassingSection({ api = passingApi }) {
     </ManagementPanel>
     {selected && <PassingStudentDialog key={`${type}:${selected.id}`} api={api} student={selected} type={type}
       initialReportJuz={selected.initialReportJuz || 0} onClose={() => setSelected(null)} />}
-    {reportStudent && <PassingStudentReport api={api} student={reportStudent} onClose={() => setReportStudent(null)} />}
+    {reportStudent && <PassingStudentReport key={`${type}:${reportStudent.id}`} initialType={type} api={api} student={reportStudent} onClose={() => setReportStudent(null)} />}
   </div>;
 }

@@ -9,6 +9,7 @@ await mkdir('outputs/call-system', { recursive: true });
 try {
   for (const { width, theme } of [320, 390, 1440].flatMap(width => ['light', 'dark'].map(theme => ({ width, theme })))) {
     const page = await browser.newPage({ viewport: { width, height: 950 }, reducedMotion: 'reduce' });
+    page.setDefaultNavigationTimeout(90000);
     const errors = []; page.on('pageerror', error => errors.push(error.message));
     await page.addInitScript(theme => globalThis.document.addEventListener('DOMContentLoaded', () => globalThis.document.documentElement.classList.toggle('dark', theme === 'dark')), theme);
     await page.goto(`${origin}/tests/fixtures/call-archive.html`);
@@ -16,9 +17,14 @@ try {
     await page.getByRole('button', { name: /أرشيف غرفة المقرئ/ }).click();
     await page.getByRole('button', { name: 'تحميل المزيد' }).click();
     await page.waitForFunction(() => globalThis.document.querySelectorAll('ul[aria-label="جلسات المكالمة"] li').length === 2);
-    await page.getByRole('button', { name: /^فتح جلسة/ }).first().click();
+    await page.getByRole('button', { name: /^فتح المكالمة/ }).first().click();
     await page.getByRole('heading', { name: 'ملخص الجلسة' }).waitFor();
     assert.match(page.url(), /callSession=session-22/);
+    assert.equal(await page.getByRole('button', { name: 'تشغيل التسجيل', exact: true }).count(), 1, 'Only the mixed call is exposed');
+    assert.equal(await page.getByRole('button', { name: /تحديث|نسخ رابط الجلسة|العودة إلى الجلسات|كل الغرف/ }).count(), 0);
+    const back = await page.getByRole('button', { name: 'الرجوع إلى المكالمات', exact: true }).boundingBox();
+    const card = await page.getByRole('region', { name: 'تفاصيل المكالمة' }).boundingBox();
+    assert.ok(back.y + back.height <= card.y, 'Back arrow sits above the whole call card');
     await page.getByRole('button', { name: 'تشغيل التسجيل', exact: true }).click();
     await page.waitForFunction(() => globalThis.document.querySelector('audio')?.readyState >= 1);
     await page.getByRole('button', { name: 'استمع إلى الملاحظة عند 0:02' }).click();
@@ -31,8 +37,7 @@ try {
     await page.screenshot({ path: `outputs/call-system/archive-${width}${theme === 'dark' ? '-dark' : ''}.png`, fullPage: true });
     const deepLink = page.url(); await page.reload();
     await page.getByRole('heading', { name: 'ملخص الجلسة' }).waitFor(); assert.equal(page.url(), deepLink);
-    await page.evaluate(() => { globalThis.__archiveDenied = true; });
-    await page.getByRole('button', { name: 'تحديث', exact: true }).click();
+    const denied = new globalThis.URL(page.url()); denied.searchParams.set('denied', '1'); await page.goto(denied.href);
     await page.getByRole('alert').filter({ hasText: 'الجلسة غير متاحة لحسابك.' }).waitFor();
     assert.equal(await page.getByRole('heading', { name: 'ملخص الجلسة' }).count(), 0);
     await page.goto(`${origin}/tests/fixtures/call-archive.html?role=student&callArchiveRoom=17&callSession=session-22`);
@@ -41,7 +46,7 @@ try {
     await page.goto(`${origin}/tests/fixtures/call-archive.html?callArchiveRoom=17&callSession=session-23`);
     await page.getByRole('button', { name: 'إعادة إعداد التقرير' }).click();
     await page.waitForFunction(() => globalThis.__archiveRetried === true);
-    assert.ok(await page.getByText('قد يحتوي التسجيل على جزء مفقود.', { exact: false }).count());
+    assert.equal(await page.getByText('قد يحتوي التسجيل على جزء مفقود.', { exact: false }).count(), 0);
     await page.goto(`${origin}/tests/fixtures/call-archive.html?callArchiveRoom=17&callSession=session-24`);
     await page.getByRole('button', { name: 'إعادة محاولة التسجيل' }).click();
     await page.waitForFunction(() => globalThis.__archiveRetried === true);

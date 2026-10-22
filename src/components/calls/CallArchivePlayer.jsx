@@ -22,10 +22,10 @@ const CallArchivePlayer = forwardRef(function CallArchivePlayer({ sessionId, med
     else if (audio.current) { audio.current.currentTime = pendingSeek.current; void audio.current.play().catch(() => {}); }
   } }));
   return <div className="min-w-0 space-y-2 rounded-xl border border-border p-3">
-    <p className="text-sm font-bold">{media.kind === 'mixed' ? 'تسجيل المكالمة الكامل' : media.name ? `تسجيل ${media.name}` : 'تسجيل أحد المشاركين'}</p>
+    <p className="text-sm font-bold">{media.kind === 'mixed' ? 'تسجيل المكالمة' : media.name ? `تسجيل ${media.name}` : 'تسجيل أحد المشاركين'}</p>
     {!source && <Button variant="outline" loading={loading} onClick={() => load()}>تشغيل التسجيل</Button>}
     {source && <audio ref={audio} className="w-full min-w-0" controls preload="metadata" src={source}
-      aria-label={media.kind === 'mixed' ? 'تسجيل المكالمة الكامل' : 'تسجيل المشارك'}
+      aria-label={media.kind === 'mixed' ? 'تسجيل المكالمة' : 'تسجيل المشارك'}
       onLoadedMetadata={() => { if (audio.current && pendingSeek.current) { audio.current.currentTime = pendingSeek.current; pendingSeek.current = 0; void audio.current.play().catch(() => {}); } }}
       onPlay={() => { if (expiresAt.current <= Date.now()) { audio.current?.pause(); void load(audio.current?.currentTime || 0); } }}
       onError={() => { if (expiresAt.current <= Date.now()) void load(audio.current?.currentTime || pendingSeek.current); else setError('تعذر تشغيل التسجيل. أعد تجهيز الرابط للمتابعة.'); }} />}

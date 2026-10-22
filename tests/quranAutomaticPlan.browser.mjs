@@ -48,6 +48,7 @@ try {
       const remaining = generateAutomaticRanges(ayahs, defaults.ranges, [savedPrior]).ranges;
       await dialog.getByText(`الخطة التالية ${remaining.length - 1}`, { exact: true }).waitFor();
       assert.equal(await page.getByRole('dialog').count(), 1);
+      await dialog.getByText('حفظ الذاريات من 1 إلى 30 رصيد للمراحل التالية بعد اعتماد المعلم.', { exact: false }).waitFor();
       assert.equal(await dialog.getByRole('button', { name: /تقديم الخطة|تأخير الخطة|إزالة الخطة/ }).count(), 0);
       assert.equal(await dialog.getByText(/تُستبعد|المراحل:|تفاصيل الاستبعاد|معاينة الخطط/).count(), 0);
       assert.equal(await dialog.locator('svg.lucide-trash2,svg.lucide-arrow-up,svg.lucide-arrow-down').count(), 0);
@@ -59,6 +60,7 @@ try {
       await page.waitForFunction(() => !globalThis.document.querySelector('[role="dialog"]'));
       const saved = writes.find(item => item.path === '/student-plans/3').body;
       assert.equal(saved.automatic, true);
+      assert.equal(saved.automaticStageJuz, 30);
       assert.ok(saved.startSurah && saved.startAyah && !saved.startPage);
       assert.equal(saved.queuedRanges.length, remaining.length - 1);
       assert.ok(saved.queuedRanges.every(item => item.automatic));

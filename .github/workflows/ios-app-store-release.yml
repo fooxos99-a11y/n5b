@@ -13,6 +13,11 @@ on:
         description: Processed TestFlight build number
         required: true
         type: string
+      inspect_only:
+        description: Read Apple status without changing builds or submissions
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -49,6 +54,7 @@ jobs:
   submit:
     name: Submit ${{ inputs.app }} to App Review
     needs: wait_for_apple
+    if: ${{ !inputs.inspect_only }}
     runs-on: macos-26
     timeout-minutes: 45
     env:
@@ -134,8 +140,8 @@ jobs:
           CREATE_VERSION_IF_MISSING: "true"
           TARGET_BUILD_NUMBER: ${{ inputs.build_number }}
           TESTFLIGHT_GROUP_ID: "19fde5d2-840a-4afd-8a54-eb3c35dad1cf"
-          APP_RELEASE_NOTES_AR: "إضافة الخطط التلقائية مع مراعاة المحفوظ السابق، وتحسين تقارير الاجتياز وخريطة رحلة الطالب واستقرار بدء التطبيق."
-          APP_RELEASE_NOTES_EN: "Added automatic memorization plans that account for previous memorization, improved passing reports and the student journey map, and made app startup more stable."
+          APP_RELEASE_NOTES_AR: "تحسين تقارير الاجتياز والإحصائيات والخطط التلقائية، وتبسيط أرشيف المكالمات والتسجيل، وتحسين عرض المصحف واستقرار التطبيق."
+          APP_RELEASE_NOTES_EN: "Improved passing reports, statistics and automatic plans; simplified call archives and registration; and refined the Quran reader and app stability."
         run: |
           python3 -m venv "$RUNNER_TEMP/app-store-status-venv"
           "$RUNNER_TEMP/app-store-status-venv/bin/pip" install --quiet PyJWT cryptography

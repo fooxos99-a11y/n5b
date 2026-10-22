@@ -11,6 +11,7 @@ export const METRIC_COLORS = Object.freeze({
   levels: STUDENT_LEVELS[0].color,
   committees: '#4f46e5',
   branchPassing: '#e11d48',
+  hafizPassing: '#7c3aed',
   points: '#dc2626',
 });
 
@@ -25,7 +26,8 @@ const facesFormatter = new Intl.NumberFormat('ar-SA-u-nu-latn', { useGrouping: f
 const faces = (value) => facesFormatter.format(Number(value || 0));
 const pct = (part, total) => (Number(total) > 0 ? Math.round((Number(part || 0) / Number(total)) * 100) : 0);
 const rounded = (value) => Math.round(Number(value || 0));
-const percentMetric = (value) => ({ value: rounded(value), display: `${formatNumber(rounded(value))}%` });
+const percentMetric = (value) => value == null ? { value: 0, display: '—', empty: true }
+  : { value: rounded(value), display: `${formatNumber(rounded(value))}%` };
 const countMetric = (count) => ({ value: Number(count || 0) > 0 ? 100 : 0, countValue: Number(count || 0), display: formatNumber(count) });
 const byName = (a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'ar');
 const outOf = (part, total, format = formatNumber) => `${format(part)} من ${format(total)}`;
@@ -35,11 +37,15 @@ const ratioStat = (label, done, total, format = formatNumber) => ({
   label, value: outOf(done, total, format), tone: Number(total) > 0 ? gradeTone(pct(done, total)) : TONES.neutral,
 });
 const percentStat = (label, done, total) => ({
-  label, value: `${formatNumber(pct(done, total))}%`, tone: Number(total) > 0 ? gradeTone(pct(done, total)) : TONES.neutral,
+  label, value: Number(total) > 0 ? `${formatNumber(pct(done, total))}%` : '—', tone: Number(total) > 0 ? gradeTone(pct(done, total)) : TONES.neutral,
 });
 
 /** Small summary cards at the top of a details window: a share (%) or a count. */
 const percentTile = (label, value) => ({ label, ...percentMetric(value), color: gradeColor(value) });
+const ratioTile = (label, done, total, emptyText = '—') => ({ label,
+  ...percentMetric(Number(total) > 0 ? pct(done, total) : null),
+  ...(Number(total) > 0 ? {} : { display: emptyText }),
+});
 const countTile = (label, count, format = formatNumber) => ({ label, value: Number(count || 0) > 0 ? 100 : 0, display: format(count) });
 
 const attendedOf = (stats = {}) => Number(stats.present || 0) + Number(stats.late || 0) + Number(stats.excused || 0);
@@ -91,7 +97,8 @@ function weeklyProgramMetric(overview, students, filtered) {
     label: 'البرنامج الأسبوعي',
     icon: CalendarRange,
     color: METRIC_COLORS.weeklyProgram,
-    ...percentMetric(program.percentage),
+    ...percentMetric(Number(program.max) === 0 ? null : program.percentage),
+    caption: Number(program.max) === 0 ? 'لا توجد درجات مستحقة' : 'الدرجات المحققة من المستحقة',
     tiles: [
       percentTile('الحضور', pct(attendedOf(attendance), attendance.total)),
       countTile('أوجه الحفظ', quranFaces.memorization, faces),
@@ -117,10 +124,12 @@ function weeklySessionMetric(data = {}, inCommittee, filtered) {
     label: 'الجلسة الأسبوعية',
     icon: CalendarCheck2,
     color: METRIC_COLORS.weeklySession,
-    ...percentMetric(pct(attended, expected)),
+    ...percentMetric(expected > 0 ? pct(attended, expected) : null),
+    caption: expected > 0 ? `الحضور ${outOf(attended, expected)}` : 'لا توجد جلسات مستحقة',
     tiles: [
       countTile('عدد الحضور', attended),
-      percentTile('نسبة الحضور', pct(attended, expected)),
+      ratioTile('نسبة الحضور', attended, expected),
+      ratioTile('اكتمال رصد الحضور', sum(students, row => Number(row.attended || 0) + Number(row.absent || 0) + Number(row.excused || 0)), expected),
     ],
     bars: [{ title: 'الحلقات', rows: filtered ? [] : committeeBars(data.committees) }],
     records: [{
@@ -143,14 +152,17 @@ function weeklySessionMetric(data = {}, inCommittee, filtered) {
 }
 
 /**
- * Track session: the card shows how well the tested segments were recited (their grades out of their maxima),
- * so an untested segment does not count as a failure; attendance is its own summary card.
+ * Overall due grades, tested accuracy and recording coverage have separate denominators.
  */
 function trackSessionMetric(data = {}, inCommittee, filtered) {
   const students = (data.studentsList || []).filter((row) => inCommittee(row.committeeName));
   const segments = filtered
     ? Object.fromEntries(['tested', 'compensated', 'mistakes', 'warnings', 'hesitations', 'grade', 'max'].map((key) => [key, sum(students, (row) => row.segments?.[key])]))
     : data.segments || {};
+  const grade = filtered ? sum(students, row => row.grade) : Number(data.grade ?? sum(students, row => row.grade));
+  const max = filtered ? sum(students, row => row.max) : Number(data.max ?? sum(students, row => row.max));
+  const expectedSegments = filtered ? sum(students, row => row.expectedSegments) : Number(data.segments?.expected ?? sum(students, row => row.expectedSegments));
+  const tested = Number(segments.tested || 0) + Number(segments.compensated || 0);
   const attended = filtered ? sum(students, (row) => row.attended) : data.attended;
   const expected = filtered ? sum(students, sessionExpectedOf) : Number(data.expectedAttendance ?? sum(students, sessionExpectedOf));
   const studentValue = (row) => {
@@ -166,10 +178,12 @@ function trackSessionMetric(data = {}, inCommittee, filtered) {
     label: 'جلسة المسار',
     icon: Route,
     color: METRIC_COLORS.trackSession,
-    ...percentMetric(pct(segments.grade, segments.max)),
+    ...percentMetric(max > 0 ? pct(grade, max) : null),
+    caption: max > 0 ? `رصد المقاطع ${outOf(tested, expectedSegments)}` : 'لا توجد جلسات مستحقة',
     tiles: [
-      percentTile('الحضور', pct(attended, expected)),
-      percentTile('نسبة إتقان الحفظ', pct(segments.grade, segments.max)),
+      ratioTile('الحضور', attended, expected),
+      ratioTile('إتقان المقاطع المختبرة', segments.grade, segments.max, 'لم يُختبر'),
+      ratioTile('اكتمال رصد المقاطع', tested, expectedSegments),
       countTile('الأخطاء', segments.mistakes), countTile('التنبيهات', segments.warnings), countTile('الترددات', segments.hesitations), countTile('المقاطع المعوضة', segments.compensated),
     ],
     bars: [],
@@ -214,6 +228,7 @@ function studentLevelsMetric(overview, inCommittee) {
     icon: GraduationCap,
     color: METRIC_COLORS.levels,
     ...(Array.isArray(overview.studentLevels) ? countMetric(allStudents.length) : { value: 0, display: 'غير متاح' }),
+    caption: 'الطلاب المسجلون حاليًا',
     segments: STUDENT_LEVELS.map((level) => ({
       key: level.key,
       label: level.name,
@@ -254,6 +269,7 @@ function committeesCountMetric(overview, inCommittee) {
     icon: Building2,
     color: METRIC_COLORS.committees,
     ...countMetric(overview.totals?.familiesCount),
+    caption: 'الحلقات الحالية',
     tiles: [
       countTile('الحلقات', committees.length),
       countTile('الطلاب', sum(committees, (committee) => committee.studentsCount)),
@@ -271,33 +287,28 @@ function committeesCountMetric(overview, inCommittee) {
   };
 }
 
-function branchPassingMetric(data, inCommittee, filtered) {
-  const students = (data?.studentsList || []).filter((row) => inCommittee(row.committeeName));
-  const expected = filtered ? students.length : Number(data?.expected || 0);
-  const tested = filtered ? students.filter(row => row.tested).length : Number(data?.tested || 0);
+function passingMetric(data, inCommittee, filtered, type) {
+  const available = data?.metric === 'result_average';
+  const students = (available ? data.studentsList || [] : []).filter(row => inCommittee(row.committeeName));
+  const tested = students.filter(row => row.percentage !== null);
+  const id = type === 'branch' ? 'branchPassing' : 'hafizPassing';
+  const percentage = available ? data.percentage : null;
   return {
-    id: 'branchPassing',
-    label: 'اختبارات الاجتياز الفرعي',
-    icon: BookMarked,
-    color: METRIC_COLORS.branchPassing,
-    ...(data ? { value:pct(data.tested,data.expected), display:data.expected ? `${formatNumber(pct(data.tested,data.expected))}%` : '—' } : { value:0, display:'غير متاح' }),
+    id, label: type === 'branch' ? 'متوسط نتائج الاجتياز الفرعي' : 'متوسط نتائج اجتياز حافظ',
+    icon: BookMarked, color: METRIC_COLORS[id],
+    staticDisplay: true, value: percentage ?? 0, display: available ? percentage === null ? '—' : `${faces(percentage)}٪` : 'غير متاح',
     tiles: [
-      countTile('المستحقون للاختبار', expected),
-      countTile('اختُبروا', tested),
-      countTile('لم يُختبروا', expected-tested),
-    ],
-    bars: [],
-    records: [{
-      title: 'الطلاب',
-      rows: students.map((row) => ({
-        label: row.name,
-        note: row.committeeName || 'بدون حلقة',
-        value: row.tested ? 'اختُبر' : 'لم يُختبر',
-        tone:row.tested ? TONES.good : TONES.warn,
-        stats: [{ label:'الأجزاء', value:(row.juzNumbers || []).map(formatNumber).join('، ') }],
-      })),
-      emptyText:'لا يوجد طلاب مستحقون للاختبار في هذه الفترة.',
-    }],
+      countTile('المستحقون للاختبار', filtered ? students.length : data?.expected || 0),
+      countTile('اختُبروا', filtered ? tested.length : data?.tested || 0),
+      countTile('لم يُختبروا', filtered ? students.length - tested.length : (data?.expected || 0) - (data?.tested || 0)),
+      countTile('الأجزاء المجتازة', filtered ? sum(students, row => row.passedParts) : data?.passedParts || 0),
+    ], bars: [], records: [{ title: 'الطلاب', rows: students.map(row => ({
+      label: row.name, note: row.committeeName || 'بدون حلقة',
+      value: row.percentage === null ? 'لم يُختبر' : `${faces(row.percentage)}٪`,
+      tone: row.percentage === null ? TONES.neutral : gradeTone(row.percentage),
+      stats: [{ label: 'الأجزاء المختبرة', value: formatNumber(row.testedParts) },
+        { label: 'الأجزاء المجتازة', value: formatNumber(row.passedParts) }],
+    })), emptyText: available ? 'لا توجد نتائج اجتياز في هذه الفترة.' : 'نتائج الاجتياز غير متاحة لهذا التقرير.' }],
   };
 }
 
@@ -358,7 +369,8 @@ export function buildReportMetrics(overview, {
       weeklyProgramMetric(overview, students, filtered),
       weeklySessionMetric(grades.weeklySession, inCommittee, filtered),
       trackSessionMetric(grades.trackSession, inCommittee, filtered),
-      branchPassingMetric(overview.branchPassing, inCommittee, filtered),
+      passingMetric(overview.branchPassing, inCommittee, filtered, 'branch'),
+      passingMetric(overview.hafizPassing, inCommittee, filtered, 'hafiz'),
       studentLevelsMetric(overview, inCommittee),
       committeesCountMetric(overview, inCommittee),
     );

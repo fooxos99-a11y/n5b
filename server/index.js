@@ -8,7 +8,7 @@ import { assertSupervisorStudentScope } from './services/supervisorStudentScope.
 import { validatePlanReadingHizbs } from '../shared/quran-plan-options.js';
 import { assertPlanDailyThreshold } from './services/planDailyThreshold.js';
 import { loadQuranPlanPerformance } from './services/quranPlanPerformance.js';
-import { loadBranchPassingOverview } from './services/branchPassingOverview.js';
+import { loadPassingOverview } from './services/passingOverview.js';
 import { normalizeSeasonalHolidays, isSeasonalHoliday } from '../shared/seasonal-holidays.js';
 import { parseStudentPlanPause, studentPlanPauseStatus, isStudentStudyHoliday, withStudentPlanPause, effectiveStudentPlanPaused } from '../shared/student-plan-pause.js';
 import { loadIndividualStudentPlanPauses, assertStudentPlanRunning } from './services/studentPlanPause.js';
@@ -138,7 +138,7 @@ import { removedFeaturesMiddleware } from './middleware/removedFeatures.js';
 import { readLocalMushafFont, readLocalMushafPage } from './services/localMushaf.js';
 import { findNextUnmemorizedPosition } from './services/quranMemorizationContinuity.js';
 import { canonicalQuranRange, canonicalQuranRow, quranFacePortion, taskFaceQuantity } from './services/quranPageReference.js';
-import { BUSINESS_DAY_START_TIME, getBusinessDateTimeParts as getSaudiDateTimeParts } from '../shared/business-date.js';
+import { BUSINESS_DAY_START_TIME, getBusinessDateTimeParts as getSaudiDateTimeParts, getSaudiCalendarDate } from '../shared/business-date.js';
 import { OFFLINE_RECITATION_MAX_BATCH } from '../shared/offline-recitation.js';
 import { getRecitationStatusLabel } from '../shared/recitation-evaluation.js';
 import {
@@ -8249,7 +8249,7 @@ app.put('/api/student-plans/:studentId', requireStudentPlanAccess, async (req, r
       const generated = await prepareAutomaticRanges(connection, {
         studentId, priorMemorization: submittedPriorMemorization,
         current: continuedPlan,
-        ranges: continuedPlan ? queueInput : [{ startSurah, startAyah, endSurah, endAyah }, ...queueInput],
+        ranges: continuedPlan ? queueInput : [{ startSurah, startAyah, endSurah, endAyah, stageJuz: Number(req.body.automaticStageJuz) || undefined }, ...queueInput],
       });
       if (!continuedPlan) {
         const first = generated.ranges.shift();
@@ -13265,13 +13265,15 @@ app.get('/api/reports/supervisors', requireManagementReportAccess, async (req, r
 
 async function buildOverviewReport({ from, startDate: requestedStartDate, date, to, endDate: requestedEndDate, queryExecutor = null, auth = null, committeeId = 'all', complexId = 'all' } = {}) {
     const reportDb = createOverviewReportScope(queryExecutor || db(), { auth, committeeId, complexId });
-    const today = getSaudiDateTimeParts().date;
+    const today = getSaudiCalendarDate();
     let defaultStartDate = from || requestedStartDate || date;
     defaultStartDate = await resolveOverviewStartDate(defaultStartDate, reportDb, today);
   const startDate = String(from || requestedStartDate || date || defaultStartDate);
-  const endDate = String(to || requestedEndDate || date || today);
+  let endDate = String(to || requestedEndDate || date || today);
 
     assertReportDateRange(startDate, endDate);
+    const requestedTo = endDate;
+    endDate = minDateOnly(endDate, today);
 
     const rangeDates = getDatesInRange(startDate, endDate);
     // Attendance is expected on the weekly program's attendance days (the grading policy's work days).
@@ -13503,7 +13505,9 @@ async function buildOverviewReport({ from, startDate: requestedStartDate, date, 
     const committeeIndicatorMap = new Map();
     const studentIndicatorMap = new Map();
     const attendanceExpectedPerStudent = attendanceDates.length;
-    initializeCommitteeIndicators({ committeeStudentRows, committeeIndicatorMap, createIndicatorTotals, addIndicatorValue, attendanceExpectedPerStudent, attendanceDates, studentIndicatorMap });
+    initializeCommitteeIndicators({ committeeStudentRows, committeeIndicatorMap, createIndicatorTotals, addIndicatorValue, attendanceExpectedPerStudent, attendanceDates, studentIndicatorMap,
+      expectedByStudent: new Map(grades.weeklyProgram.studentsList.map(row => [String(row.id), Number(row.attendanceDays || 0)])),
+    });
     if (attendanceDates.length) {
     const [attendanceIndicatorRows] = await reportDb.query(
         `
@@ -13512,6 +13516,7 @@ async function buildOverviewReport({ from, startDate: requestedStartDate, date, 
           COUNT(DISTINCT ar.record_date) AS attendedDays
         FROM attendance_records ar
         WHERE ar.record_date BETWEEN ? AND ? AND ${reportDb.student('ar.student_id')}
+          AND ${studyDateSql('ar.record_date', 'ar.student_id')}
           AND ar.record_date IN (${dayPlaceholders})
           AND ar.status IN ('present', 'late', 'excused')
         GROUP BY ar.student_id
@@ -13601,9 +13606,11 @@ async function buildOverviewReport({ from, startDate: requestedStartDate, date, 
 
   return {
       date: startDate,
+      generatedAt: new Date().toISOString(),
       period: {
         from: startDate,
-        to: endDate,
+        to: requestedTo,
+        through: endDate,
         totalDays: rangeDates.length,
         attendanceDaysCount: attendanceDates.length,
       },
@@ -13649,8 +13656,9 @@ async function buildOverviewReport({ from, startDate: requestedStartDate, date, 
         readingDays: reportProgramPolicy.readingDays.map(Number),
         expand: range => expandQuranTraversalRange(queryExecutor || db(), range),
       }),
-      branchPassing: await loadBranchPassingOverview(reportDb, {
+      ...await loadPassingOverview(reportDb, {
         from:startDate, to:minDateOnly(endDate,today), referenceConnection:queryExecutor || db(),
+        expand: range => expandQuranTraversalRange(queryExecutor || db(), range),
       }),
       studentLevels: await loadStudentLevels({
         query: reportDb.query,
@@ -13703,7 +13711,7 @@ const progressTaskTypes = ['memorization', 'repeat', 'review', 'link'];
 const progressScoredTaskTypes = ['memorization', 'review', 'link'];
 
 /** Initialize student and committee indicators with the same expected attendance denominator. */
-function initializeCommitteeIndicators({ committeeStudentRows, committeeIndicatorMap, createIndicatorTotals, addIndicatorValue, attendanceExpectedPerStudent, attendanceDates = [], studentIndicatorMap }) {
+function initializeCommitteeIndicators({ committeeStudentRows, committeeIndicatorMap, createIndicatorTotals, addIndicatorValue, attendanceExpectedPerStudent, attendanceDates = [], studentIndicatorMap, expectedByStudent }) {
   for (const row of committeeStudentRows) {
     const committeeKey = String(row.committeeId);
     if (!committeeIndicatorMap.has(committeeKey)) {
@@ -13722,7 +13730,7 @@ function initializeCommitteeIndicators({ committeeStudentRows, committeeIndicato
       name: row.studentName,
       totals: createIndicatorTotals(),
     };
-    const expected = row.joined ? attendanceDates.filter(date => date >= row.joined).length : attendanceExpectedPerStudent;
+    const expected = expectedByStudent?.get(String(row.studentId)) ?? (row.joined ? attendanceDates.filter(date => date >= row.joined).length : attendanceExpectedPerStudent);
     addIndicatorValue(student.totals, 'attendance', 0, expected);
     addIndicatorValue(committee.totals, 'attendance', 0, expected);
     committee.studentsCount += 1;

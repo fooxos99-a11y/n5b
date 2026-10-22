@@ -38,23 +38,23 @@ test('a daily grade freezing an old week policy does not freeze an unrecorded se
   assert.equal(tuesday[1].trackMax, 37, 'a recorded component retains its own frozen amounts');
 });
 
-test('session report aggregates the weeks touching the period and scopes teachers', async () => {
+test('session report uses exact scheduled dates and scopes teachers', async () => {
   let captured;
   const connection = { query: async (sql, params) => {
     if (sql.startsWith('SELECT student_id AS studentId, state_json AS pause')) return [[]];
     if (sql.includes('FROM student_day_compensations') || sql.includes('SELECT student_id AS studentId, detail_json AS detail')) return [[]];
     if (sql.startsWith('SELECT setting_value')) return [[]];
-    if (sql.includes('FROM grading_week_policies')) return [[]];
+    if (sql.includes('FROM grading_week_policies') || sql.includes('FROM student_weekly_components WHERE')) return [[]];
     if (sql.includes('AS joined')) return [[{ id: 3, name: 'خالد', committeeName: 'الحلقة', joined: '2026-01-01' }, { id: 4, name: 'سعيد', committeeName: 'الحلقة', joined: '2026-01-01' }]];
     captured = { sql, params };
     return [[{ id: 3, name: 'خالد', committeeName: 'الحلقة', recordedWeeks: 2, attended: 1, absent: 1, grade: 25, max: 60 }]];
   } };
   const report = await buildGradingSessionReport(connection, { component: 'track', from: '2026-09-22', to: '2026-09-30', auth: { role: 'supervisor', id: 7 } });
-  assert.deepEqual(captured.params.slice(0, 3), ['track', '2026-09-20', '2026-09-30']);
+  assert.deepEqual(captured.params.slice(0, 3), ['track', '2026-09-22', '2026-09-30']);
   assert.equal(captured.params.at(-1), 7);
   assert.match(captured.sql, /LEFT JOIN student_weekly_components w/);
-  assert.deepEqual(report.rows[0], { id: 3, name: 'خالد', committeeName: 'الحلقة', recordedWeeks: 2, segments: { tested: 0, total: 0, mistakes: 0, warnings: 0, hesitations: 0, grade: 0, max: 0, compensated: 0 }, attended: 1, absent: 1, late: 0, excused: 0, grade: 25, max: 60, percentage: 41.7 });
-  assert.deepEqual(report.rows[1], { id: 4, name: 'سعيد', committeeName: 'الحلقة', recordedWeeks: 0, segments: { tested: 0, total: 0, mistakes: 0, warnings: 0, hesitations: 0, grade: 0, max: 0, compensated: 0 }, attended: 0, absent: 0, late: 0, excused: 0, grade: 0, max: 60, percentage: 0 });
+  assert.deepEqual(report.rows[0], { id: 3, name: 'خالد', committeeName: 'الحلقة', recordedWeeks: 2, segments: { tested: 0, total: 0, mistakes: 0, warnings: 0, hesitations: 0, grade: 0, max: 0, compensated: 0 }, attended: 1, absent: 1, late: 0, excused: 0, grade: 25, max: 30, percentage: 83.3 });
+  assert.deepEqual(report.rows[1], { id: 4, name: 'سعيد', committeeName: 'الحلقة', recordedWeeks: 0, segments: { tested: 0, total: 0, mistakes: 0, warnings: 0, hesitations: 0, grade: 0, max: 0, compensated: 0 }, attended: 0, absent: 0, late: 0, excused: 0, grade: 0, max: 30, percentage: 0 });
   await assert.rejects(buildGradingSessionReport(connection, { component: 'daily', from: '2026-09-22', to: '2026-09-30' }), /نوع الجلسة/);
   await assert.rejects(buildGradingSessionReport(connection, { component: 'weekly', from: '2026-09-30', to: '2026-09-22' }), /الفترة/);
 });
@@ -85,6 +85,7 @@ test('statistics sum the weekly program, both sessions and narration', async () 
       { id: 2, name: 'بدر', committeeId: 2, committeeName: 'العصر', joined: '2026-01-01' },
     ]],
     [[]],
+    [[]], // Frozen session policies.
     [[]], // Effective reading dates are loaded independently of the per-student maxima.
   ];
   const reportDb = { student: () => '1=1', query: async sql => sql.includes('AS holidays') || sql.includes('AS pause') || sql.includes('FROM student_day_compensations') ? [[]] : answers.shift() };
@@ -100,13 +101,14 @@ test('statistics sum the weekly program, both sessions and narration', async () 
   const { committees: weeklyCommittees, studentsList: weeklyStudents, ...weekly } = grades.weeklySession;
   assert.deepEqual(weekly, { recorded: 1, attended: 1, absent: 0, late: 0, excused: 0, expectedAttendance: 2, grade: 20, max: 40, percentage: 50 });
   assert.deepEqual(weeklyCommittees, [{ id: 1, name: 'الفجر', grade: 20, max: 20, percentage: 100 }, { id: 2, name: 'العصر', grade: 0, max: 20, percentage: 0 }]);
-  assert.deepEqual(weeklyStudents[0], { id: 1, name: 'أحمد', committeeName: 'الفجر', attendanceDays: 5, expectedWeeks: 1, attended: 1, absent: 0, late: 0, excused: 0, grade: 20, max: 20, percentage: 100 });
+  assert.deepEqual(weeklyStudents[0], { id: 1, name: 'أحمد', committeeName: 'الفجر', attendanceDays: 5, expectedWeeks: 1, expectedSegments: 2, attended: 1, absent: 0, late: 0, excused: 0, grade: 20, max: 20, percentage: 100 });
   assert.equal(weeklyStudents[1].expectedWeeks, 1);
   assert.equal(grades.trackSession.percentage, 0);
   assert.deepEqual(grades.trackSession.studentsList.map((row) => [row.name, row.absent]), [['أحمد', 0], ['بدر', 1]]);
   // Only recited segments count as tested; their mistakes and warnings add up per student and overall.
-  assert.deepEqual(grades.trackSession.segments, { tested: 1, total: 2, mistakes: 2, warnings: 1, hesitations: 0, grade: 9, max: 10, compensated: 0 });
-  assert.deepEqual(grades.trackSession.studentsList[1].segments, grades.trackSession.segments);
+  assert.deepEqual(grades.trackSession.segments, { tested: 1, total: 2, mistakes: 2, warnings: 1, hesitations: 0, grade: 9, max: 10, compensated: 0, expected: 4 });
+  const { expected: _expected, ...testedSegments } = grades.trackSession.segments;
+  assert.deepEqual(grades.trackSession.studentsList[1].segments, testedSegments);
   assert.deepEqual(grades.facesRead.readingByStudent, { 1: 6 });
   // 2026-09-20 (Sunday) to 2026-09-26 (Saturday): every day is a reading day by default.
   assert.deepEqual(grades.reading, { expectedDays: 7, expectedByStudent: { '1': 7, '2': 7 }, days: 3, hizbs: 2, byStudent: { 1: { days: 3, faces: 6, hizbs: 2 } } });

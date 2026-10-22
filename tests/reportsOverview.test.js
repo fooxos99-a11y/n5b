@@ -58,10 +58,10 @@ test('statistics are indicator cards with details, then the best students and ci
   // Attendance, plan completion, recitations and faces read are covered by the weekly program and the track session.
   assert.doesNotMatch(metrics, /label: 'الحضور',\s*icon|label: 'إنجاز الخطط'|label: 'جلسات التسميع'|label: 'الأوجه المقروءة'/);
   // Include attendance and unrecorded students in the overall session indicator.
-  assert.match(metrics, /\.\.\.percentMetric\(pct\(attended, expected\)\)/);
+  assert.match(metrics, /\.\.\.percentMetric\(expected > 0 \? pct\(attended, expected\) : null\)/);
   assert.match(metrics, /percentTile\('الحضور', pct\(attendedOf\(attendance\), attendance\.total\)\),\s*countTile\('أوجه الحفظ'[\s\S]*countTile\('أوجه الإتقان'[\s\S]*countTile\('المراجعة'[\s\S]*countTile\('الربط'/);
-  assert.match(metrics, /percentTile\('نسبة إتقان الحفظ', pct\(segments\.grade, segments\.max\)\)/);
-  assert.doesNotMatch(metrics, /الأخطاء واللحون|المقاطع المختبرة/);
+  assert.match(metrics, /ratioTile\('إتقان المقاطع المختبرة', segments\.grade, segments\.max, 'لم يُختبر'\)/);
+  assert.doesNotMatch(metrics, /الأخطاء واللحون/);
   assert.match(card, /prefers-reduced-motion: reduce/);
   assert.match(card, /min-h-48[^"]*rounded-2xl border border-border bg-card/);
   // Details open in a centred window with small summary cards.

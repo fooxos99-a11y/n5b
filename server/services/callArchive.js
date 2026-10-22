@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { db, getDatabaseContext } from '../db.js';
 import { hasSupervisorDashboardPermission } from './dashboardPermissions.js';
 import { getCallArchiveConfig, callArchiveCapabilities } from './callArchiveConfig.js';
-import { createCallArchiveProvider, verifiedHumanParticipant } from './callArchiveProvider.js';
+import { createCallArchiveProvider } from './callArchiveProvider.js';
 import { createCallArchiveStorage } from './callArchiveStorage.js';
 import { transcribeCallArchive, summarizeCallArchive } from './callArchiveAI.js';
 import { transcribeCallArchiveChunks } from './callArchiveChunks.js';
@@ -66,7 +66,7 @@ export async function reconcileCallArchivePresence(roomName, options = {}) {
   return locked(crypto.createHash('sha256').update(roomName).digest('hex').slice(0, 20), async connection => {
     const [[room]] = await connection.query(`SELECT r.*, c.name AS committee_name FROM call_rooms r
       LEFT JOIN committees c ON c.id=r.committee_id WHERE r.livekit_room_name=? LIMIT 1`, [roomName]);
-    let [[session]] = await connection.query('SELECT * FROM call_archive_sessions WHERE livekit_room_name=? AND active_room_id IS NOT NULL LIMIT 1', [roomName]);
+    let [[session]] = await connection.query('SELECT *,TIMESTAMPDIFF(MICROSECOND,empty_since,CURRENT_TIMESTAMP(3))/1000 AS empty_for_ms FROM call_archive_sessions WHERE livekit_room_name=? AND active_room_id IS NOT NULL LIMIT 1', [roomName]);
     if (!room || room.status !== 'open') {
       if (session && session.state !== 'stopping') await markStopping(connection, session);
       return;
@@ -74,19 +74,17 @@ export async function reconcileCallArchivePresence(roomName, options = {}) {
     const humans = await provider.presence(roomName);
     if (session) {
       for (const info of await provider.list(roomName)) await applyCallArchiveEgress(info, { pool: connection });
-      [[session]] = await connection.query('SELECT * FROM call_archive_sessions WHERE id=? AND active_room_id IS NOT NULL', [session.id]);
+      [[session]] = await connection.query('SELECT *,TIMESTAMPDIFF(MICROSECOND,empty_since,CURRENT_TIMESTAMP(3))/1000 AS empty_for_ms FROM call_archive_sessions WHERE id=? AND active_room_id IS NOT NULL', [session.id]);
     }
     if (session) {
-      const [previous] = await connection.query('SELECT identity,connection_sid FROM call_archive_participants WHERE session_id=? AND left_at IS NULL', [session.id]);
-      const departure = options.departure && verifiedHumanParticipant(options.departure);
-      // A full reconnect can happen between presence polls. Compare connection
-      // IDs, not microphone tracks; delayed duplicate departures cannot end the
-      // replacement connection's archive.
-      const pairChanged = previous.length === 2 && previous.some(person => person.connection_sid && (
-        (departure?.connectionSid === person.connection_sid && departure.identity === person.identity)
-        || humans.some(human => human.identity === person.identity && human.connectionSid && human.connectionSid !== person.connection_sid)
-      ));
-      if (humans.length < 2 || pairChanged) {
+      const [previous] = await connection.query('SELECT identity,connection_sid FROM call_archive_participants WHERE session_id=? AND (left_at IS NULL OR left_at>=(SELECT empty_since FROM call_archive_sessions WHERE id=?))', [session.id, session.id]);
+      const grace = config.rejoinGraceMs ?? 8000;
+      const pairChanged = previous.length === 2 && humans.length >= 2 && previous.some(person =>
+        !humans.some(human => human.identity === person.identity));
+      const connectionChanged = grace === 0 && previous.length === 2 && previous.some(person => person.connection_sid &&
+        humans.some(human => human.identity === person.identity && human.connectionSid && human.connectionSid !== person.connection_sid));
+      const expired = session.empty_since && Number(session.empty_for_ms) >= grace;
+      if ((humans.length < 2 && (grace === 0 || expired)) || pairChanged || connectionChanged || (humans.length >= 2 && expired)) {
         await markStopping(connection, session);
         await stopRecordingMedia(connection, session, provider);
         session = null;
@@ -97,11 +95,11 @@ export async function reconcileCallArchivePresence(roomName, options = {}) {
       await connection.query(`INSERT INTO call_archive_sessions
         (id,room_id,active_room_id,livekit_room_name,room_name,committee_name,owner_role,owner_id,started_at)
         VALUES (?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP(3))`, [id, room.id, room.id, roomName, room.name, room.committee_name, room.created_by_role, room.created_by_id]);
-      await connection.query('UPDATE call_archive_sessions SET recording_gap=1 WHERE id=?', [id]);
       [[session]] = await connection.query('SELECT * FROM call_archive_sessions WHERE id=?', [id]);
       await newMedia(connection, session, 'mixed');
     }
     if (!session) return;
+    await connection.query('UPDATE call_archive_sessions SET empty_since=IF(?,COALESCE(empty_since,CURRENT_TIMESTAMP(3)),NULL) WHERE id=?', [humans.length < 2, session.id]);
     await enroll(connection, session.id, humans);
     if (Date.now() - new Date(session.started_at).getTime() > config.maxSessionMs) {
       await connection.query('UPDATE call_archive_sessions SET recording_gap=1,last_error=? WHERE id=?', ['بلغ التسجيل حد الجلسة؛ ستبدأ جلسة جديدة إذا استمرت المكالمة.', session.id]);
@@ -121,7 +119,7 @@ async function markStopping(connection, session) {
 
 export async function finishCallArchiveRoom(roomName) {
   return locked(crypto.createHash('sha256').update(roomName).digest('hex').slice(0, 20), async connection => {
-    const [[session]] = await connection.query('SELECT * FROM call_archive_sessions WHERE livekit_room_name=? AND active_room_id IS NOT NULL LIMIT 1', [roomName]);
+    const [[session]] = await connection.query('SELECT *,TIMESTAMPDIFF(MICROSECOND,empty_since,CURRENT_TIMESTAMP(3))/1000 AS empty_for_ms FROM call_archive_sessions WHERE livekit_room_name=? AND active_room_id IS NOT NULL LIMIT 1', [roomName]);
     if (session) await markStopping(connection, session);
   });
 }
@@ -137,11 +135,11 @@ export async function applyCallArchiveEgress(info, options = {}) {
     if (media.kind === 'mixed') await pool.query("UPDATE call_archive_sessions SET state='recording',recording_ready_at=COALESCE(recording_ready_at,CURRENT_TIMESTAMP(3)) WHERE id=? AND active_room_id IS NOT NULL AND state IN ('starting','recording','failed')", [media.session_id]);
   }
   if (status >= 3) {
-    const complete = status === 3 && result && Number(result.size) > 0;
+    const complete = status === 3 && result && Number(result.size) > 0 && Number(result.duration) > 0;
     await pool.query(`UPDATE call_archive_media SET state=?,bytes=?,duration_seconds=?,ended_at=CURRENT_TIMESTAMP(3),last_error=? WHERE id=?`,
       [complete ? 'ready' : 'failed', result ? Number(result.size) : null, result ? Number(result.duration || 0) / 1e9 : null,
         complete ? null : 'تعذر إكمال هذا المسار الصوتي.', media.id]);
-    if (!complete) await pool.query('UPDATE call_archive_sessions SET recording_gap=1,last_error=? WHERE id=?', ['يوجد مسار صوتي لم يكتمل تسجيله.', media.session_id]);
+    if (!complete && media.kind === 'mixed') await pool.query('UPDATE call_archive_sessions SET recording_gap=1,last_error=? WHERE id=?', ['تعذر حفظ تسجيل المكالمة.', media.session_id]);
     if (media.kind === 'mixed') {
       const [[session]] = await pool.query('SELECT * FROM call_archive_sessions WHERE id=?', [media.session_id]);
       if (session.active_room_id && !['stopping', 'processing', 'ready', 'failed'].includes(session.state)) await markStopping(pool, session);
@@ -163,13 +161,10 @@ async function captureSession(connection, session, provider) {
   [[session]] = await connection.query('SELECT * FROM call_archive_sessions WHERE id=?', [session.id]);
   if (['stopping', 'processing', 'ready', 'failed'].includes(session.state)) return;
   const humans = await provider.presence(session.livekit_room_name);
-  if (humans.length < 2) {
-    await markStopping(connection, session);
-    await stopRecordingMedia(connection, session, provider);
-    return;
-  }
+  // Presence reconciliation owns the durable reconnect deadline; keep the mixed recorder alive during it.
+  if (humans.length < 2) return;
   const existing = await provider.list(session.livekit_room_name);
-  const [mediaRows] = await connection.query("SELECT * FROM call_archive_media WHERE session_id=? AND state IN ('pending','failed','starting')", [session.id]);
+  const [mediaRows] = await connection.query("SELECT * FROM call_archive_media WHERE session_id=? AND state IN ('pending','failed','starting') ORDER BY kind='mixed' DESC,id", [session.id]);
   for (const media of mediaRows) {
     if (media.kind === 'participant' && !humans.some(person => person.identity === media.identity && person.tracks.includes(media.track_id))) {
       await connection.query("UPDATE call_archive_media SET state='failed',last_error=? WHERE id=?", ['انتهى المسار قبل بدء التسجيل.', media.id]);
@@ -282,7 +277,8 @@ export async function processCallArchiveBatch(options = {}) {
         await connection.query(`UPDATE call_archive_jobs SET state=?,lease_until=NULL,last_error=?,next_at=DATE_ADD(CURRENT_TIMESTAMP(3),INTERVAL ? SECOND) WHERE id=? AND lease_token=?`,
           [final ? 'failed' : 'pending', safeError(error), delaySeconds, job.id, token]);
         if (error.code !== 'EGRESS_PENDING') {
-          await connection.query('UPDATE call_archive_sessions SET last_error=?,recording_gap=IF(?=\'capture\',1,recording_gap) WHERE id=?', [safeError(error), job.kind, session.id]);
+          const [[mixedRecording]] = await connection.query("SELECT 1 AS active FROM call_archive_media WHERE session_id=? AND kind='mixed' AND state='recording' LIMIT 1", [session.id]);
+          await connection.query('UPDATE call_archive_sessions SET last_error=?,recording_gap=IF(?=\'capture\' AND ?=0,1,recording_gap) WHERE id=?', [safeError(error), job.kind, mixedRecording ? 1 : 0, session.id]);
           if (job.kind === 'report') await connection.query('UPDATE call_archive_sessions SET report_state=? WHERE id=?', [final ? 'failed' : 'pending', session.id]);
           if (final && job.kind === 'capture') {
             const [[mixed]] = await connection.query("SELECT 1 AS active FROM call_archive_media WHERE session_id=? AND kind='mixed' AND state='recording' LIMIT 1", [session.id]);
@@ -329,7 +325,7 @@ export async function getCallArchiveRoomStates(ids) {
 }
 
 export function publicCallArchiveSession(row) {
-  return { id: row.id, roomId: String(row.room_id), roomName: row.room_name, committeeName: row.committee_name,
+  return { id: row.id, sequence: Number(row.sequence) || null, roomId: String(row.room_id), roomName: row.room_name, committeeName: row.committee_name,
     state: row.state, active: Boolean(row.active_room_id), reportState: row.report_state, startedAt: iso(row.started_at), endedAt: iso(row.ended_at),
     recordingReadyAt: iso(row.recording_ready_at), recordingGap: Boolean(row.recording_gap), lastError: row.last_error };
 }

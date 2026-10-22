@@ -1,9 +1,9 @@
 import { loadCompensationAudit } from './compensationReports.js';
 import { createOverviewReportScope } from './overviewReportScope.js';
-import { loadGradingPolicy, weekStartOf } from './grading.js';
+import { loadGradingPolicy } from './grading.js';
 import { facesReadStatistics } from '../../shared/grading-engine.js';
 import { loadExpectedGrades, includeUnrecordedGrades } from './expectedGrades.js';
-import { studyDateSql, studyWeekSql } from './seasonalHolidays.js';
+import { studyDateSql } from './seasonalHolidays.js';
 import { sessionAttendanceCountsSql } from './sessionAttendanceSql.js';
 import { planScheduleDates } from './planScheduleDates.js';
 
@@ -11,23 +11,21 @@ const SESSION_COMPONENTS = new Set(['track', 'weekly']);
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 const number = (value) => Number(value || 0);
-const percentage = (grade, max) => (max > 0 ? Math.round((grade / max) * 1000) / 10 : 0);
+const percentage = (grade, max) => (max > 0 ? Math.round((grade / max) * 1000) / 10 : null);
 
-/** A daily report uses the frozen scheduled day, rather than all records stored under that Sunday. */
+/** All periods use the frozen scheduled date, including partial weeks and month boundaries. */
 export function gradingSessionDateSql(alias = '') {
   const prefix = alias ? `${alias}.` : '';
   return `DATE_ADD(${prefix}week_start, INTERVAL COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(${prefix}policy_json,
     IF(${prefix}component = 'track', '$.trackSession.sessionDay', '$.weeklySession.sessionDay'))) AS UNSIGNED), 0) DAY)`;
 }
 
-const sessionRangeColumn = (from, to, alias = '') => from === to ? gradingSessionDateSql(alias) : `${alias ? `${alias}.` : ''}week_start`;
-const sessionRangeStart = (from, to) => from === to ? from : weekStartOf(from);
-const sessionStudySql = (from, to, alias = '') => {
+const sessionRangeColumn = (_from, _to, alias = '') => gradingSessionDateSql(alias);
+const sessionRangeStart = from => from;
+const sessionStudySql = (_from, _to, alias = '') => {
   const column = `${alias ? `${alias}.` : ''}week_start`;
   const student = alias ? `${alias}.student_id` : 'student_weekly_components.student_id';
-  return from === to
-    ? studyDateSql(column, student).replaceAll(`${column} BETWEEN`, `${gradingSessionDateSql(alias)} BETWEEN`)
-    : studyWeekSql(column, student);
+  return studyDateSql(column, student).replaceAll(`${column} BETWEEN`, `${gradingSessionDateSql(alias)} BETWEEN`);
 };
 
 function assertPeriod(from, to) {
@@ -95,6 +93,7 @@ function gradeBreakdown(rows = []) {
       committeeName: row.committeeName || '',
       ...(row.attendanceDays !== undefined ? { attendanceDays: number(row.attendanceDays) } : {}),
       ...(row.weeks !== undefined ? { expectedWeeks: number(row.weeks) } : {}),
+      ...(row.expectedSegments !== undefined ? { expectedSegments: number(row.expectedSegments) } : {}),
       ...(row.attended !== undefined ? { attended: number(row.attended), absent: number(row.absent), late: number(row.late), excused: number(row.excused) } : {}),
       grade,
       max,
@@ -224,7 +223,7 @@ export async function buildGradingOverview(reportDb, { from, to, quranFaces = {}
     trackSession: {
       ...session('track', sessionRowsFor('track')),
       ...trackBreakdown,
-      segments: track.totals,
+      segments: { ...track.totals, expected: sessionRowsFor('track').reduce((sum, student) => sum + number(student.expectedSegments), 0) },
       studentsList: trackBreakdown.studentsList.map((student) => ({ ...student, segments: track.byStudent.get(String(student.id)) || emptySegments() })),
     },
     narration: {

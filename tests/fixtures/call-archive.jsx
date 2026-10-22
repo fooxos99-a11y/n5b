@@ -9,7 +9,7 @@ import '@/index.css';
 if (!import.meta.env.DEV || !['localhost', '127.0.0.1'].includes(location.hostname)) throw new Error('Local test only');
 const reviewer = new URLSearchParams(location.search).get('role') !== 'student';
 const room = { id: '17', name: 'غرفة المقرئ أحمد — تسجيل تجريبي محلي', status: 'closed', sessionCount: 2 };
-const session = { id: 'session-22', roomId: '17', roomName: room.name, state: 'ready', reportState: 'ready', startedAt: '2026-10-18T06:00:00Z', endedAt: '2026-10-18T06:15:00Z', recordingGap: false, canReview: reviewer };
+const session = { id: 'session-22', sequence: 1, participants: [{ name: 'المقرئ التجريبي' }, { name: 'الطالب التجريبي' }], roomId: '17', roomName: room.name, state: 'ready', reportState: 'ready', startedAt: '2026-10-18T06:00:00Z', endedAt: '2026-10-18T06:15:00Z', recordingGap: false, canReview: reviewer };
 let review = null;
 const report = () => ({ summary: 'مثال محلي: قرأ الطالب مقطعًا وراجع المقرئ معه موضعًا يحتاج إعادة.', passage: 'مقطع تجريبي',
   observations: [{ id: 'observation-1', atSeconds: 2, endSeconds: 4, category: 'possible_error', detail: 'موضع تجريبي يحتاج مراجعة المقرئ.', correction: 'طلب المقرئ إعادة الموضع.', response: 'أعاد الطالب القراءة.', confidence: 'medium' },
@@ -21,10 +21,10 @@ text(0, 'RIFF'); view.setUint32(4, wave.length - 8, true); text(8, 'WAVE'); text
 const audioUrl = URL.createObjectURL(new Blob([wave], { type: 'audio/wav' }));
 Object.assign(callArchiveApi, {
   rooms: async () => ({ rooms: [room], capabilities: { configured: true } }),
-  room: async (_roomId, before) => ({ room, sessions: before ? [{ ...session, id: 'session-23', state: 'failed', recordingGap: true, reportState: 'failed' }] : [session], nextCursor: before ? null : 'session-22' }),
+  room: async (_roomId, before) => ({ room, sessions: before ? [{ ...session, id: 'session-23', sequence: 2, state: 'failed', recordingGap: true, reportState: 'failed' }] : [session], nextCursor: before ? null : 'session-22' }),
   session: async id => {
-    if (window.__archiveDenied) throw Object.assign(new Error('الجلسة غير متاحة لحسابك.'), { status: 403 });
-    return { session: { ...session, id, ...(id === 'session-23' ? { state: 'failed', recordingGap: true, reportState: 'failed' } : {}), ...(id === 'session-24' ? { state: 'failed', recordingGap: true, reportState: 'failed', active: true, lastError: 'تعذر بدء التسجيل التجريبي.' } : {}) }, participants: [{ identity: 'reciter:7', name: 'المقرئ التجريبي', joinedAt: session.startedAt, leftAt: session.endedAt }, { identity: 'student:3', name: 'الطالب التجريبي', joinedAt: session.startedAt, leftAt: session.endedAt }], media: id === 'session-24' ? [] : [{ id: 'media-1', kind: 'mixed', available: true }], report: ['session-23', 'session-24'].includes(id) ? null : report(), canReview: reviewer };
+    if (window.__archiveDenied || new URLSearchParams(location.search).has('denied')) throw Object.assign(new Error('الجلسة غير متاحة لحسابك.'), { status: 403 });
+    return { session: { ...session, id, ...(id === 'session-23' ? { state: 'failed', recordingGap: true, reportState: 'failed' } : {}), ...(id === 'session-24' ? { state: 'failed', recordingGap: true, reportState: 'failed', active: true, lastError: 'تعذر بدء التسجيل التجريبي.' } : {}) }, participants: [{ identity: 'reciter:7', name: 'المقرئ التجريبي', joinedAt: session.startedAt, leftAt: session.endedAt }, { identity: 'student:3', name: 'الطالب التجريبي', joinedAt: session.startedAt, leftAt: session.endedAt }], media: id === 'session-24' ? [] : [{ id: 'media-1', kind: 'mixed', available: true }, { id: 'media-2', kind: 'participant', available: true, identity: 'student:3' }], report: ['session-23', 'session-24'].includes(id) ? null : report(), canReview: reviewer };
   },
   playback: async () => ({ url: audioUrl }),
   review: async (_id, value) => { if (!reviewer) throw new Error('غير مصرح'); review = { ...value, reviewedBy: { name: 'المقرئ التجريبي', role: 'reciter', id: '7' }, reviewedAt: new Date().toISOString() }; window.__archiveReview = review; },

@@ -67,19 +67,18 @@ try {
       };
       await count(4);await count(1);
     }
-    await page.getByRole('button',{name:'التقرير المجمّع',exact:true}).click();
-    await page.getByRole('region',{name:'ملخص الاختبارات'}).waitFor();
-    if(width===390&&theme==='dark') {
-      await page.route('**/api/passing/guest/students/11/report?type=all',route=>route.abort('connectionfailed'));
-    }
-    await page.getByRole('combobox',{name:'نوع الاختبارات',exact:true}).click();
-    await page.getByRole('option',{name:'جميع الاختبارات',exact:true}).click();
+    assert.equal(await page.getByRole('button',{name:'التقرير المجمّع',exact:true}).count(),0);
+    await page.getByRole('button',{name:'إغلاق',exact:true}).click();
+    if(width===390&&theme==='dark') await page.route('**/api/passing/guest/students/11/report?type=branch',route=>route.abort('connectionfailed'));
+    await page.getByRole('button',{name:'تقرير طالب الاجتياز المحلي',exact:true}).click();
     if(width===390&&theme==='dark') {
       await page.getByText('تعذر الاتصال. تحقق من اتصالك وحاول مرة أخرى.',{exact:true}).waitFor();
-      await page.unroute('**/api/passing/guest/students/11/report?type=all');
+      await page.unroute('**/api/passing/guest/students/11/report?type=branch');
       await page.getByRole('button',{name:'إعادة المحاولة',exact:true}).click();
     }
-    const report=await api('/passing/students/11/report');
+    await page.getByRole('region',{name:'ملخص الاختبارات'}).waitFor();
+    assert.equal(await page.getByRole('combobox',{name:'نوع الاختبارات',exact:true}).count(),0);
+    const report=await api('/passing/students/11/report?type=branch');
     await page.getByRole('region',{name:'ملخص الاختبارات'}).getByText(formatPassingPercentage(report.summary.percentage),{exact:true}).waitFor();
     const row=page.getByRole('region',{name:'نتائج الجزء 3',exact:true});
     await row.getByText('النسبة 95٪',{exact:true}).waitFor();await row.getByText('ممتاز',{exact:true}).waitFor();
@@ -92,7 +91,9 @@ try {
     await history.getByText(/التقديرات: ممتاز من 95٪/).first().waitFor();
     await noOverflow(page);await page.screenshot({path:`${folder}/history-${width}-${theme}.png`,fullPage:true});
     await history.getByRole('button',{name:'إغلاق',exact:true}).click();
-    await page.getByRole('combobox',{name:'نوع الاختبارات',exact:true}).click();await page.getByRole('option',{name:'اجتياز حافظ',exact:true}).click();
+    await page.getByRole('button',{name:'إغلاق',exact:true}).click();
+    await page.getByRole('button',{name:'اجتياز حافظ',exact:true}).click();
+    await page.getByRole('button',{name:'تقرير طالب الاجتياز المحلي',exact:true}).click();
     const hafiz=await api('/passing/students/11/report?type=hafiz');
     await page.getByRole('region',{name:'ملخص الاختبارات'}).getByText(formatPassingPercentage(hafiz.summary.percentage),{exact:true}).waitFor();
     await noOverflow(page);
@@ -100,7 +101,7 @@ try {
     evidence.push({width,theme,priorParts:[3,4],combinedPercentage:report.summary.percentage,reportHistory:true,overflow:false,guestCookieIsolation:true});
     await context.close();
   }
-  const reportBefore=await api('/passing/students/11/report');
+  const reportBefore=await api('/passing/students/11/report?type=branch');
   const context=await browser.newContext({viewport:{width:390,height:900}});
   await context.addCookies([{name:'nukhab_session',value:staffTokens.manager,url:base,httpOnly:true,sameSite:'Strict'}]);
   await context.addInitScript(()=>{globalThis.localStorage.setItem('wajeh_role','manager');globalThis.localStorage.setItem('wajeh_name','الإدارة المحلية');globalThis.localStorage.setItem('wajeh_supervisor_id','1');globalThis.localStorage.setItem('nukhab_web_session','1');});
@@ -113,7 +114,7 @@ try {
   await noOverflow(page);await page.screenshot({path:`${folder}/settings-mobile.png`,fullPage:true});
   await page.reload();await page.waitForFunction(()=>[...globalThis.document.querySelectorAll('input')].some(input=>input.value==='تقدير المعاينة'));
   assert.equal((await api('/passing/policy')).policy.ratings.find(row=>row.label==='تقدير المعاينة').minimumPercentage,97);
-  assert.deepEqual(await api('/passing/students/11/report'),reportBefore,'real UI settings edits preserve historical results and report ratings');
+  assert.deepEqual(await api('/passing/students/11/report?type=branch'),reportBefore,'real UI settings edits preserve historical results and report ratings');
   const extraIndex=await page.locator('input[id^="passing-rating-label-"]').evaluateAll(inputs=>inputs.find(input=>input.value==='تقدير المعاينة').id.split('-').at(-1));
   saved=save();await page.getByRole('button',{name:`حذف التقدير ${Number(extraIndex)+1}`,exact:true}).click();assert.ok((await saved).ok());
   assert.equal((await api('/passing/policy')).policy.ratings.length,initialPolicy.ratings.length);

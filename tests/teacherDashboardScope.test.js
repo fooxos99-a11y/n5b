@@ -53,9 +53,10 @@ test('teacher attendance and reports are constrained to linked committees on the
   assert.match(reports, /canViewStandardReports && !teacherScoped \? cachedReport\('scoped-committees'/);
   assert.match(reports, /<SelectTrigger aria-label="الفترة"/);
   assert.match(reports, /studentsApi\.getOverviewReport\(\{ from, to, committeeId: scopeCommittee, complexId: scopeComplex \}\)/);
-  for (const label of ['البرنامج الأسبوعي', 'الجلسة الأسبوعية', 'جلسة المسار', 'اختبارات الاجتياز الفرعي', 'الطلاب', 'عدد الحلقات']) {
+  for (const label of ['البرنامج الأسبوعي', 'الجلسة الأسبوعية', 'جلسة المسار', 'الطلاب', 'عدد الحلقات']) {
     assert.match(metrics, new RegExp(`label: '${label}'`));
   }
+  assert.match(metrics, /label: type === 'branch' \? 'متوسط نتائج الاجتياز الفرعي' : 'متوسط نتائج اجتياز حافظ'/);
 });
 
 test('reports drop execution follow-up and student points and add the weekly session reports', async () => {
@@ -79,7 +80,7 @@ test('reports drop execution follow-up and student points and add the weekly ses
   assert.match(server, /progress\|grading-sessions\|recitation-sessions/);
   assert.match(server, /grades,\r?\n/);
   assert.doesNotMatch(overview, /التنفيذ الطبيعي|التنفيذ المسجل|quranExecution/);
-  assert.match(overview, /label: 'اختبارات الاجتياز الفرعي'/);
+  assert.match(overview, /label: type === 'branch' \? 'متوسط نتائج الاجتياز الفرعي' : 'متوسط نتائج اجتياز حافظ'/);
 });
 
 test('attendance source does not override the independent Quran execution sources', async () => {

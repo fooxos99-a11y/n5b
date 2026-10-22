@@ -14,6 +14,7 @@ export async function validateQueuedPlanRanges(input, current, { resolve, expand
     }
     occupied.push(...segments);
     ranges.push({ ...range, ...(raw.automatic === true ? { automatic: true } : {}),
+      ...(raw.automatic === true && Number.isInteger(raw.stageJuz) && raw.stageJuz >= 2 && raw.stageJuz <= 30 && raw.stageJuz % 2 === 0 ? { stageJuz: raw.stageJuz } : {}),
       ...(raw.label ? { label: String(raw.label).slice(0, 100) } : {}) });
   }
   return ranges;
@@ -25,7 +26,10 @@ export async function activateQueuedQuranPlan(connection, { planId, startDate, m
   if (!plan || (!manual && plan.status !== 'completed') || !['active', 'completed'].includes(plan.status)) return null;
   const [[latest]] = await connection.query('SELECT MAX(id) AS id FROM student_quran_plans WHERE student_id = ?', [plan.student_id]);
   if (Number(latest.id) !== Number(plan.id)) return null;
-  const queue = readQueuedPlanRanges(plan.queued_ranges_json);
+  let queue = readQueuedPlanRanges(plan.queued_ranges_json);
+  if (queue.length && queue.every(range => range.automatic === true) && plan.track === 'memorization') {
+    queue = (await prepareAutomaticRanges(connection, { ranges: queue, studentId: plan.student_id })).ranges;
+  }
   let range;
   while (queue.length && !range) {
     const candidate = queue.shift();

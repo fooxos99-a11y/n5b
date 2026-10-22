@@ -13,12 +13,12 @@ const context = vm.createContext({
 vm.runInContext(source.replace(/import[\s\S]*?;/g, '').replace(/export /g, ''), context);
 const build = (overview, options) => context.buildReportMetrics(overview, options);
 const sessionRows = [
-  { id: 1, name: 'الأول', committeeName: 'الفجر', expectedWeeks: 2, attended: 1, absent: 0, grade: 100, max: 100, segments: { tested: 1, grade: 8, max: 10 } },
-  { id: 2, name: 'الثاني', committeeName: 'العصر', expectedWeeks: 2, attended: 0, absent: 1, grade: 100, max: 100, segments: { tested: 1, grade: 4, max: 10 } },
+  { id: 1, name: 'الأول', committeeName: 'الفجر', expectedWeeks: 2, attended: 1, absent: 0, grade: 18, max: 60, expectedSegments: 4, segments: { tested: 1, grade: 8, max: 10 } },
+  { id: 2, name: 'الثاني', committeeName: 'العصر', expectedWeeks: 2, attended: 0, absent: 1, grade: 4, max: 60, expectedSegments: 4, segments: { tested: 1, grade: 4, max: 10 } },
 ];
 const overview = { grades: {
   weeklySession: { expectedAttendance: 4, attended: 1, percentage: 100, studentsList: sessionRows },
-  trackSession: { expectedAttendance: 4, attended: 1, percentage: 100, segments: { tested: 2, grade: 12, max: 20 }, studentsList: sessionRows },
+  trackSession: { expectedAttendance: 4, attended: 1, percentage: 100, segments: { tested: 2, grade: 12, max: 20, expected: 8 }, studentsList: sessionRows },
 } };
 
 test('late remains attended while excused absence has its own label in both session details', () => {
@@ -60,17 +60,20 @@ test('weekly attendance includes unrecorded weeks and changes with the selected 
   assert.equal(selected.records[0].rows.length, 1);
   assert.equal(selected.records[0].rows[0].stats[0].value, '1 من 2');
   assert.equal(selected.records[0].rows[0].stats[1].value, '50%');
-  assert.equal(build(overview, { committee: 'غير موجود' }).find(metric => metric.id === 'weeklySession').display, '0%');
+  assert.equal(build(overview, { committee: 'غير موجود' }).find(metric => metric.id === 'weeklySession').display, '—');
 });
 
 test('track accuracy uses tested grades and circle-specific attendance with error, warning and hesitation counters', () => {
   const all = build(overview).find(metric => metric.id === 'trackSession');
-  assert.equal(all.display, '60%');
-  assert.equal(all.tiles.length, 6);
+  assert.equal(all.display, '18%');
+  assert.equal(all.tiles[1].display, '60%');
+  assert.equal(all.tiles[2].display, '25%');
+  assert.equal(all.tiles.length, 7);
   assert.equal(all.tiles[0].display, '25%');
-  assert.equal(all.tiles[1].label, 'نسبة إتقان الحفظ');
+  assert.equal(all.tiles[1].label, 'إتقان المقاطع المختبرة');
   const selected = build(overview, { committee: 'الفجر' }).find(metric => metric.id === 'trackSession');
-  assert.equal(selected.display, '80%');
+  assert.equal(selected.display, '30%');
+  assert.equal(selected.tiles[1].display, '80%');
   assert.equal(selected.tiles[0].display, '50%');
   assert.equal(selected.records[0].rows[0].stats.length, 5);
 });
@@ -88,20 +91,37 @@ test('each plan metric has its own achievement tone, with missing targets neutra
   assert.equal(stats[2].value, '4 من 10');
 });
 
-test('branch card measures tested students, retains page totals and filters its detail counts', () => {
-  const data={ branchPassing:{ expected:10,tested:5,studentsList:[
-    { name:'الأول',committeeName:'الفجر',tested:true,juzNumbers:[1] },
-    { name:'الثاني',committeeName:'الفجر',tested:false,juzNumbers:[1,2] },
-    { name:'الثالث',committeeName:'العصر',tested:true,juzNumbers:[2] },
-  ] },studentLevels:[] };
-  const metrics=build(data), all=metrics.find(metric=>metric.id==='branchPassing');
-  assert.equal(all.display,'50%'); assert.equal(all.tiles[0].display,'10');
-  const selected=build(data,{ committee:'الفجر' }).find(metric=>metric.id==='branchPassing');
-  assert.equal(selected.display,'50%'); assert.equal(selected.tiles[0].display,'2');
-  assert.equal(selected.tiles[1].display,'1'); assert.equal(selected.tiles[2].display,'1');
-  assert.equal(selected.records[0].rows.length,2);
-  assert.equal(metrics.find(metric=>metric.id==='levels').label,'الطلاب');
-  assert.equal(metrics.some(metric=>metric.id==='narration'),false);
-  assert.equal(build({}).find(metric=>metric.id==='branchPassing').display,'غير متاح');
-  assert.equal(build({ branchPassing:{ expected:0,tested:0 } }).find(metric=>metric.id==='branchPassing').display,'—');
+test('passing cards show result averages independently, preserving page totals and scoped details', () => {
+  const data = { branchPassing: { metric: 'result_average', expected: 3, tested: 2, percentage: 85, passedParts: 2, studentsList: [
+    { name: 'الأول', committeeName: 'الفجر', percentage: 80, testedParts: 2, passedParts: 1 },
+    { name: 'الثاني', committeeName: 'الفجر', percentage: null, testedParts: 0, passedParts: 0 },
+    { name: 'الثالث', committeeName: 'العصر', percentage: 90, testedParts: 1, passedParts: 1 },
+  ] }, hafizPassing: { metric: 'result_average', expected: 3, tested: 1, percentage: 40, passedParts: 0, studentsList: [] }, studentLevels: [] };
+  const metrics = build(data), all = metrics.find(metric => metric.id === 'branchPassing');
+  assert.equal(all.display, '85٪'); assert.equal(all.tiles[0].display, '3');
+  const selected = build(data, { committee: 'الفجر' }).find(metric => metric.id === 'branchPassing');
+  assert.equal(selected.display, '85٪'); assert.equal(selected.tiles[0].display, '2');
+  assert.equal(selected.tiles[1].display, '1'); assert.equal(selected.tiles[2].display, '1');
+  assert.equal(selected.records[0].rows.length, 2);
+  assert.equal(selected.records[0].rows[0].value, '80٪');
+  assert.equal(selected.records[0].rows[1].value, 'لم يُختبر');
+  assert.equal(metrics.find(metric => metric.id === 'hafizPassing').display, '40٪');
+  assert.equal(metrics.find(metric => metric.id === 'levels').label, 'الطلاب');
+  assert.equal(build({}).find(metric => metric.id === 'branchPassing').display, 'غير متاح');
+  assert.equal(build({ branchPassing: { expected: 10, tested: 5, percentage: 50 } }).find(metric => metric.id === 'branchPassing').display, 'غير متاح', 'legacy coverage must never be shown as result average');
+  assert.equal(build({ branchPassing: { metric: 'result_average', percentage: null } }).find(metric => metric.id === 'branchPassing').display, '—');
+});
+
+
+test('no due session differs from a due unrecorded session and a genuine zero grade', () => {
+  const empty = build({ grades: { trackSession: { max: 0 }, weeklySession: { expectedAttendance: 0 } } });
+  assert.equal(empty.find(row => row.id === 'trackSession').display, '—');
+  assert.equal(empty.find(row => row.id === 'weeklySession').display, '—');
+  const due = build({ grades: { trackSession: { grade: 0, max: 30, segments: { expected: 2 } } } }).find(row => row.id === 'trackSession');
+  assert.equal(due.display, '0%');
+  assert.equal(due.tiles[1].display, 'لم يُختبر');
+  assert.equal(due.tiles[2].display, '0%');
+  const zero = build({ grades: { trackSession: { grade: 0, max: 30, segments: { tested: 2, expected: 2, grade: 0, max: 20 } } } }).find(row => row.id === 'trackSession');
+  assert.equal(zero.tiles[1].display, '0%');
+  assert.equal(zero.tiles[2].display, '100%');
 });

@@ -11,7 +11,9 @@ const sha = value => crypto.createHash('sha256').update(value).digest('hex');
 const uuid = value => /^[a-f0-9-]{36}$/.test(String(value || ''));
 const pageSize = req => Math.max(1, Math.min(100, Number.parseInt(req.query.limit, 10) || 30));
 const forbidden = res => res.status(403).json({ message: 'ليس لديك صلاحية الوصول إلى هذا الأرشيف.' });
-const loadSession = async id => uuid(id) ? (await db().query('SELECT * FROM call_archive_sessions WHERE id=? LIMIT 1', [id]))[0][0] : null;
+const sessionSequence = `(SELECT COUNT(*) FROM call_archive_sessions previous WHERE previous.room_id=s.room_id
+  AND (previous.started_at<s.started_at OR (previous.started_at=s.started_at AND previous.id<=s.id))) AS sequence`;
+const loadSession = async id => uuid(id) ? (await db().query(`SELECT s.*,${sessionSequence} FROM call_archive_sessions s WHERE s.id=? LIMIT 1`, [id]))[0][0] : null;
 async function authorized(req, res) {
   const session = await loadSession(req.params.sessionId);
   if (!session) { res.status(404).json({ message: 'الجلسة غير موجودة.' }); return null; }
@@ -86,10 +88,12 @@ router.get('/rooms/:roomId', async (req, res, next) => {
       cursor = await loadSession(req.query.before);
       if (!cursor || Number(cursor.room_id) !== id || !await canAccessCallArchive(req.auth, cursor)) return res.status(422).json({ message: 'مؤشر الجلسات غير صالح.' });
     }
-    const [rows] = await db().query(`SELECT s.* FROM call_archive_sessions s WHERE s.room_id=? AND ${scope.sql}
+    const [rows] = await db().query(`SELECT s.*,${sessionSequence} FROM call_archive_sessions s WHERE s.room_id=? AND ${scope.sql}
       ${cursor ? 'AND (s.started_at<? OR (s.started_at=? AND s.id<?))' : ''}
       ORDER BY s.started_at DESC,s.id DESC LIMIT ?`, [id, ...scope.params, ...(cursor ? [cursor.started_at, cursor.started_at, cursor.id] : []), size + 1]);
-    const sessions = rows.slice(0, size).map(publicCallArchiveSession);
+    const visible = rows.slice(0, size);
+    const [people] = visible.length ? await db().query('SELECT session_id,identity,user_name AS name FROM call_archive_participants WHERE session_id IN (?) ORDER BY joined_at', [visible.map(row => row.id)]) : [[]];
+    const sessions = visible.map(row => ({ ...publicCallArchiveSession(row), participants: people.filter(person => person.session_id === row.id).map(({ identity, name }) => ({ identity, name })) }));
     if (!sessions.length && !cursor) return forbidden(res);
     const source = sessions[0] || publicCallArchiveSession(cursor);
     res.set('Cache-Control', 'no-store').json({ room: { id: String(id), name: source.roomName, committeeName: source.committeeName }, sessions,

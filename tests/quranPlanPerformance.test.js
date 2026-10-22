@@ -36,7 +36,8 @@ test('performance queries retain teacher and circle scope and select approved ex
   const scope = createOverviewReportScope(connection, { auth: { role: 'supervisor', id: 15 }, committeeId: 2 });
   const result = await loadQuranPlanPerformance(scope, { from: '2026-09-20', to: '2026-09-21', workDays: [0,1,2,3,4], expand: async range => [range] });
   assert.equal(result.students.length, 1);
-  assert.match(calls[0].sql, /MAX\(latest.id\)/);
+  assert.doesNotMatch(calls[0].sql, /MAX\(latest.id\)/);
+  assert.match(calls[0].sql, /successor.previous_plan_id = p.id/);
   for (const call of calls.slice(0, 3)) {
     assert.match(call.sql, /supervisor_committees/); assert.ok(call.values.includes(15)); assert.ok(call.values.includes(2));
   }

@@ -1,4 +1,4 @@
-import { AUTOMATIC_PLAN_KEY, defaultAutomaticTemplate, generateAutomaticRanges, resolveAutomaticRange, validateAutomaticTemplate } from '../../shared/quran-automatic-plan.js';
+import { AUTOMATIC_PLAN_KEY, coalesceAutomaticStages, defaultAutomaticTemplate, generateAutomaticRanges, resolveAutomaticRange, validateAutomaticTemplate } from '../../shared/quran-automatic-plan.js';
 import { readQuranRange } from './quranReferenceCache.js';
 
 export async function loadAutomaticMemorizedRanges(connection, studentId) {
@@ -21,6 +21,9 @@ export async function loadAutomaticTemplate(connection) {
   const defaultTemplate = defaultAutomaticTemplate(ayahs);
   const [[row]] = await connection.query('SELECT setting_value AS template FROM app_settings WHERE setting_key = ?', [AUTOMATIC_PLAN_KEY]);
   const stored = row ? JSON.parse(row.template) : null;
+  if (stored?.name === defaultTemplate.name && stored.ranges?.length > defaultTemplate.ranges.length) {
+    stored.ranges = coalesceAutomaticStages(ayahs, stored.ranges.map(range => ({ ...range, automatic: true })));
+  }
   const template = stored ? { ...validateAutomaticTemplate(ayahs, stored), revision: Number(stored.revision) } : defaultTemplate;
   return { template, defaultTemplate };
 }
@@ -47,7 +50,8 @@ export async function saveAutomaticTemplate(pool, input) {
 export async function prepareAutomaticRanges(connection, { ranges, studentId, priorMemorization = [], current = null }) {
   if (Array.isArray(ranges) && ranges.length === 0) return { ranges: [], stages: [], excludedAyahs: 0 };
   const ayahs = await readQuranRange(connection, 1, 604);
-  const validated = validateAutomaticTemplate(ayahs, { name: 'خطط الطالب', ranges });
+  const normalized = Array.isArray(ranges) ? coalesceAutomaticStages(ayahs, ranges) : ranges;
+  const validated = validateAutomaticTemplate(ayahs, { name: 'خطط الطالب', ranges: normalized });
   return generateAutomaticRanges(ayahs, validated.ranges,
     [...await loadAutomaticMemorizedRanges(connection, studentId), ...priorMemorization], current ? [current] : []);
 }

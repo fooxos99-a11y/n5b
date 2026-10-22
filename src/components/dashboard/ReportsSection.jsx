@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Trash2 } from 'lucide-react';
 import PageLoadingBoundary from '@/components/ui/page-loading-boundary';
 import DashboardLoader from '@/components/dashboard/DashboardLoader';
@@ -57,6 +57,9 @@ const ReportsSection = ({
   const [selectedId, setSelectedId] = useState(null);
   const [detailCommittee, setDetailCommittee] = useState(ALL_COMMITTEES);
   const [isDeletingArchive, setIsDeletingArchive] = useState(false);
+  const [cacheStates, setCacheStates] = useState({});
+  const listRequest = useRef(0);
+  const overviewRequest = useRef('');
 
   const archiveId = period.startsWith(ARCHIVE_PREFIX) ? period.slice(ARCHIVE_PREFIX.length) : '';
   const range = useMemo(() => (archiveId ? null : reportRange(period, custom, today)), [archiveId, period, custom, today]);
@@ -66,7 +69,13 @@ const ReportsSection = ({
   const scopeComplex = archiveId ? 'all' : complexId;
   const visibleCommittees = committees.filter(committee => complexId === 'all' || String(committee.complexId) === complexId);
 
-  const cachedReport = useCallback((key, loader) => loadOfflineSnapshot(accountId, `reports:${key}`, loader, { actorRole }), [accountId, actorRole]);
+  const cachedReport = useCallback((key, loader) => loadOfflineSnapshot(accountId, `reports:${key}`, loader, { actorRole,
+    onStatus: status => setCacheStates(current => ({ ...current, [key]: status })),
+  }), [accountId, actorRole]);
+  const overviewKey = archiveId ? `archive:${archiveId}` : `overview:${from}:${to}:${scopeCommittee}:${scopeComplex}`;
+  const pointsKey = `teacher-points:${from}:${to}:${scopeCommittee}:${scopeComplex}`;
+  const savedStatus = [canViewStandardReports && cacheStates[overviewKey], canViewTeacherPoints && cacheStates[pointsKey]].filter(status => status?.cached);
+  const savedAt = savedStatus.map(status => status.generatedAt).filter(value => value && Number.isFinite(Date.parse(value))).sort()[0];
 
   useEffect(() => {
     if (archiveId || !isOnline || !canViewStandardReports) return undefined;
@@ -106,6 +115,7 @@ const ReportsSection = ({
       return undefined;
     }
     let active = true;
+    if (overviewRequest.current !== overviewKey) { setOverview(null); setArchive(null); overviewRequest.current = overviewKey; }
     setIsLoading(true);
     setLoadError('');
     const load = archiveId
@@ -123,14 +133,15 @@ const ReportsSection = ({
       if (active) setLoadError(error.message || 'تعذر تحميل الإحصائيات');
     }).finally(() => { if (active) setIsLoading(false); });
     return () => { active = false; };
-  }, [archiveId, cachedReport, canViewStandardReports, from, isOnline, retry, scopeCommittee, scopeComplex, to]);
+  }, [archiveId, cachedReport, canViewStandardReports, from, isOnline, overviewKey, retry, scopeCommittee, scopeComplex, to]);
 
   // The teacher points list is needed for its card itself.
   const loadList = useCallback((key, loader) => {
+    const request = ++listRequest.current;
     setLists((current) => ({ ...current, [key]: { loading: true, rows: current[key]?.rows || [] } }));
     return loader()
-      .then((rows) => setLists((current) => ({ ...current, [key]: { loading: false, rows: rows || [] } })))
-      .catch((error) => setLists((current) => ({ ...current, [key]: { loading: false, rows: [], error: error.message || 'تعذر التحميل' } })));
+      .then((rows) => { if (request === listRequest.current) setLists((current) => ({ ...current, [key]: { loading: false, rows: rows || [] } })); })
+      .catch((error) => { if (request === listRequest.current) setLists((current) => ({ ...current, [key]: { loading: false, rows: [], error: error.message || 'تعذر التحميل' } })); });
   }, []);
 
   const listLoaders = useMemo(() => ({
@@ -141,6 +152,7 @@ const ReportsSection = ({
     setLists({});
     if (archiveId) return;
     if (canViewTeacherPoints) loadList('teacherPoints', listLoaders.teacherPoints);
+    return () => { listRequest.current++; };
   }, [archiveId, canViewStandardReports, canViewTeacherPoints, isOnline, listLoaders, loadList, retry]);
 
   const metrics = useMemo(() => buildReportMetrics(overview, {
@@ -150,11 +162,14 @@ const ReportsSection = ({
     committee: detailCommittee,
   }), [archiveId, canViewStandardReports, canViewTeacherPoints, detailCommittee, lists, overview]);
   const detailCommittees = useMemo(() => detailCommitteesOf(overview), [overview]);
+  const cardMetrics = useMemo(() => buildReportMetrics(overview, { lists,
+    showStandard: canViewStandardReports, showTeacherPoints: canViewTeacherPoints && !archiveId,
+  }), [archiveId, canViewStandardReports, canViewTeacherPoints, lists, overview]);
   const selected = metrics.find((metric) => metric.id === selectedId) || null;
 
   const periodLabel = archive
     ? archive.title
-    : period === 'custom' ? `من ${from} إلى ${to}` : REPORT_PERIOD_LABELS[period];
+    : `${REPORT_PERIOD_LABELS[period] || 'الفترة'} · من ${from} إلى ${to}`;
 
   const openCustom = () => {
     setDraft(custom);
@@ -201,6 +216,9 @@ const ReportsSection = ({
             تعرض الإحصائيات المحفوظة فقط دون إنترنت.
           </p>
         )}
+        {isOnline && savedStatus.length > 0 && <p role="status" className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-200">
+          تعرض بعض الإحصائيات نسخة محفوظة لتعذر التحديث.{savedAt ? ` آخر تحديث: ${new Intl.DateTimeFormat('ar-SA', { timeZone: 'Asia/Riyadh', dateStyle: 'short', timeStyle: 'short' }).format(new Date(savedAt))}` : ' وقت حفظها غير متاح.'}
+        </p>}
 
         {/* The period sits on the right, next to the circle filter. */}
         <div className="flex flex-wrap items-center gap-2 sm:gap-3">
@@ -260,6 +278,8 @@ const ReportsSection = ({
           )}
         </div>
 
+        {!archiveId && <p className="text-xs text-muted-foreground">{periodLabel}{period === 'month' || period === 'quarter' || period === 'year' ? ' · بالتقويم الهجري' : ''}</p>}
+
         {loadError && !overview ? (
           <ErrorState message={loadError} onRetry={() => setRetry((value) => value + 1)} />
         ) : isLoading && !overview && canViewStandardReports ? (
@@ -267,9 +287,9 @@ const ReportsSection = ({
         ) : (
           <>
             {loadError && <ErrorState message={loadError} onRetry={() => setRetry((value) => value + 1)} />}
-            {canViewStandardReports && overview && <PlanPerformanceChart series={overview.planPerformance?.series} />}
+            {canViewStandardReports && overview && <PlanPerformanceChart series={overview.planPerformance?.series} title="الأداء التراكمي حسب الخطة السارية" />}
             <section aria-label="مؤشرات الأداء" className={`grid grid-cols-2 gap-4 md:grid-cols-3 ${isLoading ? 'opacity-60' : ''}`}>
-              {metrics.filter(metric => !(teacherScoped && metric.id === 'committees' && Number(metric.countValue) <= 1)).map((metric) => (
+              {cardMetrics.filter(metric => !(teacherScoped && metric.id === 'committees' && Number(metric.countValue) <= 1)).map((metric) => (
                 <MetricCard key={metric.id} metric={metric} onSelect={(item) => { setDetailCommittee(ALL_COMMITTEES); setSelectedId(item.id); }} />
               ))}
             </section>
