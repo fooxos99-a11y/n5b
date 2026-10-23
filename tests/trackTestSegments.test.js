@@ -59,3 +59,39 @@ test('attempt selects latest assigned amounts with no repeats before pool exhaus
 test('missing review amount fails clearly, and future assigned tasks are excluded by the query', async () => {
   await assert.rejects(createTrackTestAttempts().prepare(connection([task('link')]), context), /لا يوجد مقدار مراجعة/);
 });
+
+test('replacement keeps other ranges and weights, excludes current and sibling, and signs the new selection', async () => {
+  const attempts = createTrackTestAttempts({ pick: () => 0 });
+  const db = connection([task('link'), task('review')]);
+  const original = await attempts.prepare(db, context);
+  const changed = await attempts.prepare(db, { ...context, attemptToken: original.attemptToken, segmentIndex: 0 });
+  assert.equal(changed.segments[0].range.fromAyah, 5);
+  assert.deepEqual(changed.segments.slice(1), original.segments.slice(1));
+  assert.equal(changed.segments[0].source, 'link');
+  assert.equal(changed.segments[0].max, 3);
+  const segments = changed.segments.map((item, index) => ({ ...item, recorded: true, mistakes: index, warnings: 2, hesitations: 3 }));
+  assert.deepEqual(attempts.verify(changed.attemptToken, { ...context, segments }), segments);
+  assert.throws(() => attempts.verify(original.attemptToken, { ...context, segments }), { status: 422 });
+  const review = await attempts.prepare(db, { ...context, attemptToken: changed.attemptToken, segmentIndex: 1 });
+  assert.notDeepEqual(review.segments[1].range, changed.segments[1].range);
+  assert.deepEqual(review.segments[0], changed.segments[0]);
+  for (const patch of [{ studentId: 4 }, { weekStart: '2026-09-20' }, { auth: { ...auth, tokenHash: 'other' } },
+    { policy: normalizeGradingPolicy() }, { attemptToken: `${original.attemptToken}x` }, { attemptToken: null },
+    { segmentIndex: -1 }, { segmentIndex: 3 }, { segmentIndex: '0' }, { segmentIndex: 0.5 }, { segmentIndex: undefined }]) {
+    await assert.rejects(attempts.prepare(db, { ...context, attemptToken: original.attemptToken, segmentIndex: 0, ...patch }), { status: 422 });
+  }
+});
+
+test('replacement unavailable when all candidates are in use; rejects expired attempts and removed amounts', async () => {
+  let now = 0;
+  const attempts = createTrackTestAttempts({ now: () => now, pick: () => 0 });
+  const db = connection([task('link', 1, 4), task('review', 5, 6)]);
+  const original = await attempts.prepare(db, context);
+  assert.ok(original.segments.every(item => item.canReplace === false));
+  for (const segmentIndex of [0, 1, 2]) {
+    await assert.rejects(attempts.prepare(db, { ...context, attemptToken: original.attemptToken, segmentIndex }), /لا يوجد مقطع آخر/);
+  }
+  await assert.rejects(attempts.prepare(connection([task('link')]), { ...context, attemptToken: original.attemptToken, segmentIndex: 1 }), /لا يوجد مقطع آخر/);
+  now = 2 * 60 * 60 * 1000;
+  await assert.rejects(attempts.prepare(db, { ...context, attemptToken: original.attemptToken, segmentIndex: 0 }), { status: 422 });
+});

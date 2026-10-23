@@ -62,6 +62,10 @@ const MushafRecitationDialog = ({
   completionMessage,
   randomMode = false,
   secondaryAction = null,
+  onMarksChange,
+  renderSessionActions,
+  interactionDisabled = false,
+  onFinishSession,
 }) => {
   const { toast } = useToast();
   const [entries, setEntries] = useState([]);
@@ -88,6 +92,10 @@ const MushafRecitationDialog = ({
   const tasksRef = useRef(tasks);
   const savingRef = useRef(false);
   const loadTaskDataRef = useRef(loadTaskData);
+  const marksByTaskRef = useRef(marksByTask);
+  marksByTaskRef.current = marksByTask;
+  const onMarksChangeRef = useRef(onMarksChange);
+  onMarksChangeRef.current = onMarksChange;
   const toastRef = useRef(toast);
   tasksRef.current = tasks;
   loadTaskDataRef.current = loadTaskData;
@@ -205,6 +213,13 @@ const MushafRecitationDialog = ({
     });
   };
 
+  const updateMarks = (updater) => {
+    const next = updater(marksByTaskRef.current);
+    marksByTaskRef.current = next;
+    setMarksByTask(next);
+    onMarksChangeRef.current?.(next);
+  };
+
   const addMark = (markType, notes) => {
     if (!pendingMark) return;
     const next = { ...pendingMark, id: temporaryId(), markType, notes: String(notes || '').trim() };
@@ -212,7 +227,7 @@ const MushafRecitationDialog = ({
       Number(item.task.id) === Number(pendingMark.taskId)
       && Number(item.page.page) === Number(pendingMark.page)
     ));
-    setMarksByTask((current) => ({
+    updateMarks((current) => ({
       ...current,
       [String(pendingMark.taskId)]: [
         ...(current[String(pendingMark.taskId)] || []).filter((mark) => (
@@ -234,7 +249,7 @@ const MushafRecitationDialog = ({
       && Number(item.page.page) === Number(pendingMark.page)
     ));
     if (!entry) return;
-    setMarksByTask((current) => ({
+    updateMarks((current) => ({
       ...current,
       [String(pendingMark.taskId)]: (current[String(pendingMark.taskId)] || []).filter((mark) => (
         Number(mark.page) !== Number(pendingMark.page)
@@ -247,10 +262,14 @@ const MushafRecitationDialog = ({
   };
 
   const finishRecitation = async () => {
-    if (savingRef.current || isLoading || !draftReady || pendingMark || selection) return;
+    if (interactionDisabled || savingRef.current || isLoading || !draftReady || pendingMark || selection) return;
     savingRef.current = true;
     setIsSaving(true);
     try {
+      if (onFinishSession) {
+        await onFinishSession();
+        return;
+      }
       const saveRequestId = temporaryId();
       const saveOrder = [...tasks].sort((first, second) => (
         Number(second.fromPage || 0) - Number(first.fromPage || 0)
@@ -459,6 +478,9 @@ const MushafRecitationDialog = ({
   return (
     <>
       <FullScreenPage open={open} onClose={() => onOpenChange?.(false)} label="جلسة التسميع">
+          {renderSessionActions && <div className="shrink-0 border-b border-border bg-card px-3 py-2 text-foreground" data-recitation-control>
+            {renderSessionActions({ disabled: isLoading || !draftReady || isSaving || Boolean(pendingMark || selection) })}
+          </div>}
           <MushafReaderLayout
             theme={mushafTheme}
             label="مصحف التسميع"
@@ -479,7 +501,7 @@ const MushafRecitationDialog = ({
               {secondaryAction}
             </MushafReaderToolbar>}
           >
-            <div className="relative min-h-0 flex-1">
+            <div className="relative min-h-0 flex-1" inert={interactionDisabled ? '' : undefined}>
               {_resolveMushafRecitationDialog()}
             </div>
           </MushafReaderLayout>

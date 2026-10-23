@@ -1,4 +1,4 @@
-import React, { useLayoutEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { buildMushafHighlightPaths } from '@/lib/mushafHighlightGeometry';
 
 const TONES = {
@@ -11,7 +11,7 @@ const TONES = {
 
 export default function MushafHighlightLayer({ containerRef, ranges, fontReady }) {
   const [drawing, setDrawing] = useState({ width: 1, height: 1, paths: [] });
-  useLayoutEffect(() => {
+  useEffect(() => {
     const container = containerRef.current;
     if (!container) return undefined;
     const measure = () => {

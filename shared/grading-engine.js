@@ -9,6 +9,7 @@ import {
 import { DEFAULT_PLAN_READING_FACES } from './quran-plan-options.js';
 import { getBusinessDate } from './business-date.js';
 import { canTestSession, sessionAttendanceGrade, sessionAttendanceStatus } from './session-attendance.js';
+import { trackWordMarkCounts } from './track-word-marks.js';
 
 export const FAIL_TYPES = Object.freeze({
   manual: 'manual',
@@ -167,12 +168,14 @@ export function evaluateTrackSession(rawPolicy, input = {}) {
   const track = policy.trackSession;
   const rows = trackSegmentDefinitions(policy).map((definition, index) => {
     const item = segments[index] || {};
-    const mistakes = count(item.mistakes);
-    const warnings = count(item.warnings);
-    const hesitations = count(item.hesitations);
+    const markCounts = trackWordMarkCounts(item.wordMarks);
+    const mistakes = Math.max(count(item.mistakes), markCounts.mistakes);
+    const warnings = Math.max(count(item.warnings), markCounts.warnings);
+    const hesitations = Math.max(count(item.hesitations), markCounts.hesitations);
     const recorded = attended && Boolean(item.recorded ?? true);
     const grade = recorded ? round(Math.max(0, definition.max - (mistakes * track.mistakeDeduction) - (warnings * track.warningDeduction) - (hesitations * track.hesitationDeduction))) : 0;
-    return { index: index + 1, source: definition.source, range: item.range ?? null, mistakes, warnings, hesitations, recorded, max: definition.max, grade };
+    return { index: index + 1, source: definition.source, range: item.range ?? null, mistakes, warnings, hesitations, recorded, max: definition.max, grade,
+      ...(item.wordMarks !== undefined ? { wordMarks: recorded ? item.wordMarks : [] } : {}) };
   });
   const attendanceGrade = sessionAttendanceGrade(track, attendanceStatus);
   return {

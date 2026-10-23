@@ -12,6 +12,7 @@ import { currentQuranPlanSql } from '../services/currentQuranPlan.js';
 import { ATTENDANCE_GRADE_STATUSES, gradingMaxima } from '../../shared/grading-policy.js';
 import { canTestSession, sessionAttendanceStatus } from '../../shared/session-attendance.js';
 import { createTrackTestAttempts } from '../services/trackTestSegments.js';
+import { loadTrackMushaf, normalizeTrackSegmentMarks } from '../services/trackMushaf.js';
 import {
   addDays,
   computeStudentsWeeklyGrades,
@@ -47,12 +48,16 @@ function normalizeSegmentRange(range) {
 
 function normalizeSegments(value) {
   if (!Array.isArray(value)) return [];
+  if (value.some(item => item?.wordMarks !== undefined && (!Array.isArray(item.wordMarks) || item.wordMarks.length > 1000))) {
+    throw Object.assign(new Error('علامات المقطع غير صحيحة.'), { status: 422 });
+  }
   return value.slice(0, 20).map(item => ({
     range: normalizeSegmentRange(item?.range),
     mistakes: Math.max(0, Math.min(1000, Math.floor(Number(item?.mistakes) || 0))),
     warnings: Math.max(0, Math.min(1000, Math.floor(Number(item?.warnings) || 0))),
     hesitations: Number(item?.hesitations ?? 0),
     recorded: item?.recorded !== false,
+    ...(item?.wordMarks !== undefined ? { wordMarks: item.wordMarks } : {}),
   }));
 }
 
@@ -214,7 +219,13 @@ export function createGradingRouter({ db, today }) {
       await assertGradeDate(db(), studentId, weekStart, { weekly: true, today: today(), periodStart: sessionPeriod(weekStart, sessionDay).start });
       const policy = await loadGradingPolicyForDate(db(), weekStart);
       if (await activeTrackCompensation(db(), studentId, weekStart)) throw Object.assign(new Error('ألغِ التعويض إداريًا قبل الاختبار.'), { status: 409 });
-      const result = await attempts.prepare(db(), { studentId, weekStart, today: today(), policy, auth: req.auth });
+      if (req.body.action === 'mushaf') {
+        const range = attempts.range(req.body.attemptToken, { studentId, weekStart, policy, auth: req.auth }, req.body.segmentIndex);
+        return res.set('Cache-Control', 'no-store').json(await loadTrackMushaf(db(), range));
+      }
+      if (req.body.action !== undefined) return invalid(res, 'إجراء الاختبار غير صحيح.');
+      const result = await attempts.prepare(db(), { studentId, weekStart, today: today(), policy, auth: req.auth,
+        attemptToken: req.body.attemptToken, segmentIndex: req.body.segmentIndex });
       return res.set('Cache-Control', 'no-store').json(result);
     } catch (error) { return next(error); }
   });
@@ -310,8 +321,11 @@ export function createGradingRouter({ db, today }) {
       if (component === 'track' && (req.body.attemptToken || segments.some(item => item.recorded)) && await activeTrackCompensation(db(), studentId, weekStart)) throw Object.assign(new Error('ألغِ التعويض إداريًا قبل الاختبار.'), { status: 409 });
       if (component === 'track' && attended && segments.some(item => item.recorded)) {
         const policy = await loadGradingPolicyForDate(db(), weekStart);
-        if (req.body.attemptToken) segments = attempts.verify(req.body.attemptToken, { studentId, weekStart, policy, auth: req.auth, segments });
-        else if (policy.trackSession.segments) {
+        if (req.body.attemptToken) {
+          segments = attempts.verify(req.body.attemptToken, { studentId, weekStart, policy, auth: req.auth, segments });
+          segments = await normalizeTrackSegmentMarks(db(), segments);
+        }
+        else if (policy.trackSession.segments || segments.some(item => item.wordMarks?.length)) {
           // An attendance-only update may retain the exact already-saved evaluation.
           const [[stored]] = await db().query("SELECT detail_json AS detail FROM student_weekly_components WHERE student_id = ? AND week_start = ? AND component = 'track'", [studentId, weekStart]);
           const detail = typeof stored?.detail === 'string' ? JSON.parse(stored.detail) : stored?.detail;

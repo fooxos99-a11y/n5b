@@ -21,7 +21,8 @@ export const gradingApi = {
   compensateDay: ({ studentId, date, excuseReference, scope = 'track' }) => request(`/grading/${scope === 'program' ? 'program' : 'track'}-compensation`, { method: 'POST', body: JSON.stringify({ studentId, date, excuseReference }) }),
   approveExcuse: body => request('/grading/excuse-approval', { method: 'POST', body: JSON.stringify(body) }),
   cancelCompensation: (id, reason) => request(`/grading/compensations/${id}/cancel`, { method: 'POST', body: JSON.stringify({ reason }) }),
-  prepareTrackTest: ({ studentId, weekStart }) => request('/grading/track-test', { method: 'POST', body: JSON.stringify({ studentId, weekStart }) }),
+  prepareTrackTest: ({ studentId, weekStart, attemptToken, segmentIndex }) => request('/grading/track-test', { method: 'POST', body: JSON.stringify({ studentId, weekStart, attemptToken, segmentIndex }) }),
+  getTrackTestMushaf: ({ studentId, weekStart, attemptToken, segmentIndex }) => request('/grading/track-test', { method: 'POST', body: JSON.stringify({ studentId, weekStart, attemptToken, segmentIndex, action: 'mushaf' }) }),
   setWeeklyComponent: ({ studentId, weekStart, component, attended, attendanceStatus, segments, attemptToken }) => (
     put('/grading/weekly-component', { studentId, weekStart, component, attended, attendanceStatus, segments, attemptToken })
   ),
