@@ -71,7 +71,9 @@ export default function TrackSessionSection() {
   };
 
   const saveTest = async (segments, attemptToken) => {
-    if (await save(testing, { attendanceStatus: sessionAttendanceStatus(testing.grade?.trackDetail), segments, attemptToken }, 'تم حفظ الاختبار')) setTestingId(null);
+    const saved = await save(testing, { attendanceStatus: sessionAttendanceStatus(testing.grade?.trackDetail), segments, attemptToken }, 'تم حفظ الاختبار');
+    if (saved) setTestingId(null);
+    return saved;
   };
 
   const renderRows = () => {

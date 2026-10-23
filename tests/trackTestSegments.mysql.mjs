@@ -50,6 +50,71 @@ try {
   assert.equal(prepared.status,200);
   assert.equal(prepared.body.segments.length,3);
   assert.deepEqual(prepared.body.segments.map(row => row.source),['link','review','link']);
+  const replacementRequest = { ...request, attemptToken: prepared.body.attemptToken, segmentIndex: 0 };
+  for (const role of [null,'student','supervisor','admin']) assert.equal((await call('/track-test',replacementRequest,role)).status,403);
+  assert.equal((await call('/track-test',{ ...replacementRequest, studentId:4 })).status,403);
+  assert.equal((await call('/track-test',replacementRequest,'manager','POST','other')).status,422);
+  assert.equal((await call('/track-test',{ ...replacementRequest, segmentIndex:99 })).status,422);
+  const replacement = await call('/track-test',replacementRequest);
+  assert.equal(replacement.status,200);
+  assert.notDeepEqual(replacement.body.segments[0].range,prepared.body.segments[0].range);
+  assert.notDeepEqual(replacement.body.segments[0].range,prepared.body.segments[2].range);
+  assert.deepEqual(replacement.body.segments.slice(1),prepared.body.segments.slice(1));
+  const replacedPayload = { ...request,component:'track',attended:true,attemptToken:replacement.body.attemptToken,
+    segments:replacement.body.segments.map((row,index) => ({ ...row,recorded:true,mistakes:0,warnings:index === 1 ? 2 : 0,hesitations:0 })) };
+  const replacedSave = await call('/weekly-component',replacedPayload,'manager','PUT');
+  assert.equal(replacedSave.status,200);
+  assert.equal(replacedSave.body.result.segments[1].warnings,2);
+  assert.deepEqual(replacedSave.body.result.segments[0].range,replacement.body.segments[0].range);
+  const reviewReplacement = await call('/track-test',{ ...replacementRequest,attemptToken:replacement.body.attemptToken,segmentIndex:1 });
+  assert.equal(reviewReplacement.status,200);
+  assert.notDeepEqual(reviewReplacement.body.segments[1].range,replacement.body.segments[1].range);
+  const mushafRequest = { ...request, attemptToken: prepared.body.attemptToken, segmentIndex: 0, action: 'mushaf' };
+  for (const role of [null,'student','supervisor','admin']) assert.equal((await call('/track-test',mushafRequest,role)).status,403);
+  assert.equal((await call('/track-test',{ ...mushafRequest,studentId:4 })).status,403);
+  assert.equal((await call('/track-test',mushafRequest,'manager','POST','other')).status,422);
+  assert.equal((await call('/track-test',{ ...mushafRequest,segmentIndex:-1 })).status,422);
+  assert.equal((await call('/track-test',{ ...mushafRequest,attemptToken:'forged' })).status,422);
+  const mushaf = await call('/track-test',mushafRequest);
+  assert.equal(mushaf.status,200);
+  const markRange = prepared.body.segments[0].range;
+  assert.deepEqual(mushaf.body.allowedRange,markRange);
+  const eligible = mushaf.body.pages.flatMap(page => page.words).filter(word => {
+    const [surah,ayah] = word.verseKey.split(':').map(Number);
+    return word.charType === 'word' && surah*1000+ayah >= markRange.fromSurah*1000+markRange.fromAyah
+      && surah*1000+ayah <= markRange.toSurah*1000+markRange.toAyah;
+  });
+  const wordMarks = ['mistake','warning','hesitation','lahn'].map((markType,index) => ({ page:eligible[index].page,
+    startLocation:eligible[index].location,endLocation:eligible[index].location,markType,selectedText:'untrusted',notes:'ملاحظة' }));
+  const secondMushaf = await call('/track-test',{...mushafRequest,segmentIndex:1});
+  assert.equal(secondMushaf.status,200);
+  const secondRange = secondMushaf.body.allowedRange;
+  const secondWord = secondMushaf.body.pages.flatMap(page => page.words).find(word => word.charType === 'word'
+    && word.verseKey === `${secondRange.fromSurah}:${secondRange.fromAyah}`);
+  const secondMark = {page:secondWord.page,startLocation:secondWord.location,endLocation:secondWord.location,markType:'warning'};
+  const markedPayload = { ...replacedPayload,attemptToken:prepared.body.attemptToken,segments:prepared.body.segments.map((row,index) => ({ ...row,
+    recorded:true,mistakes:0,warnings:index === 1 ? 2 : 0,hesitations:0,wordMarks:index === 0 ? wordMarks : index === 1 ? [secondMark] : [] })) };
+  const marked = await call('/weekly-component',markedPayload,'manager','PUT');
+  assert.equal(marked.status,200);
+  assert.deepEqual([marked.body.result.segments[0].mistakes,marked.body.result.segments[0].warnings,marked.body.result.segments[0].hesitations],[2,1,1]);
+  assert.equal(marked.body.result.segments[1].warnings,2);
+  assert.ok(marked.body.result.segments[0].wordMarks.every(mark => mark.selectedText !== 'untrusted'));
+  const [[storedMarks]] = await pool.query("SELECT detail_json AS detail FROM student_weekly_components WHERE student_id=3 AND component='track'");
+  const storedDetail = typeof storedMarks.detail === 'string' ? JSON.parse(storedMarks.detail) : storedMarks.detail;
+  assert.deepEqual(storedDetail.segments[0].wordMarks,marked.body.result.segments[0].wordMarks);
+  assert.equal((await call('/weekly-component',{...markedPayload,attemptToken:undefined,segments:marked.body.result.segments},'manager','PUT')).status,200);
+  const rerolled = await call('/track-test',replacementRequest);
+  assert.equal(rerolled.status,200);
+  const rerolledSegments = marked.body.result.segments.map((row,index) => index ? row
+    : {...row,range:rerolled.body.segments[0].range,wordMarks:[],mistakes:0,warnings:0,hesitations:0});
+  const retained = await call('/weekly-component',{...markedPayload,attemptToken:rerolled.body.attemptToken,segments:rerolledSegments},'manager','PUT');
+  assert.equal(retained.status,200);
+  assert.deepEqual(retained.body.result.segments[1],marked.body.result.segments[1]);
+  assert.deepEqual(retained.body.result.segments[0].wordMarks,[]);
+  for (const badMarks of [null,{},[{...wordMarks[0],markType:'invalid'}],[{...wordMarks[0],startLocation:'114:6:999'}],[wordMarks[0],wordMarks[0]]]) {
+    const segments = markedPayload.segments.map((row,index) => index ? row : {...row,wordMarks:badMarks});
+    assert.equal((await call('/weekly-component',{...markedPayload,segments},'manager','PUT')).status,422);
+  }
   await saveGradingPolicy(pool, { trackSession: { segments: [{ source: 'review', max: 1 }] } });
   const payload = { ...request,component:'track',attended:true,attemptToken:prepared.body.attemptToken,
     segments:prepared.body.segments.map(row => ({ ...row,recorded:true,mistakes:0,warnings:1 })) };

@@ -7,6 +7,7 @@ const position = (surah, ayah) => Number(surah) * 1000 + Number(ayah);
 const invalid = message => Object.assign(new Error(message), { status: 422, statusCode: 422 });
 const fingerprint = policy => createHash('sha256').update(JSON.stringify(policy.trackSession)).digest('hex');
 const identity = auth => JSON.stringify([auth.role, auth.id, auth.tokenHash || null]);
+const sameRange = (left, right) => ['fromSurah', 'fromAyah', 'toSurah', 'toAyah'].every(field => left[field] === right[field]);
 
 /** Whole contiguous page portions, clipped to the assigned verses; gaps never join. */
 export function trackRangeCandidates(ayahs, tasks) {
@@ -34,8 +35,30 @@ export function trackRangeCandidates(ayahs, tasks) {
 export function createTrackTestAttempts({ now = Date.now, pick = randomInt } = {}) {
   const key = randomBytes(32);
   const sign = payload => createHmac('sha256', key).update(payload).digest();
+  const readDraft = (token, { studentId, weekStart, policy, auth }) => {
+    try {
+      if (typeof token !== 'string' || token.length > 16000) throw new Error('Invalid token');
+      const [payload, signature, extra] = token.split('.');
+      const actual = Buffer.from(signature || '', 'base64url'), expected = sign(payload || '');
+      if (extra || actual.length !== expected.length || !timingSafeEqual(actual, expected)) throw new Error('Invalid signature');
+      const draft = JSON.parse(Buffer.from(payload, 'base64url').toString());
+      if (draft.studentId !== studentId || draft.weekStart !== weekStart || draft.owner !== identity(auth)
+        || draft.policy !== fingerprint(policy) || draft.expires <= now()) throw new Error('Expired or mismatched draft');
+      return draft;
+    } catch {
+      throw invalid('تعذر اعتماد مقاطع الاختبار. أغلق الاختبار وافتحه من جديد.');
+    }
+  };
   return {
-    async prepare(connection, { studentId, weekStart, today, policy, auth }) {
+    range(token, context, segmentIndex) {
+      const draft = readDraft(token, context);
+      if (!Number.isInteger(segmentIndex) || segmentIndex < 0 || segmentIndex >= draft.segments.length) throw invalid('المقطع المطلوب غير صحيح.');
+      return draft.segments[segmentIndex].range;
+    },
+    async prepare(connection, { studentId, weekStart, today, policy, auth, attemptToken, segmentIndex }) {
+      const replacing = attemptToken !== undefined || segmentIndex !== undefined;
+      const draft = replacing ? readDraft(attemptToken, { studentId, weekStart, policy, auth }) : null;
+      if (replacing && (!Number.isInteger(segmentIndex) || segmentIndex < 0 || segmentIndex >= draft.segments.length)) throw invalid('المقطع المطلوب غير صحيح.');
       const end = [addDays(weekStart, 6), today].sort((a, b) => a.localeCompare(b))[0];
       const [tasks] = await connection.query(`SELECT task_type AS source, DATE_FORMAT(task_date, '%Y-%m-%d') AS date,
         from_surah AS fromSurah, from_ayah AS fromAyah, to_surah AS toSurah, to_ayah AS toAyah
@@ -43,12 +66,22 @@ export function createTrackTestAttempts({ now = Date.now, pick = randomInt } = {
         ORDER BY task_date DESC, id DESC`, [studentId, weekStart, end]);
       const ayahs = await readQuranRange(connection, 1, 604);
       const pools = new Map();
-      const segments = trackSegmentDefinitions(policy).map(definition => {
+      const definitions = trackSegmentDefinitions(policy);
+      for (const definition of definitions) {
         if (!pools.has(definition.source)) {
           const rows = tasks.filter(task => task.source === definition.source);
           const candidates = trackRangeCandidates(ayahs, rows.filter(task => task.date === rows[0]?.date));
           pools.set(definition.source, { candidates, remaining: [...candidates] });
         }
+      }
+      const alternatives = (rows, index) => pools.get(rows[index].source).candidates.filter(range =>
+        !rows.some(item => item.source === rows[index].source && sameRange(item.range, range)));
+      const segments = draft ? draft.segments.map((item, index) => {
+        if (index !== segmentIndex) return item;
+        const candidates = alternatives(draft.segments, index);
+        if (!candidates.length) throw invalid('لا يوجد مقطع آخر ضمن المقدار المقرر.');
+        return { ...item, range: candidates[pick(candidates.length)] };
+      }) : definitions.map(definition => {
         const pool = pools.get(definition.source);
         if (!pool.candidates.length) throw invalid(`لا يوجد مقدار ${definition.source === 'link' ? 'ربط' : 'مراجعة'} مقرر لهذا الطالب في الأسبوع المحدد.`);
         if (!pool.remaining.length) pool.remaining = [...pool.candidates];
@@ -57,17 +90,13 @@ export function createTrackTestAttempts({ now = Date.now, pick = randomInt } = {
       });
       const payload = Buffer.from(JSON.stringify({ studentId, weekStart, owner: identity(auth), policy: fingerprint(policy),
         expires: now() + 2 * 60 * 60 * 1000, segments })).toString('base64url');
-      return { segments, attemptToken: `${payload}.${sign(payload).toString('base64url')}` };
+      return { segments: segments.map((item, index) => ({ ...item, canReplace: alternatives(segments, index).length > 0 })),
+        attemptToken: `${payload}.${sign(payload).toString('base64url')}` };
     },
     verify(token, { studentId, weekStart, policy, auth, segments }) {
       try {
-        if (typeof token !== 'string' || token.length > 16000) throw new Error('Invalid token');
-        const [payload, signature, extra] = token.split('.');
-        const actual = Buffer.from(signature || '', 'base64url'), expected = sign(payload || '');
-        if (extra || actual.length !== expected.length || !timingSafeEqual(actual, expected)) throw new Error('Invalid signature');
-        const draft = JSON.parse(Buffer.from(payload, 'base64url').toString());
-        if (draft.studentId !== studentId || draft.weekStart !== weekStart || draft.owner !== identity(auth)
-          || draft.policy !== fingerprint(policy) || draft.expires <= now() || draft.segments.length !== segments.length) throw new Error('Expired or mismatched draft');
+        const draft = readDraft(token, { studentId, weekStart, policy, auth });
+        if (draft.segments.length !== segments.length) throw new Error('Mismatched segments');
         return draft.segments.map((item, index) => {
           const submitted = segments[index];
           if (!submitted.recorded || ['fromSurah', 'fromAyah', 'toSurah', 'toAyah'].some(field => Number(submitted.range?.[field]) !== item.range[field])) throw new Error('Changed range');
