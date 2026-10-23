@@ -1,6 +1,5 @@
 import QueuedPlanRanges from './QueuedPlanRanges';
 import AutomaticPlanControl from './AutomaticPlanControl';
-import AutomaticStageNote from './AutomaticStageNote';
 import StudentPlansPauseControl from './StudentPlansPauseControl';
 import ErrorState from '@/components/ui/error-state';
 import { formatHijriDate } from '../../../shared/hijri-calendar.js';
@@ -798,17 +797,18 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
         }
       }}>
         <DialogContent
-          className={`max-w-2xl ${dialogClassName}`}
+          className={`flex max-h-[85dvh] w-[calc(100%-2rem)] max-w-2xl flex-col overflow-hidden sm:max-h-[calc(100dvh-3rem)] ${dialogClassName}`}
           dir="rtl"
           onInteractOutside={keepPlanDialogOpen}
         >
-          <DialogHeader className="flex-row items-center justify-between gap-3 space-y-0">
-            <DialogTitle className="text-primary">{selectedRow?.plan && !isCreatingNewPlan ? 'تعديل الخطة' : 'إضافة خطة'}</DialogTitle>
-            <Button type="button" variant="outline" onClick={() => setPriorDialogOpen(true)} className="h-11 gap-2">
+          <DialogHeader className="shrink-0 flex-row items-center justify-between gap-2 space-y-0 border-b border-border pb-3">
+            <DialogTitle className="text-base text-primary sm:text-lg">{selectedRow?.plan && !isCreatingNewPlan ? 'تعديل الخطة' : 'إضافة خطة'}</DialogTitle>
+            <Button type="button" variant="outline" onClick={() => setPriorDialogOpen(true)} className="h-11 shrink-0 gap-2 px-3 text-xs sm:text-sm">
               <Plus className="h-4 w-4" />
               المحفوظ المجتاز
             </Button>
           </DialogHeader>
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain">
           <div className="flex flex-wrap gap-2">
             <AutomaticPlanControl
               studentId={selectedRow?.studentId}
@@ -823,9 +823,8 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
               })}
             />
           </div>
-          <div className="space-y-5 py-2">
-            <AutomaticStageNote range={form} chapters={chapters} />
-            <FormGrid>
+          <div className="space-y-4 py-1">
+            <FormGrid className="min-[360px]:grid-cols-2">
               <FormField label="بداية الخطة">
                 {/* A plan that already started keeps its start; one starting today or later can move forward. */}
                 {selectedRow?.plan && !isCreatingNewPlan && String(selectedRow.plan.startDate || '') < minimumPlanStartDate ? (
@@ -904,7 +903,7 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
 
             <QueuedPlanRanges value={form.queuedRanges} onChange={queuedRanges => setForm(current => ({ ...current, queuedRanges }))} chapters={chapters} pageMode={quranReferenceMode === 'page'} />
 
-            <FormGrid className="items-end border-t border-border pt-5 min-[390px]:grid-cols-2">
+            <FormGrid className="items-end border-t border-border pt-4 min-[360px]:grid-cols-2">
               <PlanAmount label="المقدار اليومي" form={form} setForm={setForm} presetKey="dailyPreset" valueKey="dailyPages" options={dailyPageOptions} min="0.25" step="0.25" inputMode="decimal" />
               <PlanAmount label="الربط" form={form} setForm={setForm} presetKey="linkPreset" valueKey="linkPages" options={[['10', '10 أوجه'], ['20', 'جزء'], ['custom', 'مخصص']]} />
               <PlanAmount
@@ -954,15 +953,16 @@ const StudentPlansSection = ({ hideCommitteeFilter = false }) => {
               </ul>
             )}
 
-            {preview && (
-              <div className={`rounded-xl p-4 text-sm font-bold ${preview.error ? 'bg-destructive/10 text-destructive' : 'bg-primary/5 text-foreground'}`}>
-                {preview.error || <><span>أيام التنفيذ المتوقعة: {numberText(preview.days)}</span>{preview.endDate && <span className="ms-3 inline-block">الانتهاء المتوقع: {formatHijriDate(preview.endDate)}</span>}</>}
+            {preview?.error && (
+              <div role="alert" className="rounded-xl bg-destructive/10 p-4 text-sm font-bold text-destructive">
+                {preview.error}
               </div>
             )}
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setSelectedRow(null)}>إغلاق</Button>
-            <Button onClick={() => savePlan()} disabled={isSaving}>{isSaving ? 'جاري الحفظ...' : 'حفظ'}</Button>
+          </div>
+          <DialogFooter className="shrink-0 border-t border-border pt-3">
+            <Button variant="outline" className="min-h-11 flex-1 sm:flex-none" onClick={() => setSelectedRow(null)}>إغلاق</Button>
+            <Button className="min-h-11 flex-1 sm:flex-none" onClick={() => savePlan()} disabled={isSaving}>{isSaving ? 'جاري الحفظ...' : 'حفظ'}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -77,7 +77,6 @@ function GaugeMetricCard({ metric, onSelect }) {
         </strong>
       </div>
       <h2 className="text-center text-sm font-bold leading-5 text-foreground">{metric.label}</h2>
-      {metric.caption && <p className="text-center text-xs leading-5 text-muted-foreground">{metric.caption}</p>}
     </button>
   );
 }

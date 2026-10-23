@@ -32,7 +32,7 @@ try {
     await page.goto(`${base}/tests/fixtures/statistics-corrections.html`, { waitUntil: 'domcontentloaded', timeout: 60000 });
     const card = page.getByRole('button', { name: 'جلسة المسار: 7%', exact: true });
     await card.waitFor();
-    assert.ok(await page.getByText(/بالتقويم الهجري/).count());
+    assert.equal(await page.getByText(/بالتقويم الهجري/).count(), 0);
     assert.ok(await page.locator('body').evaluate(node => node.scrollWidth <= globalThis.innerWidth));
     await page.screenshot({ path: join(output, `statistics-${width}.png`), fullPage: true });
     await card.click();

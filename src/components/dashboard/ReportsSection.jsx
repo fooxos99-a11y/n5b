@@ -278,8 +278,6 @@ const ReportsSection = ({
           )}
         </div>
 
-        {!archiveId && <p className="text-xs text-muted-foreground">{periodLabel}{period === 'month' || period === 'quarter' || period === 'year' ? ' · بالتقويم الهجري' : ''}</p>}
-
         {loadError && !overview ? (
           <ErrorState message={loadError} onRetry={() => setRetry((value) => value + 1)} />
         ) : isLoading && !overview && canViewStandardReports ? (
@@ -287,7 +285,7 @@ const ReportsSection = ({
         ) : (
           <>
             {loadError && <ErrorState message={loadError} onRetry={() => setRetry((value) => value + 1)} />}
-            {canViewStandardReports && overview && <PlanPerformanceChart series={overview.planPerformance?.series} title="الأداء التراكمي حسب الخطة السارية" />}
+            {canViewStandardReports && overview && <PlanPerformanceChart series={overview.planPerformance?.series} title="الأداء" />}
             <section aria-label="مؤشرات الأداء" className={`grid grid-cols-2 gap-4 md:grid-cols-3 ${isLoading ? 'opacity-60' : ''}`}>
               {cardMetrics.filter(metric => !(teacherScoped && metric.id === 'committees' && Number(metric.countValue) <= 1)).map((metric) => (
                 <MetricCard key={metric.id} metric={metric} onSelect={(item) => { setDetailCommittee(ALL_COMMITTEES); setSelectedId(item.id); }} />

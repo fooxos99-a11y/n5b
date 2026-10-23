@@ -7,9 +7,8 @@ export default function AutomaticPlanControl({ studentId, currentPlanId, priorMe
   const { toast } = useToast();
   const [busy, setBusy] = useState(false);
   const [priorOnly, setPriorOnly] = useState(false);
-  const [generated, setGenerated] = useState(false);
   const generate = async () => {
-    setBusy(true); setPriorOnly(false); setGenerated(false);
+    setBusy(true); setPriorOnly(false);
     try {
       const { template } = await automaticPlanApi.loadTemplate();
       const result = await automaticPlanApi.preview(studentId, { ranges: template.ranges, currentPlanId, priorMemorization });
@@ -19,7 +18,6 @@ export default function AutomaticPlanControl({ studentId, currentPlanId, priorMe
         return;
       }
       onApply(result.ranges);
-      setGenerated(result.ranges.some(range => range.stageJuz));
     } catch (error) { toast({ title: 'تعذر إضافة الخطط', description: error.message, variant: 'destructive' }); }
     finally { setBusy(false); }
   };
@@ -27,7 +25,6 @@ export default function AutomaticPlanControl({ studentId, currentPlanId, priorMe
     <Button type="button" variant="outline" className="min-h-11" disabled={disabled || busy} onClick={generate}>
       {busy ? 'جارٍ الإضافة…' : 'إضافة الخطط تلقائيًا'}
     </Button>
-    {generated && <p className="text-xs leading-6 text-muted-foreground">الحفظ بالترتيب داخل السورة. ويُحتسب ما يسبق حدود المرحلة رصيدًا للمرحلة التالية بعد اعتماد المعلم.</p>}
     {priorOnly && <Button type="button" variant="outline" disabled={disabled || busy} onClick={async () => {
       setBusy(true);
       try { await automaticPlanApi.savePrior(studentId, priorMemorization); onPriorSaved(); }

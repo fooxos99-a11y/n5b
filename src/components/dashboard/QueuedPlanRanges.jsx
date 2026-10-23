@@ -6,7 +6,6 @@ import { FormField, FormGrid } from './layout/ManagementPanel';
 import SurahSearchSelect from '@/components/quran/SurahSearchSelect';
 import AyahSearchSelect from '@/components/quran/AyahSearchSelect';
 import { studentsApi } from '@/services/studentsApi';
-import AutomaticStageNote from './AutomaticStageNote';
 
 function RangeEndpoint({ side, range, chapters, pageMode, onChange }) {
   const [ayahs, setAyahs] = useState([]);
@@ -37,8 +36,6 @@ export default function QueuedPlanRanges({ value = [], onChange, chapters, pageM
   return <div className="space-y-3 border-t border-border pt-4">
     {value.map((range, index) => <div key={index} className="space-y-2 rounded-xl border border-border p-3">
       <div className="text-sm font-bold">الخطة التالية {index + 1}</div>
-      {range.label && <p className="text-xs text-muted-foreground">{range.label}</p>}
-      <AutomaticStageNote range={range} chapters={chapters} />
       <FormGrid>{['start', 'end'].map(side => <FormField key={side} label={side === 'start' ? 'من' : 'إلى'}>
         <RangeEndpoint side={side} range={range} chapters={chapters} pageMode={pageMode} onChange={patch => onChange(value.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item))} />
       </FormField>)}</FormGrid>
