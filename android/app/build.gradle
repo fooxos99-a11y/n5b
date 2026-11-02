@@ -11,6 +11,9 @@ android {
     compileSdk = rootProject.ext.compileSdkVersion
     flavorDimensions += "brand"
     defaultConfig {
+        applicationId "sa.nukhab.app"
+        versionCode 35
+        versionName "1.0.27"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
@@ -23,9 +26,9 @@ android {
     productFlavors {
         nukhab {
             dimension "brand"
-            applicationId "sa.nukhab.app"
-            versionCode 26
-            versionName "1.0.26"
+        }
+        nukhabHuawei {
+            dimension "brand"
         }
     }
     signingConfigs {
@@ -70,6 +73,7 @@ dependencies {
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
     implementation project(':capacitor-cordova-android-plugins')
+    nukhabHuaweiImplementation 'com.huawei.hms:push:6.13.0.301'
 }
 
 apply from: 'capacitor.build.gradle'
@@ -79,11 +83,18 @@ def pushConfigs = fileTree('src') { include '**/google-services.json' }
 if (!pushConfigs.isEmpty()) {
     apply plugin: 'com.google.gms.google-services'
 }
+if (file('src/nukhabHuawei/agconnect-services.json').isFile()) {
+    apply plugin: 'com.huawei.agconnect'
+}
 gradle.taskGraph.whenReady { graph ->
     android.productFlavors.each { flavor ->
         if (graph.allTasks.any { it.name.toLowerCase().contains(flavor.name.toLowerCase() + 'release') }
-                && !file("src/${flavor.name}/google-services.json").isFile()) {
+                && flavor.name != 'nukhabHuawei' && !file("src/${flavor.name}/google-services.json").isFile()) {
             throw new GradleException("Firebase configuration is required for ${flavor.name} release push notifications.")
         }
+    }
+    if (graph.allTasks.any { it.name.toLowerCase().contains('nukhabhuaweirelease') }
+            && !file('src/nukhabHuawei/agconnect-services.json').isFile()) {
+        throw new GradleException('Huawei configuration is required for the AppGallery release.');
     }
 }

@@ -10,3 +10,14 @@ export function validateAndroidPushConfig(config, applicationId) {
     throw new Error('Firebase Android client registration is incomplete.');
   }
 }
+
+export function validateHuaweiPushConfig(config, applicationId) {
+  if (config?.client?.package_name !== applicationId || config?.app_info?.package_name !== applicationId
+      || !/^\d+$/.test(String(config?.client?.app_id || '')) || !config?.client?.project_id) {
+    throw new Error('Huawei configuration must belong exclusively to the selected Android application.');
+  }
+  const containsSecret = (value) => value && typeof value === 'object' && Object.entries(value).some(([key, item]) => (
+    (key === 'client_secret' && Boolean(item)) || containsSecret(item)
+  ));
+  if (containsSecret(config)) throw new Error('Huawei server client secrets must not be included in an application build.');
+}

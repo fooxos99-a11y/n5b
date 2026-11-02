@@ -1,6 +1,7 @@
 import { sign, createHash } from 'node:crypto';
 import { connect } from 'node:http2';
 import { notificationStaffRoles } from '../../shared/notification-roles.js';
+import { sendHuaweiPush } from './huaweiPush.js';
 
 const encode = (value) => Buffer.from(JSON.stringify(value)).toString('base64url');
 const failure = (code, permanent = false) => Object.assign(new Error(code), { code, permanent });
@@ -54,7 +55,9 @@ async function sendApple(config, device, notification) {
 
 export async function processNotificationPushBatch(pool, config, send = async (device, notification) => {
   if (device.platform === 'android') await sendAndroid(config.android, device, notification);
-  else await sendApple(config.ios, device, notification);
+  else if (device.platform === 'huawei') await sendHuaweiPush(config.huawei, device, notification);
+  else if (device.platform === 'ios') await sendApple(config.ios, device, notification);
+  else throw failure('DEVICE_PLATFORM_INVALID', true);
 }) {
   const connection = await pool.getConnection();
   try {
@@ -79,7 +82,7 @@ export async function processNotificationPushBatch(pool, config, send = async (d
         await send(row, { ...row, body: Array.from(row.body).slice(0, 500).join('') });
         await connection.query("UPDATE notification_push_deliveries SET status = 'sent', attempts = attempts + 1, error_code = NULL WHERE notification_id = ? AND device_id = ?", [row.id, row.deviceId]);
       } catch (error) {
-        const code = ['NOT_CONFIGURED', 'FCM_AUTH_FAILED', 'FCM_SEND_FAILED', 'DEVICE_UNREGISTERED', 'APNS_TIMEOUT', 'APNS_CONNECTION_FAILED', 'APNS_SEND_FAILED'].includes(error.code) ? error.code : 'PUSH_FAILED';
+        const code = ['NOT_CONFIGURED', 'FCM_AUTH_FAILED', 'FCM_SEND_FAILED', 'DEVICE_UNREGISTERED', 'DEVICE_PLATFORM_INVALID', 'HMS_AUTH_FAILED', 'HMS_SEND_FAILED', 'HMS_PAYLOAD_INVALID', 'APNS_TIMEOUT', 'APNS_CONNECTION_FAILED', 'APNS_SEND_FAILED'].includes(error.code) ? error.code : 'PUSH_FAILED';
         const terminal = error.permanent || (code !== 'NOT_CONFIGURED' && Number(row.attempts) >= 4);
         await connection.query(`UPDATE notification_push_deliveries SET status = ?, attempts = attempts + ?, error_code = ?, next_attempt_at = DATE_ADD(NOW(), INTERVAL 5 MINUTE)
           WHERE notification_id = ? AND device_id = ?`, [terminal ? 'failed' : 'pending', code === 'NOT_CONFIGURED' ? 0 : 1, code, row.id, row.deviceId]);

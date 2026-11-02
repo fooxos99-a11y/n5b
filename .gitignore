@@ -47,5 +47,6 @@ testsprite_tests/tmp/config.json
 
 # Device messaging configuration supplied per release
 **/google-services.json
+**/agconnect-services.json
 **/GoogleService-Info.plist
 android/.kotlin/

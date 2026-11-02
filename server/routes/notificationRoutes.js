@@ -6,6 +6,7 @@ import { deviceTokenHash, getNotificationPushConfig } from '../services/notifica
 import { notificationStaffRoles } from '../../shared/notification-roles.js';
 import { createNotificationReadHandler } from './notificationReadHandler.js';
 import { parsePassingNotificationAction } from '../../shared/passing-notification.js';
+import { isHuaweiPushConfigured } from '../services/huaweiPush.js';
 
 export const notificationRouter = express.Router();
 export const notificationManagementRouter = express.Router();
@@ -15,13 +16,13 @@ notificationRouter.get('/push-status', async (req, res, next) => {
   try {
     const [[row]] = await db().query('SELECT DATABASE() AS databaseName');
     const config = getNotificationPushConfig(row.databaseName);
-    res.json({ android: Boolean(config.android?.projectId && config.android?.clientEmail && config.android?.privateKey), ios: Boolean(config.ios?.teamId && config.ios?.keyId && config.ios?.privateKey && config.ios?.topic && ['production', 'sandbox'].includes(config.ios?.environment)) });
+    res.json({ huawei: isHuaweiPushConfigured(config.huawei), android: Boolean(config.android?.projectId && config.android?.clientEmail && config.android?.privateKey), ios: Boolean(config.ios?.teamId && config.ios?.keyId && config.ios?.privateKey && config.ios?.topic && ['production', 'sandbox'].includes(config.ios?.environment)) });
   } catch (error) { next(error); }
 });
 notificationRouter.post('/devices', async (req, res, next) => {
   try {
     const { platform, token } = req.body;
-    if (!['android', 'ios'].includes(platform) || typeof token !== 'string' || !/^[a-zA-Z0-9:_-]{32,1024}$/.test(token)
+    if (!['android', 'ios', 'huawei'].includes(platform) || typeof token !== 'string' || !/^[a-zA-Z0-9:_-]{32,1024}$/.test(token)
       || (platform === 'ios' && !/^[a-f\d]+$/i.test(token))) return res.status(422).json({ message: 'بيانات الجهاز غير صالحة.' });
     await db().query(`INSERT INTO notification_devices (user_role, user_id, platform, token, token_hash, session_hash)
       VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE user_role = VALUES(user_role), user_id = VALUES(user_id), token = VALUES(token), session_hash = VALUES(session_hash), updated_at = NOW()`,

@@ -1,11 +1,13 @@
 param(
   [ValidateSet('nukhab')]
-  [string]$Brand = 'nukhab'
+  [string]$Brand = 'nukhab',
+  [ValidateSet('standard', 'huawei')]
+  [string]$Distribution = 'standard'
 )
 
 $ErrorActionPreference = 'Stop'
 
-node (Join-Path $PSScriptRoot 'check-android-push.mjs') $Brand
+node (Join-Path $PSScriptRoot 'check-android-push.mjs') $Brand $Distribution
 if ($LASTEXITCODE -ne 0) { throw 'Android push configuration validation failed.' }
 
 function Remove-BuildJunctionSafely([string]$junctionPath) {
@@ -50,8 +52,8 @@ try {
   New-Item -ItemType Junction -Path $buildJunction -Target $projectRoot | Out-Null
   Push-Location (Join-Path $buildJunction 'android')
   try {
-    $taskName = 'assembleNukhabRelease'
-    $bundleTaskName = 'bundleNukhabRelease'
+    $taskName = if ($Distribution -eq 'huawei') { 'assembleNukhabHuaweiRelease' } else { 'assembleNukhabRelease' }
+    $bundleTaskName = if ($Distribution -eq 'huawei') { 'bundleNukhabHuaweiRelease' } else { 'bundleNukhabRelease' }
     & .\gradlew.bat '-Duser.language=en' '-Duser.country=US' $taskName $bundleTaskName
     if ($LASTEXITCODE -ne 0) { throw "Android release build failed with exit code $LASTEXITCODE." }
   } finally {
