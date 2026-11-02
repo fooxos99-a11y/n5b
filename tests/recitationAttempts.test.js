@@ -63,7 +63,7 @@ test('reverse Quran ranges preserve surah order while ayahs stay ascending', asy
   assert.match(executionPolicy, /Number\(second\.surah \|\| 0\) - Number\(first\.surah \|\| 0\)[\s\S]*Number\(first\.ayah \|\| 0\) - Number\(second\.ayah \|\| 0\)/);
 });
 
-test('retry source stays available across dates while completed local actions leave the active list', async () => {
+test('daily retry source stays available while completed local actions await acknowledgement', async () => {
   const [server, taskList, evaluation, mushaf] = await Promise.all([
     read('../server/index.js'),
     read('../src/components/portal/TeacherRecitationTaskList.jsx'),
@@ -72,12 +72,13 @@ test('retry source stays available across dates while completed local actions le
   ]);
 
   assert.match(server, /previous_attempt\.task_id = t\.id/);
-  assert.match(server, /WHERE \(\$\{currentQuranPlanSql\('p'\)\} OR \$\{retryableAttemptFilter\} OR \$\{studentExecutedMemorizationCondition\}\)/);
+  assert.match(server, /WHERE \(\$\{dailyRetryFilter\} OR \(\(\$\{currentQuranPlanSql\('p'\)\} OR \$\{retryableAttemptFilter\} OR \$\{studentExecutedMemorizationCondition\} OR \$\{pendingSessionQuranPlanSql\('p', 't'\)\}\)/);
   assert.match(server, /MAX\(latest_attempt\.session_date\)/);
   assert.match(server, /attemptCount: Math\.max\(0, Number\(row\.attemptCount \|\| 0\)\)/);
   assert.match(server, /AND a\.teacher_completed = 1\s*\) AS successfulAttemptCount/);
   assert.match(taskList, /pendingTasks = student\.tasks\.filter\(isRecitationActionPending\)/);
-  assert.match(taskList, /tasks: pendingTasks\.filter\(\(task\) => evaluationTypeForTask\(task\) === 'memorization'\)/);
+  assert.match(taskList, /tasks: tasksForAction\('memorization'\)/);
+  assert.match(taskList, /task\.retryOf/);
   assert.doesNotMatch(taskList, /label: 'إتقان'/);
   assert.match(taskList, /اكتمل التسميع/);
   assert.doesNotMatch(taskList, /إعادة إرسال|nazem/i);

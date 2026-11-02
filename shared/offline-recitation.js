@@ -68,6 +68,8 @@ export const createUuid = () => {
 
 export const normalizeRecitationSession = (value = {}) => ({
   sessionId: isUuid(value.sessionId) ? value.sessionId.toLowerCase() : '',
+  retryOf: isUuid(value.retryOf) ? value.retryOf.toLowerCase() : '',
+  draftKey: String(value.draftKey || '').slice(0, 500),
   studentId: Math.max(0, Number(value.studentId || 0)),
   supervisorId: Math.max(0, Number(value.supervisorId || 0)),
   deviceId: isUuid(value.deviceId) ? value.deviceId.toLowerCase() : '',

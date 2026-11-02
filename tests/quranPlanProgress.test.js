@@ -279,7 +279,7 @@ test('schema, settings, plan UI, and teacher range endpoint persist the new mode
   assert.doesNotMatch(server, /requestedTargetEndDate/);
   assert.doesNotMatch(server, /requestedEffectiveFrom/);
   assert.match(server, /app\.delete\('\/api\/student-plans\/:studentId'[\s\S]*hasSupervisorStudentPlanAccess\(req, studentId\)[\s\S]*status = 'paused'/);
-  assert.match(server, /JOIN student_quran_plans p ON p\.id = t\.plan_id[\s\S]*WHERE \(\$\{currentQuranPlanSql\('p'\)\} OR \$\{retryableAttemptFilter\} OR \$\{studentExecutedMemorizationCondition\}\)[\s\S]*t\.task_date <= \?/);
+  assert.match(server, /JOIN student_quran_plans p ON p\.id = t\.plan_id[\s\S]*WHERE \(\$\{dailyRetryFilter\} OR \(\(\$\{currentQuranPlanSql\('p'\)\} OR \$\{retryableAttemptFilter\} OR \$\{studentExecutedMemorizationCondition\} OR \$\{pendingSessionQuranPlanSql\('p', 't'\)\}\)[\s\S]*t\.task_date <= \?/);
   assert.match(plans, /studentsApi\.deleteStudentPlan/);
   assert.match(plans, /aria-label=\{`إدارة حذف خطة ومحفوظات \$\{row\.studentName\}`\}/);
   assert.match(plans, /حذف الخطة الحالية/);

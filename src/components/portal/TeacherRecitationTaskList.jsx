@@ -34,6 +34,7 @@ const attendanceStatuses = [
 const TeacherRecitationTaskList = ({
   tasks = [],
   taskQueue = [],
+  retryTasks = [],
   students = [],
   quranChapters = [],
   isLoading = false,
@@ -69,7 +70,8 @@ const TeacherRecitationTaskList = ({
         map.set(String(student.studentId), { ...student, tasks: [] });
       });
     }
-    tasks.forEach((task) => {
+    const displayedTasks = new Map([...tasks, ...retryTasks].map(task => [Number(task.id), task]));
+    displayedTasks.forEach((task) => {
       // Compensation amounts are recited from the compensation window, not the day's actions.
       if (onRecite && Number(task.compensationIndex || 0) > 0) return;
       const studentId = String(task.studentId);
@@ -91,7 +93,7 @@ const TeacherRecitationTaskList = ({
         || (onOpenCompensation && student.hasCompensation)
         || readingByStudent.get(String(student.studentId))?.status === null)
       .map((student) => ({ ...student, tasks: sortRecitationTasks(student.tasks) }));
-  }, [students, tasks, taskQueue, teacherAttendanceMode, recitationAttendanceSource, onRecite, onDayCompensated, onOpenCompensation, readingByStudent]);
+  }, [students, tasks, retryTasks, taskQueue, teacherAttendanceMode, recitationAttendanceSource, onRecite, onDayCompensated, onOpenCompensation, readingByStudent]);
 
   if (isLoading) return <DashboardLoader />;
   if (grouped.length === 0) {
@@ -106,25 +108,30 @@ const TeacherRecitationTaskList = ({
         const attendanceAllowsActions = ['present', 'late'].includes(student.attendanceStatus);
         const canRecite = !student.offlineSequenceBlocked && attendanceAllowsActions;
         const pendingTasks = student.tasks.filter(isRecitationActionPending);
+        const tasksForAction = (type) => {
+          const retries = student.tasks.filter(task => evaluationTypeForTask(task) === type && task.retryOf);
+          return retries.length ? retries : pendingTasks.filter(task => evaluationTypeForTask(task) === type);
+        };
         const recitationActions = [
           {
             key: 'saved',
             label: 'حفظ',
             sourceKey: 'memorization',
-            tasks: pendingTasks.filter((task) => evaluationTypeForTask(task) === 'memorization'),
+            tasks: tasksForAction('memorization'),
           },
           {
             key: 'review',
             label: 'مراجعة',
             sourceKey: 'review',
-            tasks: pendingTasks.filter((task) => evaluationTypeForTask(task) === 'review'),
+            tasks: tasksForAction('review'),
           },
           {
             key: 'link',
             label: 'ربط',
             sourceKey: 'link',
-            tasks: pendingTasks.filter((task) => evaluationTypeForTask(task) === 'link'),
+            tasks: tasksForAction('link'),
           },
+          { key: 'mastery', label: getQuranTaskLabel({ taskType: 'memorization', track: 'mastery' }), sourceKey: 'memorization', tasks: tasksForAction('mastery') },
         ].filter((action) => {
           if (action.empty) return false;
           if (!action.tasks.length) return false;
@@ -133,7 +140,8 @@ const TeacherRecitationTaskList = ({
           return ['teacher', 'both'].includes(executionSources[action.sourceKey]);
         });
         const hasRecitationTasks = recitationActions.some((action) => action.empty || action.tasks.length > 0);
-        const actionViews = recitationActions.map((action) => {
+        const actionViews = recitationActions.map((sourceAction) => {
+          const action = { ...sourceAction, retryOf: sourceAction.tasks[0]?.retryOf || '' };
           const actionKey = `${student.studentId}:${action.key}:${action.tasks[0]?.id}`;
           const actionTeacherExecutionMode = ['teacher', 'both'].includes(
             executionSources?.[action.sourceKey] || 'teacher',
@@ -147,7 +155,7 @@ const TeacherRecitationTaskList = ({
             : action.tasks[0]?.expectedListeningCount ?? listeningCount) ?? 1);
           const actionAmount = action.empty ? 'لا يوجد محفوظ للربط' : formatContinuousRecitationRange(action.tasks);
           const amountControl = renderRecitationAmountControl({ action, actionKey, selectedEnds, updateSelectedEnd, teacherExecutionMode, actionTeacherExecutionMode, quranChapters });
-          const repeatEditable = teacherExecutionMode && ['teacher', 'both'].includes(executionSources?.repeat || 'teacher') && action.key === 'saved';
+          const repeatEditable = teacherExecutionMode && ['teacher', 'both'].includes(executionSources?.repeat || 'teacher') && !action.retryOf && action.key === 'saved';
           const repeatControl = action.key === 'saved' ? (
             <RepeatCountSelector label="" editable={repeatEditable && !repeatClaimedByStudent}
               ariaLabel={`هل كرر ${student.studentName}؟`} value={selectedRepeatCounts[actionKey] ?? defaultRepeatCount}
@@ -251,11 +259,14 @@ const TeacherRecitationTaskList = ({
                         amount={actionAmount}
                         amountControl={amountControl}
                         showAmount={showAmounts}
-                        active
+                        active={!action.retryOf}
+                        retry={Boolean(action.retryOf)}
+                        pending={action.tasks.some(task => task.retryPending)}
                         disabled={action.empty || !canRecite || action.tasks.length === 0}
                         onClick={() => {
                           const selectedStudent = {
                             ...student,
+                            retryOf: action.retryOf,
                             tasks: action.tasks,
                             actualEnd: selectedEnds[actionKey] || action.tasks[0]?.normalEnd || null,
                             repeatCount: action.key === 'saved' && teacherExecutionMode
@@ -377,7 +388,7 @@ const TeacherRecitationTaskList = ({
 export default TeacherRecitationTaskList;
 
 function renderRecitationAmountControl({ action, actionKey, selectedEnds, updateSelectedEnd, teacherExecutionMode, actionTeacherExecutionMode, quranChapters }) {
-  const canSelectEnd = teacherExecutionMode
+  const canSelectEnd = !action.retryOf && teacherExecutionMode
   && actionTeacherExecutionMode
   && ['saved', 'review', 'mastery'].includes(action.key)
   && action.tasks[0]?.options?.length > 0;

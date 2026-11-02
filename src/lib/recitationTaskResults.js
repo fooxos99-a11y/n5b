@@ -1,4 +1,14 @@
 // A session may fail after one or more tasks have committed on the server.
+export function recitationRejectionDetails(outcome) {
+  const failed = outcome.tasks?.find(item => !['accepted', 'already_synced'].includes(item.result));
+  if (!failed) return null;
+  return {
+    taskId: Number(failed.taskId) || null,
+    code: failed.data?.code || '', reason: failed.data?.reason || '',
+    requestId: failed.data?.requestId || failed.requestId || '',
+  };
+}
+
 export const hasAcceptedRecitationTask = (session, item) => (
   session.status !== 'rejected_duplicate'
   && (session.status === 'synced' || ['accepted', 'already_synced'].includes(item.syncResultCode))

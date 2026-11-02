@@ -221,7 +221,7 @@ test('client persists atomically, restores drafts, retries globally, and never b
   assert.match(sync, /commitOfflineAttendance/);
   assert.match(sync, /mergeCommittedOfflineEvaluation/);
   assert.match(merge, /advanceRecitationTaskQueue/);
-  assert.match(merge, /\{ promote: canAdvanceRecitationSession\(session\) \}/);
+  assert.match(merge, /\{ promote: canAdvanceRecitationSession\(session\), session \}/);
   assert.match(merge, /LOCAL_ATTENDANCE_STATUSES = new Set\(\['pending', 'syncing', 'failed'\]\)/);
   assert.match(merge, /latestAttendanceByStudent/);
   assert.match(merge, /LOCAL_ATTENDANCE_STATUSES\.has\(action\.status\)/);
@@ -275,7 +275,7 @@ test('authorized teachers keep absent and excused pupils visible during offline 
     const actions = [{ status: 'pending', actionType: 'student_attendance', payload: { studentId: 16, date: evaluation.date, status } }];
     const result = mergeCommittedOfflineEvaluation(evaluation, [], actions);
     assert.equal(result.students[0].attendanceStatus, status);
-    assert.deepEqual(result.tasks, []);
+    assert.deepEqual(result.tasks, evaluation.tasks);
     assert.equal(mergeCommittedOfflineEvaluation({ ...evaluation, students: [{ studentId: 16, canSetAttendance: false }] }, [], actions).students.length, 0);
   }
 });

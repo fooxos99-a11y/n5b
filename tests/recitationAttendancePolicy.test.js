@@ -12,12 +12,14 @@ test('supervisor attendance only exposes present or late students to recitation 
   }
 });
 
-test('teacher attendance permits unmarked pupils only for the authorized teacher', () => {
+test('the authorized attendance teacher retains unmarked, absent and excused pupils', () => {
   assert.equal(canTeacherSetRecitationAttendance({ recitationAttendanceSource: 'teacher' }, 'supervisor'), true);
   assert.equal(canTeacherSetRecitationAttendance({ recitationAttendanceSource: 'teacher' }, 'reciter'), false);
   assert.equal(canTeacherSetRecitationAttendance({}, 'supervisor'), false);
   assert.equal(isRecitationAttendanceVisible('', true), true);
-  assert.equal(isRecitationAttendanceVisible('absent', true), false);
+  for (const status of ['', 'present', 'late', 'absent', 'excused']) {
+    assert.equal(isRecitationAttendanceVisible(status, true), true);
+  }
 });
 
 test('API writes and task lists enforce the same attendance policy, including cached UI data', () => {

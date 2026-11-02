@@ -1,6 +1,7 @@
 import { hasAcceptedRecitationTask } from './recitationTaskResults.js';
 import { mergeRecitationDeliveryReceipts } from './recitationDeliveryReceipts.js';
 import { advanceRecitationTaskQueue, canAdvanceRecitationSession } from './recitationTaskQueue.js';
+import { isUuid } from '../../shared/offline-recitation.js';
 
 const UNSYNCED_RECITATION_STATUSES = new Set(['pending', 'syncing', 'invalid_sequence', 'failed']);
 const LOCAL_ATTENDANCE_STATUSES = new Set(['pending', 'syncing', 'failed']);
@@ -12,7 +13,7 @@ const protectsAcceptedTask = (session, item, task) => hasAcceptedRecitationTask(
   && item.taskType === task.taskType
   && (!task.planVersion || Number(item.planVersion) === Number(task.planVersion))
   && !task.evaluatedAt && ((Number(task.attemptCount) || 0) <= 0)
-  && item.result.teacherCompleted === true;
+  && (item.result.teacherCompleted === true || isUuid(session.sessionId));
 
 export function mergeCommittedOfflineEvaluation(evaluation, sessions = [], actions = []) {
   if (!evaluation) return evaluation;
@@ -26,12 +27,12 @@ export function mergeCommittedOfflineEvaluation(evaluation, sessions = [], actio
   const pendingStudentIds = new Set();
   pendingSessions.forEach((session) => {
     const taskById = new Map(
-      [...(mergedEvaluation.taskQueue || []), ...(mergedEvaluation.tasks || [])]
+      [...(mergedEvaluation.taskQueue || []), ...(mergedEvaluation.tasks || []), ...(mergedEvaluation.retryTasks || [])]
         .map((task) => [Number(task.id), task]),
     );
     const sessionTasks = (session.tasks || [])
       .map((item) => {
-        const task = taskById.get(Number(item.taskId));
+        const task = taskById.get(Number(item.taskId)) || item.taskSnapshot;
         if (!task) return null;
         // A transport failure protects only a complete durable submission, not
         // an unsubmitted placeholder in a partially accepted batch.
@@ -48,7 +49,7 @@ export function mergeCommittedOfflineEvaluation(evaluation, sessions = [], actio
     if (!sessionTasks.length) return;
     if (Number(session.studentId)) pendingStudentIds.add(Number(session.studentId));
     sessionTasks.forEach((task) => pendingStudentIds.add(Number(task.studentId)));
-    mergedEvaluation = advanceRecitationTaskQueue(mergedEvaluation, sessionTasks, { promote: canAdvanceRecitationSession(session) });
+    mergedEvaluation = advanceRecitationTaskQueue(mergedEvaluation, sessionTasks, { promote: canAdvanceRecitationSession(session), session });
   });
   const latestAttendanceByStudent = new Map();
   actions.forEach((action) => {
@@ -59,7 +60,8 @@ export function mergeCommittedOfflineEvaluation(evaluation, sessions = [], actio
     latestAttendanceByStudent.set(Number(action.payload?.studentId), action.payload?.status || '');
   });
   const absentStudentIds = new Set((mergedEvaluation.students || []).filter((student) => (
-    ['absent', 'excused'].includes(latestAttendanceByStudent.get(Number(student.studentId)) || student.attendanceStatus)
+    !student.canSetAttendance
+    && ['absent', 'excused'].includes(latestAttendanceByStudent.get(Number(student.studentId)) || student.attendanceStatus)
   )).map((student) => Number(student.studentId)));
   const remainingTasks = (mergedEvaluation.tasks || []).filter((task) => !absentStudentIds.has(Number(task.studentId)));
   return {

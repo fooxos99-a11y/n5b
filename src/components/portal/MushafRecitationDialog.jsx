@@ -52,6 +52,7 @@ const rangesOverlap = (words, first, second) => {
 const MushafRecitationDialog = ({
   supervisorId,
   student,
+  draftKey,
   tasks = [],
   open,
   onOpenChange,
@@ -135,7 +136,7 @@ const MushafRecitationDialog = ({
               : studentsApi.getSupervisorQuranTaskAyahs(supervisorId, task.id)),
           }))),
           supervisorId && student?.studentId
-            ? getRecitationDraft(supervisorId, student.studentId)
+            ? getRecitationDraft(supervisorId, draftKey || student.studentId)
             : Promise.resolve(null),
         ]);
         if (!active) return;
@@ -156,7 +157,7 @@ const MushafRecitationDialog = ({
         setActiveEntryIndex(Math.max(0, initialRandom.index));
         setViewPage(initialPage || null);
         setRandomVisitedIndexes(initialRandom.visitedIndexes);
-        const serverMarks = Object.fromEntries(loaded.map(({ task, data }) => [String(task.id), data.wordMarks || []]));
+        const serverMarks = Object.fromEntries(loaded.map(({ task, data }) => [String(task.id), student?.retryOf ? [] : data.wordMarks || []]));
         setMarksByTask(draft?.mode === 'mushaf' ? draft.marksByTask : serverMarks);
         setDraftReady(true);
         setIsLoading(false);
@@ -179,15 +180,15 @@ const MushafRecitationDialog = ({
     };
     void loadMushaf();
     return () => { active = false; };
-  }, [currentTaskLoadKey, loadVersion, open, randomMode, student?.studentId, supervisorId]);
+  }, [currentTaskLoadKey, draftKey, loadVersion, open, randomMode, student?.retryOf, student?.studentId, supervisorId]);
 
   useEffect(() => {
     if (!open || !draftReady || !supervisorId || !student?.studentId) return undefined;
     const timer = window.setTimeout(() => {
-      void saveRecitationDraft(supervisorId, student.studentId, { mode: 'mushaf', marksByTask });
+      void saveRecitationDraft(supervisorId, draftKey || student.studentId, { mode: 'mushaf', marksByTask });
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [draftReady, marksByTask, open, student?.studentId, supervisorId]);
+  }, [draftKey, draftReady, marksByTask, open, student?.studentId, supervisorId]);
 
   const finishSelection = () => {
     if (!selection) return;
@@ -478,6 +479,7 @@ const MushafRecitationDialog = ({
   return (
     <>
       <FullScreenPage open={open} onClose={() => onOpenChange?.(false)} label="جلسة التسميع">
+          {student?.retryOf && <p className="shrink-0 border-b border-border bg-card px-3 py-2 text-center text-xs leading-5 text-muted-foreground">إعادة التسميع — ستُحتسب نتيجة هذه المحاولة بعد اعتمادها، حتى لو كانت أقل من السابقة.</p>}
           {renderSessionActions && <div className="shrink-0 border-b border-border bg-card px-3 py-2 text-foreground" data-recitation-control>
             {renderSessionActions({ disabled: isLoading || !draftReady || isSaving || Boolean(pendingMark || selection) })}
           </div>}

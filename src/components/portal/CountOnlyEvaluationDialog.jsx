@@ -10,15 +10,15 @@ import { evaluateRecitationGroup, RecitationItemResult } from '@/components/port
 const normalizeCount = (value) => Math.min(1000, Math.max(0, Math.trunc(Number(value) || 0)));
 const EMPTY_ITEMS = Object.freeze([]);
 
-const CountField = ({ id, label, value, onChange }) => (
+const CountField = ({ id, label, value, onChange, disabled = false }) => (
   <div className="space-y-2">
     <Label htmlFor={id}>{label}</Label>
     <div className="grid grid-cols-[2.75rem_3rem_2.75rem] justify-start gap-1" dir="ltr">
-      <Button type="button" variant="outline" size="icon" className="h-11 w-11 touch-manipulation" aria-label={`إنقاص ${label}`} onClick={() => onChange(normalizeCount(value - 1))}>
+      <Button type="button" variant="outline" size="icon" className="h-11 w-11 touch-manipulation" disabled={disabled} aria-label={`إنقاص ${label}`} onClick={() => onChange(normalizeCount(value - 1))}>
         <Minus className="h-4 w-4" />
       </Button>
-      <Input id={id} aria-label={label} type="number" min="0" max="1000" inputMode="numeric" className="h-11 px-1 text-center font-black tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" value={value} onChange={(event) => onChange(normalizeCount(event.target.value))} />
-      <Button type="button" variant="outline" size="icon" className="h-11 w-11 touch-manipulation" aria-label={`زيادة ${label}`} onClick={() => onChange(normalizeCount(value + 1))}>
+      <Input id={id} aria-label={label} type="number" min="0" max="1000" inputMode="numeric" disabled={disabled} className="h-11 px-1 text-center font-black tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" value={value} onChange={(event) => onChange(normalizeCount(event.target.value))} />
+      <Button type="button" variant="outline" size="icon" className="h-11 w-11 touch-manipulation" disabled={disabled} aria-label={`زيادة ${label}`} onClick={() => onChange(normalizeCount(value + 1))}>
         <Plus className="h-4 w-4" />
       </Button>
     </div>
@@ -41,6 +41,7 @@ const CountOnlyEvaluationDialog = ({
   items = EMPTY_ITEMS,
   supervisorId,
   studentId,
+  draftKey,
   gradingPolicy = null,
   taskType = '',
 }) => {
@@ -49,6 +50,9 @@ const CountOnlyEvaluationDialog = ({
   const [mistakeCount, setMistakeCount] = useState(0);
   const [itemCounts, setItemCounts] = useState({});
   const [draftReady, setDraftReady] = useState(false);
+  const initialItemCounts = JSON.stringify(Object.fromEntries(items.map(item => [String(item.id), {
+    warningCount: normalizeCount(item.warningCount), hesitationCount: normalizeCount(item.hesitationCount), mistakeCount: normalizeCount(item.mistakeCount),
+  }])));
 
   useEffect(() => {
     if (!open) return;
@@ -56,28 +60,24 @@ const CountOnlyEvaluationDialog = ({
     setHesitationCount(normalizeCount(initialHesitationCount));
     setMistakeCount(normalizeCount(initialMistakeCount));
     setDraftReady(false);
-    const defaults = Object.fromEntries(items.map((item) => [String(item.id), {
-      warningCount: normalizeCount(item.warningCount),
-      hesitationCount: normalizeCount(item.hesitationCount),
-      mistakeCount: normalizeCount(item.mistakeCount),
-    }]));
+    const defaults = JSON.parse(initialItemCounts);
     let active = true;
     void (async () => {
-      const draft = supervisorId && studentId ? await getRecitationDraft(supervisorId, studentId) : null;
+      const draft = supervisorId && studentId ? await getRecitationDraft(supervisorId, draftKey || studentId) : null;
       if (!active) return;
       setItemCounts(draft?.mode === 'count' ? draft.itemCounts : defaults);
       setDraftReady(true);
     })();
     return () => { active = false; };
-  }, [initialHesitationCount, initialMistakeCount, initialWarningCount, items, open, studentId, supervisorId]);
+  }, [draftKey, initialHesitationCount, initialItemCounts, initialMistakeCount, initialWarningCount, open, studentId, supervisorId]);
 
   useEffect(() => {
     if (!open || !draftReady || !supervisorId || !studentId) return undefined;
     const timer = window.setTimeout(() => {
-      void saveRecitationDraft(supervisorId, studentId, { mode: 'count', itemCounts });
+      void saveRecitationDraft(supervisorId, draftKey || studentId, { mode: 'count', itemCounts });
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [draftReady, itemCounts, open, studentId, supervisorId]);
+  }, [draftKey, draftReady, itemCounts, open, studentId, supervisorId]);
 
   const updateItemCount = (itemId, field, value) => setItemCounts((current) => ({
     ...current,
@@ -93,6 +93,7 @@ const CountOnlyEvaluationDialog = ({
         {children}
         {['link', 'review'].includes(taskType) && groupEvaluation && <RecitationItemResult label={taskType === 'review' ? 'درجة المراجعة' : 'النتيجة الحالية'} outcome={{ score: groupEvaluation.result.grade, failed: !groupEvaluation.result.passed }} />}
         {taskType === 'review' && groupEvaluation && !groupEvaluation.result.passed && <p className="text-sm font-bold text-destructive" role="status">{groupEvaluation.failedLabel ? `تجاوز ${groupEvaluation.failedLabel} حد الخصم؛ تحتاج المراجعة كاملة إلى إعادة.` : 'تحتاج المراجعة كاملة إلى إعادة.'}</p>}
+        <fieldset disabled={isSaving || !draftReady} className="min-w-0 space-y-3">
         {items.length ? (
           <div className="max-h-[65dvh] space-y-3 overflow-y-auto pr-1">
             {items.map((item, index) => {
@@ -117,11 +118,12 @@ const CountOnlyEvaluationDialog = ({
             <CountField id="recitation-mistake-count" label="عدد الأخطاء" value={mistakeCount} onChange={setMistakeCount} />
           </div>
         )}
+        </fieldset>
         <DialogFooter className="!flex-row !justify-between gap-2" dir="rtl">
           <Button type="button" variant="outline" className="min-h-11 px-3" onClick={() => onOpenChange?.(false)} disabled={isSaving}>إغلاق</Button>
           <div className="flex items-center gap-2">
             {secondaryAction}
-            <Button type="button" className="min-h-11 px-3 text-white hover:text-white" onClick={() => onSubmit?.({ warningCount, hesitationCount, mistakeCount, itemCounts })} disabled={isSaving}>{submitLabel}</Button>
+            <Button type="button" className="min-h-11 px-3 text-white hover:text-white" onClick={() => onSubmit?.({ warningCount, hesitationCount, mistakeCount, itemCounts })} disabled={isSaving || !draftReady}>{submitLabel}</Button>
           </div>
         </DialogFooter>
       </DialogContent>

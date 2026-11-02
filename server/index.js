@@ -31,7 +31,7 @@ import { normalizeNarrationRanges, prepareNarrationAssignments } from './service
 import { assertCommitteeNameAvailable, transferStudentCommittee } from './services/committeeMaintenance.js';
 import { assertStudentIdentityAvailable } from './services/studentIdentity.js';
 import { rememberResetGradeKeys } from './services/gradePointReset.js';
-import { currentQuranPlanSql, canContinueQuranRevision } from './services/currentQuranPlan.js';
+import { currentQuranPlanSql, canContinueQuranRevision, pendingSessionQuranPlanSql } from './services/currentQuranPlan.js';
 import { loadReviewCycle, saveReviewCycle, selectAuthorizedReview } from './services/quranReviewCycle.js';
 import { parseReviewExecution, reviewRangeLabel } from '../shared/quran-review-cycle.js';
 import { normalizeEventNotifications } from '../shared/event-notifications.js';
@@ -77,6 +77,7 @@ import { selectExactQuranLinkRanges } from './services/quranLinkRanges.js';
 import { measureQuranFaces, quranRangeFacesSql, acceptedQuranExecutionSql } from './services/quranFaceMeasurement.js';
 import { readQuranChapters, readQuranAyah, readQuranRange, readDescendingNextAyah } from './services/quranReferenceCache.js';
 import { runRecitationSessionTransaction } from './services/recitationSessionTransaction.js';
+import { recordUnavailableRecitationTask, recordRecitationBatchRejection } from './services/recitationRejectionDiagnostics.js';
 import { buildRecitationSegmentDetails } from './services/recitationSegments.js';
 import { loadRecitationDeliveryReceipts } from './services/recitationDeliveryReceipts.js';
 import { buildGradingOverview, buildGradingSessionReport } from './services/gradingReports.js';
@@ -101,6 +102,7 @@ import { loadStudentRecitationHistory } from './services/studentRecitationHistor
 import { createOverviewReportScope } from './services/overviewReportScope.js';
 import { getStudentNextDayPreview, nameStudentPreviewTasks } from './services/studentNextDayPreview.js';
 import { filterPlanMarksByLatestAttempt } from './services/studentPlanMarks.js';
+import { loadDailyRecitationRetries, isRecitationRetryComplete, loadRecitationRetryHistory } from './services/recitationRetries.js';
 import { notificationRouter, notificationManagementRouter } from './routes/notificationRoutes.js';
 import cors from 'cors';
 import crypto from 'node:crypto';
@@ -10527,6 +10529,8 @@ app.get('/api/supervisors/:id/quran-evaluation', async (req, res, next) => {
           AND (pending_part.teacher_completed IS NULL OR pending_part.teacher_completed = 0
             OR pending_part.execution_state = 'partial')
       ))`;
+    const dailyRetries = await loadDailyRecitationRetries(connection, supervisorId, date);
+    const dailyRetryFilter = dailyRetries.size ? `t.id IN (${[...dailyRetries.keys()].join(',')})` : 'FALSE';
     const [candidateRows] = await connection.query(
       `
       SELECT
@@ -10569,6 +10573,7 @@ app.get('/api/supervisors/:id/quran-evaluation', async (req, res, next) => {
         t.points,
         t.teacher_completed AS teacherCompleted,
         DATE_FORMAT(t.evaluated_at, '%Y-%m-%d %H:%i') AS evaluatedAt,
+        p.plan_version AS planVersion,
         p.track AS planTrack, p.start_page AS planStartPage,
         p.start_surah AS planStartSurah,
         qps.name_arabic AS planStartSurahName,
@@ -10633,7 +10638,7 @@ app.get('/api/supervisors/:id/quran-evaluation', async (req, res, next) => {
       LEFT JOIN quran_surahs qps ON qps.surah_number = p.start_surah
       LEFT JOIN quran_surahs qpe ON qpe.surah_number = p.end_surah
       JOIN supervisor_committees sc ON sc.committee_id = s.committee_id AND sc.supervisor_id = ?
-      WHERE (${currentQuranPlanSql('p')} OR ${retryableAttemptFilter} OR ${studentExecutedMemorizationCondition})
+      WHERE (${dailyRetryFilter} OR ((${currentQuranPlanSql('p')} OR ${retryableAttemptFilter} OR ${studentExecutedMemorizationCondition} OR ${pendingSessionQuranPlanSql('p', 't')})
         AND ${studyDateSql('t.task_date', 't.student_id')} AND ${uncompensatedTaskSql('t')} AND t.task_date <= ?
         AND t.task_type IN ('memorization', 'review', 'link')
         AND (
@@ -10703,9 +10708,10 @@ app.get('/api/supervisors/:id/quran-evaluation', async (req, res, next) => {
               AND newer_link.task_date <= ?
           )
         )
+      ))
       ORDER BY c.name ASC, s.name ASC, t.task_date ASC, t.from_page ASC
       `,
-      [supervisorId, taskEndDate, date, taskEndDate, taskEndDate]
+      [supervisorId, date, taskEndDate, date, taskEndDate, taskEndDate]
     );
     const visibleStudentIds = new Set(students.map(student => Number(student.id)));
     const rows = candidateRows.filter((row) => {
@@ -10745,6 +10751,8 @@ app.get('/api/supervisors/:id/quran-evaluation', async (req, res, next) => {
       };
       return ({
         ...normalizeTaskRow(row, settings.quranReferenceMode),
+        retryOf: dailyRetries.get(Number(row.id))?.retryOf || '',
+        planVersion: Number(row.planVersion || dailyRetries.get(Number(row.id))?.currentPlanVersion || dailyRetries.get(Number(row.id))?.planVersion || 1),
         allowQuranCompensation: Boolean(settings.allowQuranCompensation),
         allowQuranExtra: Boolean(settings.allowQuranExtra),
         expectedRepeatCount: row.taskType === 'memorization'
@@ -11149,8 +11157,9 @@ const rateSupervisorQuranTaskHandler = async (req, res, next) => {
               AND previous_attempt.teacher_completed = 1
           )
           OR (t.task_type = 'review' AND t.compensation_index > 0 AND ?)
+          OR ?
         )
-        AND NOT EXISTS (
+        AND (? OR NOT EXISTS (
           SELECT 1
           FROM student_quran_tasks newer
           WHERE newer.plan_id = t.plan_id
@@ -11165,12 +11174,15 @@ const rateSupervisorQuranTaskHandler = async (req, res, next) => {
             AND COALESCE(newer.to_surah, 0) = COALESCE(t.to_surah, 0)
             AND COALESCE(newer.to_ayah, 0) = COALESCE(t.to_ayah, 0)
         )
+        )
       FOR UPDATE
       `,
       [supervisorId, taskId, date, taskEndDate,
-        Boolean(req.recitationTransaction?.superseded && req.recitationSessionTaskIds?.map(Number).includes(taskId)), taskEndDate]
+        Boolean(req.recitationTransaction?.superseded && req.recitationSessionTaskIds?.map(Number).includes(taskId)),
+        Boolean(req.body.retryOf), Boolean(req.body.retryOf), taskEndDate]
     );
-    const rejectInvalidRecitationTaskResult = await rejectInvalidRecitationTask({ task, settings, connection, res, notMemorized });
+    const rejectInvalidRecitationTaskResult = await rejectInvalidRecitationTask({ task, settings, connection, res, notMemorized,
+      req, supervisorId, taskId, sessionDate: date, taskEndDate });
     if (rejectInvalidRecitationTaskResult) { return rejectInvalidRecitationTaskResult; }
     await assertStudentPlanRunning(connection, task.studentId);
     if (notMemorized) {
@@ -11215,6 +11227,10 @@ const rateSupervisorQuranTaskHandler = async (req, res, next) => {
     }
     let normalizedAyahMarks = null;
     let normalizedWordMarks = null;
+    if (req.body.retryOf) {
+      await connection.query('DELETE FROM student_quran_task_ayah_marks WHERE task_id = ?', [taskId]);
+      await connection.query('DELETE FROM student_quran_task_word_marks WHERE task_id = ?', [taskId]);
+    }
     ({ mistakeCount, warningCount, hesitationCount } = await saveValidatedRecitationMarks({ ayahMarksPayload, wordMarksPayload, connection, task, normalizedWordMarks, markLimit, normalizedAyahMarks, mistakeCount, warningCount, hesitationCount, taskId, supervisorId }));
     const { ratingLabel, score, policy, completed: rowCompleted, evaluatedFaces } = await calculateTaskEvaluationOutcome({ task, connection, notMemorized, warningCount, hesitationCount, mistakeCount });
     let completed = rowCompleted;
@@ -11312,7 +11328,8 @@ const rateSupervisorQuranTaskHandler = async (req, res, next) => {
         JSON.stringify(attemptWordMarksByTask.get(taskId) || []),
       ]
     );
-    const groupGrade = await applyRecitationGroupGrade({ task, connection, req, supervisorId, sessionId: sessionClaim.sessionId });
+    const retryComplete = await isRecitationRetryComplete(connection, req, sessionClaim.sessionId);
+    const groupGrade = retryComplete ? await applyRecitationGroupGrade({ task, connection, req, supervisorId, sessionId: sessionClaim.sessionId }) : null;
     if (groupGrade?.failed && completed) {
       completed = false;
       await connection.query(
@@ -11320,15 +11337,15 @@ const rateSupervisorQuranTaskHandler = async (req, res, next) => {
         [attemptResult.insertId],
       );
     }
-    await applyMemorizationEvaluationOutcome({
-      task: groupGrade?.failed && task.taskType === 'memorization' ? await getFirstGroupMemorizationTask(connection, task) : task,
+    if (retryComplete) await applyMemorizationEvaluationOutcome({
+      task: (groupGrade?.failed || req.body.retryOf) && task.taskType === 'memorization' ? await getFirstGroupMemorizationTask(connection, task) : task,
       completed,
       connection,
       date,
       req,
       settings,
     });
-    {
+    if (retryComplete) {
       const [groupTasks] = await connection.query(
         `SELECT id, evaluated_at AS evaluatedAt, teacher_completed AS teacherCompleted,
           from_page AS fromPage, from_surah AS fromSurah, from_ayah AS fromAyah,
@@ -11594,8 +11611,9 @@ const batchResultCode = ({ statusCode, payload, error }) => {
   if (statusCode >= 200 && statusCode < 300) return payload?.duplicate ? 'already_synced' : 'accepted';
   if (payload?.code === 'REJECTED_DUPLICATE') return 'rejected_duplicate';
   if (statusCode === 401 || statusCode === 403) return 'rejected_permission';
-  if (statusCode >= 500 || error) return 'needs_retry';
+  if (statusCode >= 500) return 'needs_retry';
   if (statusCode >= 400) return 'conflict';
+  if (error) return 'server_error';
   return 'server_error';
 };
 
@@ -11643,6 +11661,7 @@ app.post('/api/offline-recitation/batch', async (req, res) => {
             ...(item.payload),
             requestId: `${session.sessionId}:${item.taskId}`,
             sessionId: session.sessionId,
+            retryOf: session.retryOf || '',
             date: session.sessionDate,
             deviceId: session.deviceId,
             bootId: session.bootId,
@@ -11665,7 +11684,7 @@ app.post('/api/offline-recitation/batch', async (req, res) => {
             result,
             data: response.payload || null,
             message: response.payload?.message || (response.error ? publicErrorMessage(response.error) : ''),
-            requestId: req.traceId,
+            requestId: response.payload?.requestId || req.traceId,
           });
           if (!['accepted', 'already_synced'].includes(result)) break;
         }
@@ -11674,7 +11693,7 @@ app.post('/api/offline-recitation/batch', async (req, res) => {
           const [reviewParts] = await connection.query(
             `SELECT task_id AS taskId, result_json AS resultJson
              FROM student_quran_recitation_session_parts
-             WHERE session_id = ? AND task_type = 'review' AND status = 'accepted'`,
+             WHERE session_id = ? AND status = 'accepted'`,
             [session.sessionId],
           );
           const outcomes = new Map(reviewParts.map((part) => [Number(part.taskId), parseJsonValue(part.resultJson, {})]));
@@ -11686,15 +11705,19 @@ app.post('/api/offline-recitation/batch', async (req, res) => {
         return taskResults;
       });
       taskResults = outcome.value;
-      if (outcome.rolledBack) taskResults = taskResults.map((item) => ({
-        ...item, result: 'needs_retry', data: null,
-        message: 'لم تُعتمد الجلسة البديلة؛ بقي الاعتماد السابق محفوظًا. أعد المحاولة.',
-      }));
+      if (outcome.rolledBack) {
+        const rolledBack = { result: 'needs_retry', data: null,
+          message: 'لم تُعتمد الجلسة البديلة؛ بقي الاعتماد السابق محفوظًا. أعد المحاولة.' };
+        const terminal = taskResults.find(item => ['conflict', 'rejected_permission', 'rejected_duplicate'].includes(item.result));
+        if (terminal) Object.assign(rolledBack, { result: terminal.result, message: terminal.message || rolledBack.message });
+        taskResults = taskResults.map(item => ({ ...item, ...rolledBack }));
+      }
     } catch (error) {
       taskResults = (Array.isArray(session?.tasks) ? session.tasks : []).map((item) => ({ taskId: Number(item.taskId || 0),
         result: 'needs_retry', data: null, message: publicErrorMessage(error), requestId: req.traceId }));
     }
     const failedTask = taskResults.find((item) => !['accepted', 'already_synced'].includes(item.result));
+    recordRecitationBatchRejection(req, session, failedTask);
     const result = failedTask?.result || (taskResults.length ? 'accepted' : 'conflict');
     if (['invalid_sequence', 'needs_retry', 'server_error'].includes(result)) blockedStudents.add(studentId);
     results.push({ sessionId: session?.sessionId, result, tasks: taskResults });
@@ -12757,7 +12780,7 @@ async function applyRecitationGroupGrade({ task, connection, req, supervisorId, 
      WHERE id IN (${group.taskIds.map(() => '?').join(', ')}) AND evaluated_at IS NOT NULL`,
     [group.failed ? 0 : 1, MANUAL_FAIL_RATING_KEY, group.failed ? 'يحتاج إعادة' : 'ناجح', ...group.taskIds],
   );
-  if (task.taskType === 'review') {
+  if (task.taskType === 'review' || req.body.retryOf) {
     await connection.query(
       `UPDATE student_quran_recitation_attempts SET teacher_completed = ?
        WHERE session_id = ? AND is_official = 1 AND task_id IN (${group.taskIds.map(() => '?').join(', ')})`,
@@ -14753,6 +14776,7 @@ async function buildRecitationSessionsReport({ from, startDate: requestedStartDa
       a.evaluator_id AS evaluatorId,
       t.id AS taskId,
       a.attempt_number AS attemptNumber,
+      JSON_UNQUOTE(JSON_EXTRACT(submission.payload_json, '$.retryOf')) AS retryOf,
       t.plan_id AS planId,
       t.student_id AS studentId,
       s.name AS studentName,
@@ -14811,6 +14835,7 @@ async function buildRecitationSessionsReport({ from, startDate: requestedStartDa
       DATE_FORMAT(a.evaluated_at, '%Y-%m-%d %H:%i') AS evaluatedAt
     FROM student_quran_recitation_attempts a
     JOIN student_quran_tasks t ON t.id = a.task_id
+    LEFT JOIN student_quran_recitation_submissions submission ON submission.session_id = a.session_id
     JOIN students s ON s.id = t.student_id
     LEFT JOIN committees c ON c.id = s.committee_id
     LEFT JOIN quran_surahs qsf ON qsf.surah_number = t.from_surah
@@ -14824,6 +14849,7 @@ async function buildRecitationSessionsReport({ from, startDate: requestedStartDa
 
   const taskIds = [...new Set(rows.map((row) => Number(row.taskId)).filter(Boolean))];
   const historicalMarksByTaskDate = new Map();
+  const retryHistory = await loadRecitationRetryHistory(db(), taskIds);
   await loadHistoricalRecitationMarks(isStudentHistory, taskIds, startDate, endDate, historicalMarksByTaskDate);
   const normalizedRows = rows.map((row) => {
     const ayahMarks = parseStoredWordMarks(row.ayahMarksJson);
@@ -14831,7 +14857,7 @@ async function buildRecitationSessionsReport({ from, startDate: requestedStartDa
     const currentMarks = wordMarks.length ? wordMarks : ayahMarks;
     const historicalMarks = historicalMarksByTaskDate.get(`${Number(row.taskId)}:${row.sessionDate}`);
     const _resolveDisplayMarks = () => {
-      if (isStudentHistory) {
+      if (isStudentHistory || row.retryOf) {
         return currentMarks;
       }
       if (currentMarks.length) {
@@ -14857,6 +14883,7 @@ async function buildRecitationSessionsReport({ from, startDate: requestedStartDa
       teacherName: row.teacherName || 'مشرف المسار',
       evaluatedAt: row.evaluatedAt || '',
       attemptNumber: Number(row.attemptNumber || 1),
+      previousAttempts: retryHistory.get(`${Number(row.taskId)}:${row.sessionDate}`) || [],
       warningCount: currentMarks.length ? detailedWarningCount : Number(row.warningCount || 0),
       hesitationCount: currentMarks.length ? detailedHesitationCount : Number(row.hesitationCount || 0),
       mistakeCount: currentMarks.length ? detailedMistakeCount : Number(row.mistakeCount || 0),
@@ -16278,10 +16305,12 @@ function getTeacherExpectedListeningCount(task, settings) {
 }
 
 /** Reject unavailable or stale recitation tasks before claiming a session. */
-async function rejectInvalidRecitationTask({ task, settings, connection, res, notMemorized }) {
+async function rejectInvalidRecitationTask({ task, settings, connection, res, notMemorized,
+  req, supervisorId, taskId, sessionDate, taskEndDate }) {
 if (!task || !canTeacherExecuteQuranTask(settings, task.taskType)) {
+      const diagnostic = await recordUnavailableRecitationTask({ connection, req, supervisorId, taskId, sessionDate, taskEndDate, settings });
       await connection.rollback();
-      return res.status(404).json({ message: 'المهمة غير موجودة ضمن جلسة التسميع الحالية.' });
+      return res.status(404).json({ message: 'المهمة غير موجودة ضمن جلسة التسميع الحالية.', ...diagnostic });
     }
     if (task.taskType === 'link' && !await isLinkTaskWithinAcceptedMemorization(connection, task)) {
       await connection.rollback();

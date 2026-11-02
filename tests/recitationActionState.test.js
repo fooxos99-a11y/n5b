@@ -59,3 +59,31 @@ test('negative-result button requires confirmation before changing progress', ()
   assert.match(source, /onClick=\{\(\) => setConfirmFailure\(true\)\}/);
   assert.match(source, /setConfirmFailure\(false\); void markNotMemorized\(selectedStudent\)/);
 });
+
+test('attendance remains editable after completion and repeated absent/excused/present changes preserve tasks and receipts', () => {
+  const date = '2026-11-01';
+  const acceptedTask = { ...task, teacherCompleted: true, evaluationScore: 97 };
+  const receipt = { taskId: task.id, studentId: 8, status: 'server_saved' };
+  let state = { date, tasks: [acceptedTask], taskQueue: [acceptedTask], deliveryReceipts: [receipt],
+    students: [{ studentId: 8, canSetAttendance: true, attendanceStatus: 'present', recitationFinished: true }] };
+  const actions = [];
+  for (const status of ['absent', 'present', 'excused', 'present', 'absent', 'late']) {
+    actions.push({ status: 'pending', actionType: 'student_attendance', payload: { studentId: 8, date, status } });
+    state = mergeCommittedOfflineEvaluation(state, [], actions);
+    assert.equal(state.students.length, 1);
+    assert.equal(state.students[0].attendanceStatus, status);
+    assert.equal(shouldShowRecitationStudent(state.students[0], state.tasks, state.taskQueue), true);
+    assert.deepEqual(state.tasks, [acceptedTask]);
+    assert.deepEqual(state.taskQueue, [acceptedTask]);
+    assert.deepEqual(state.deliveryReceipts, [receipt]);
+    assert.equal(canRecordStudentReading(state.students[0], { status: null }), ['present', 'late'].includes(status));
+  }
+});
+
+test('absence still hides cached work from accounts that cannot change attendance', () => {
+  const state = mergeCommittedOfflineEvaluation({ date: '2026-11-01', tasks: [task], taskQueue: [task],
+    students: [{ studentId: 8, canSetAttendance: false, attendanceStatus: 'absent' }] });
+  assert.equal(state.students.length, 0);
+  assert.equal(state.tasks.length, 0);
+  assert.equal(state.taskQueue.length, 0);
+});

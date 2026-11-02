@@ -84,6 +84,39 @@ test('incomplete or unrelated batch evidence never manufactures an acknowledgeme
   assert.deepEqual(merged, tasks);
 });
 
+test('a rejected batch retains the exact task, reason and request reference after service restart', async () => {
+  const requestId = '018f47f0-a321-4a2f-8abc-1234567890ab';
+  let session = { sessionId: 'rejected', status: 'pending', studentId: 8, sessionDate: '2026-11-01',
+    tasks: [{ taskId: 10, synced: false, payload: { mistakeCount: 2 } }] };
+  let calls = 0;
+  const ports = {
+    store: {
+      getMeta: async () => null, setMeta: async () => {},
+      getSessions: async (_actor, statuses) => !statuses || statuses.includes(session.status) ? [structuredClone(session)] : [],
+      updateSession: async (_actor, _id, patch) => {
+        session = structuredClone({ ...session, ...patch });
+        return structuredClone(session);
+      },
+    },
+    api: { syncOfflineRecitationBatch: async () => {
+      calls++;
+      return { results: [{ sessionId: session.sessionId, result: 'conflict', tasks: [{ taskId: 10,
+        result: 'conflict', message: 'المهمة غير موجودة ضمن جلسة التسميع الحالية.',
+        data: { code: 'RECITATION_TASK_UNAVAILABLE', reason: 'TASK_REPLACED', requestId } }] }] };
+    } },
+  };
+  await (await loadService(ports)).syncOfflineRecitations(11, { force: true });
+  assert.equal(session.status, 'conflict');
+  const diagnostic = { taskId: 10, code: 'RECITATION_TASK_UNAVAILABLE', reason: 'TASK_REPLACED', requestId };
+  assert.deepEqual(session.lastRejection, diagnostic);
+  assert.equal(session.tasks[0].payload.mistakeCount, 2);
+  session = JSON.parse(JSON.stringify(session));
+  await (await loadService(ports)).syncOfflineRecitations(11, { force: true });
+  assert.equal(calls, 1, 'a conflicted result must not be resubmitted blindly');
+  assert.deepEqual(session.lastRejection, diagnostic);
+  assert.equal(session.tasks[0].synced, false);
+});
+
 test('editing remaining work retains accepted payload and cannot advance an incomplete session', () => {
   const saved = { taskId: 1, synced: true, syncResultCode: 'accepted', result: { ok: true, teacherCompleted: true }, payload: { mistakeCount: 2 } };
   const pending = { taskId: 2, synced: false, payload: { offlineOutcome: { completed: true } } };

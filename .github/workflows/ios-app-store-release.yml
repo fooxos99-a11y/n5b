@@ -140,8 +140,8 @@ jobs:
           CREATE_VERSION_IF_MISSING: "true"
           TARGET_BUILD_NUMBER: ${{ inputs.build_number }}
           TESTFLIGHT_GROUP_ID: "19fde5d2-840a-4afd-8a54-eb3c35dad1cf"
-          APP_RELEASE_NOTES_AR: "تحسين تقارير الاجتياز والإحصائيات والخطط التلقائية، وتبسيط أرشيف المكالمات والتسجيل، وتحسين عرض المصحف واستقرار التطبيق."
-          APP_RELEASE_NOTES_EN: "Improved passing reports, statistics and automatic plans; simplified call archives and registration; and refined the Quran reader and app stability."
+          APP_RELEASE_NOTES_AR: "إتاحة إعادة تسميع مقدار اليوم مع اعتماد آخر نتيجة، وتحسين الحضور وانتقال الخطط والمزامنة واستقرار التطبيق."
+          APP_RELEASE_NOTES_EN: "Repeat daily recitations with the latest result counted, plus improved attendance, plan transitions, synchronization and app stability."
         run: |
           python3 -m venv "$RUNNER_TEMP/app-store-status-venv"
           "$RUNNER_TEMP/app-store-status-venv/bin/pip" install --quiet PyJWT cryptography

@@ -1,4 +1,4 @@
-import { mergeRecitationTaskResults } from '../lib/recitationTaskResults.js';
+import { mergeRecitationTaskResults, recitationRejectionDetails } from '../lib/recitationTaskResults.js';
 import {
   OFFLINE_RECITATION_MAX_BATCH,
   compareRecitationSessions,
@@ -319,6 +319,8 @@ export async function commitOfflineRecitation({
   studentId,
   sessionDate,
   tasks,
+  retryOf = '',
+  draftKey = '',
 }) {
   const version = getAuthSessionVersion();
   if (version !== getAuthSessionVersion()) throw new Error('تغير الحساب؛ أعد حفظ التقييم.');
@@ -328,6 +330,8 @@ export async function commitOfflineRecitation({
   const sessionId = createUuid();
   const session = await offlineRecitationStore.commitSession(actorKey, {
     sessionId,
+    retryOf,
+    draftKey,
     studentId,
     supervisorId,
     sessionDate,
@@ -343,6 +347,7 @@ export async function commitOfflineRecitation({
       track: task.track,
       planId: Number(task.planId || 0),
       planVersion: Math.max(1, Number(task.planVersion || 1)),
+      taskSnapshot: task,
       payload,
       synced: false,
       result: null,
@@ -473,6 +478,15 @@ async function syncOfflineBatchIndividually(batch, results, supervisorId, actorK
   const blockedStudents = new Set();
   for (const session of batch) {
     if (blockedStudents.has(Number(session.studentId))) continue;
+    if (session.retryOf) {
+      const retryCount = Number(session.retryCount || 0) + 1;
+      results.push(await offlineRecitationStore.updateSession(actorKey, session.sessionId, {
+        status: 'failed', retryCount, nextRetryAt: nextRetryAt(retryCount),
+        lastError: 'يتطلب اعتماد الإعادة تحديث الخادم. بقيت المحاولة محفوظة على الجهاز والنتيجة السابقة معتمدة.',
+      }));
+      blockedStudents.add(Number(session.studentId));
+      continue;
+    }
     try {
       results.push(await syncSession(supervisorId, actorKey, force ? { ...session, nextRetryAt: null } : session));
     } catch {
@@ -534,6 +548,7 @@ async function applyOfflineBatchOutcomes({ batch, outcomeById, actorKey, results
         ? null
         : nextRetryAt(retryCount),
       lastError: outcome.tasks?.find((item) => item.message)?.message || 'تعذرت مزامنة الجلسة.',
+      lastRejection: recitationRejectionDetails(outcome),
     });
     results.push(resolved);
     resolvedSessionIds.add(session.sessionId);

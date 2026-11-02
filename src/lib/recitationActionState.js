@@ -9,6 +9,8 @@ export function canRecordStudentReading(student, readingEntry) {
 }
 
 export function shouldShowRecitationStudent(student, tasks = [], taskQueue = []) {
+  if (student.canSetAttendance) return true;
+  if ([...tasks, ...taskQueue].some(task => Number(task.studentId) === Number(student.studentId) && task.retryOf)) return true;
   if (!['present', 'late'].includes(student.attendanceStatus)) return true;
   const remaining = tasks.some((task) => (
     Number(task.studentId) === Number(student.studentId) && isRecitationActionPending(task)

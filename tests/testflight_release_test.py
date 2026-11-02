@@ -78,6 +78,15 @@ class TestFlightReleaseTests(unittest.TestCase):
             self.run_release()
         self.assertEqual(self.writes, [])
 
+    def test_ready_build_waits_for_confirmed_internal_availability(self):
+        states = iter(["READY_FOR_BETA_TESTING", "IN_BETA_TESTING"])
+        def becoming_ready(path, **kwargs):
+            if path.endswith("/buildBetaDetail"):
+                return {"data": {"attributes": {"internalBuildState": next(states)}}}
+            return self.request(path, **kwargs)
+        self.assertEqual(self.run_release(becoming_ready)["internalBuildState"], "IN_BETA_TESTING")
+        self.assertEqual(self.waits, [30])
+
     def test_processing_timeout_stops_submission_without_writes(self):
         self.build["data"][0]["attributes"]["processingState"] = "PROCESSING"
         with self.assertRaisesRegex(RuntimeError, "not processed"):

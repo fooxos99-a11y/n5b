@@ -183,7 +183,7 @@ const TeacherEvaluationDialog = ({ supervisorId, open = false, onOpenChange, inl
       && Number(student.actualEnd.page) === Number(lastTask?.toPage)
       && Number(student.actualEnd.surah) === Number(lastTask?.toSurah)
       && Number(student.actualEnd.ayah) === Number(lastTask?.toAyah);
-    if (navigator.onLine === false
+    if (student.retryOf || navigator.onLine === false
       || !['teacher', 'both'].includes(taskExecutionSource)
       || !['memorization', 'review'].includes(firstTask?.taskType)
       || !student.actualEnd
@@ -257,13 +257,14 @@ const TeacherEvaluationDialog = ({ supervisorId, open = false, onOpenChange, inl
   };
 
   const selectedTask = selectedStudent?.tasks?.[0];
+  const selectedDraftKey = selectedStudent ? `${selectedStudent.studentId}:${data?.date}:${selectedStudent.tasks.map(task => task.id).sort((a, b) => a - b).join(',')}:${selectedStudent.retryOf || 'initial'}` : '';
 
   const selectedEvaluationMode = selectedStudent?.evaluationMode || 'mushaf';
 
   const markRecitationPending = useCallback((studentId, tasks, session) => {
     setData((current) => {
       if (!current) return current;
-      const advanced = advanceRecitationTaskQueue(current, tasks, { promote: canAdvanceRecitationSession(session) });
+      const advanced = advanceRecitationTaskQueue(current, tasks, { promote: canAdvanceRecitationSession(session), session });
       const remainingTasks = advanced.tasks || [];
       const hasRemainingTasks = remainingTasks.some((task) => Number(task.studentId) === Number(studentId));
       return {
@@ -322,6 +323,8 @@ const TeacherEvaluationDialog = ({ supervisorId, open = false, onOpenChange, inl
         supervisorId,
         studentId: selectedStudent.studentId,
         sessionDate: data?.date,
+        retryOf: selectedStudent.retryOf || '',
+        draftKey: selectedDraftKey,
         tasks: applyOfflineReviewGroupOutcome(taskPayloads, data?.gradingPolicy),
       });
       markRecitationPending(selectedStudent.studentId, selectedStudent.tasks, session);
@@ -345,6 +348,8 @@ const TeacherEvaluationDialog = ({ supervisorId, open = false, onOpenChange, inl
         supervisorId,
         studentId: student.studentId,
         sessionDate: data?.date,
+        retryOf: student.retryOf || '',
+        draftKey: selectedDraftKey,
         tasks: applyOfflineReviewGroupOutcome(sortRecitationTasks(memorizationTasks).map((task) => {
           const type = evaluationTypeForTask(task);
           const payload = {
@@ -376,6 +381,7 @@ const TeacherEvaluationDialog = ({ supervisorId, open = false, onOpenChange, inl
       {(!loadError || Boolean(data?.tasks?.length || data?.students?.length)) && <TeacherRecitationTaskList
         tasks={data?.tasks || []}
         taskQueue={data?.taskQueue || []}
+        retryTasks={data?.retryTasks || []}
         students={data?.students || []}
         quranChapters={quranChapters}
         isLoading={isLoading}
@@ -407,22 +413,27 @@ const TeacherEvaluationDialog = ({ supervisorId, open = false, onOpenChange, inl
     recitationDialog = null;
   } else if (selectedEvaluationMode === 'count') {
       recitationDialog = <CountOnlyEvaluationDialog
+      key={selectedDraftKey}
       secondaryAction={notCompletedAction}
       open={Boolean(selectedStudent)}
       onOpenChange={(nextOpen) => !nextOpen && setSelectedStudent(null)}
-      title={`${Number(selectedTask?.compensationIndex || 0) > 0 ? 'تعويض' : 'تسميع'} ${selectedStudent?.studentName || ''}`}
+      title={`${selectedStudent.retryOf ? 'إعادة تسميع' : Number(selectedTask?.compensationIndex || 0) > 0 ? 'تعويض' : 'تسميع'} ${selectedStudent?.studentName || ''}`}
       onSubmit={saveCountOnlyRecitation}
       isSaving={isSavingCount}
       supervisorId={supervisorId}
       studentId={selectedStudent?.studentId}
+      draftKey={selectedDraftKey}
       items={(selectedStudent?.tasks || []).map((task, index) => ({ id: task.id, label: task.amount || task.rangeLabel || formatContinuousRecitationRange([task]) || `المقطع ${index + 1}`, fromPage: task.fromPage, hizbNumber: task.hizbNumber }))}
       gradingPolicy={data?.gradingPolicy}
       taskType={selectedStudent?.tasks?.[0]?.taskType}
-    />;
+    >
+      {selectedStudent.retryOf && <p className="text-xs leading-5 text-muted-foreground">ستُحتسب نتيجة هذه المحاولة بعد اعتمادها، حتى لو كانت أقل من السابقة.</p>}
+    </CountOnlyEvaluationDialog>;
     } else {
       recitationDialog = <Suspense fallback={<DashboardLoader />}><MushafRecitationDialog
       supervisorId={supervisorId}
       student={selectedStudent}
+      draftKey={selectedDraftKey}
       tasks={selectedStudent?.tasks || []}
       open={Boolean(selectedStudent)}
       onOpenChange={(nextOpen) => !nextOpen && setSelectedStudent(null)}
@@ -432,6 +443,8 @@ const TeacherEvaluationDialog = ({ supervisorId, open = false, onOpenChange, inl
           supervisorId,
           studentId: selectedStudent.studentId,
           sessionDate: data?.date,
+          retryOf: selectedStudent.retryOf || '',
+          draftKey: selectedDraftKey,
           tasks: applyOfflineReviewGroupOutcome(items.map(({ task, payload }) => ({
             task,
             payload: {

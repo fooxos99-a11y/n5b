@@ -2,6 +2,7 @@ import React from 'react';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import StudentPlanDayPoints from '@/components/portal/StudentPlanDayPoints';
 import StudentPlanFeedback from '@/components/portal/StudentPlanFeedback';
+import RecitationAttemptHistory from '@/components/portal/RecitationAttemptHistory';
 import { studentSessionGroupResult, groupSessionTasksByGradeDate } from '@/lib/studentSessionResult';
 import { planDayName, planTaskAmount } from '@/lib/studentPlan';
 import { formatHijriDate } from '../../../shared/hijri-calendar.js';
@@ -27,6 +28,7 @@ export default function TeacherSessionCard({ day }) {
             {tasks.map(task => <p key={task.id} className="break-words text-muted-foreground">{planTaskAmount(task) || '—'}</p>)}
             <p className="font-bold" data-tone={result.tone}>{result.label}</p>
             <StudentPlanFeedback tasks={tasks} showRating={false} showCounts={false} />
+            <RecitationAttemptHistory tasks={tasks} />
           </div>;
         }) : <span className="text-xs text-muted-foreground">—</span>}</div>
       </section>)}

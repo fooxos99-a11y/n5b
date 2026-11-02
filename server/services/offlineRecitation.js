@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import { isUuid, recitationCandidateWins, recitationSessionTypeForTask } from '../../shared/offline-recitation.js';
 import { normalizeMasterySessionIdentity } from './masterySessionIdentity.js';
 import { canRetryReviewCompensation } from './quranReviewCompensations.js';
+import { assertExplicitRecitationRetry, assertRetrySessionIdentity } from './recitationRetries.js';
 
 const MAX_TRUSTED_ELAPSED_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -97,6 +98,8 @@ export async function claimRecitationSession(connection, {
 }) {
   if (req.body.correctionOf) throw Object.assign(new Error('لا يمكن تعديل جلسة تسميع معتمدة.'), { statusCode: 409 });
   const sessionId = normalizeServerSessionId(req.body.sessionId, requestId);
+  const sessionType = recitationSessionTypeForTask(task);
+  await assertRetrySessionIdentity(connection, { req, task, sessionId, sessionDate, sessionType });
   const deviceId = await ensureRecitationDeviceOwner(req, connection);
   const event = await resolveTrustedDeviceEventTime(connection, {
     deviceId,
@@ -108,7 +111,6 @@ export async function claimRecitationSession(connection, {
   });
   const submittedPlanVersion = Math.max(1, Number(req.body.planVersion || task.planVersion || 1));
   const currentPlanVersion = Math.max(1, Number(task.planVersion || submittedPlanVersion));
-  const sessionType = recitationSessionTypeForTask(task);
   if (task.taskType === 'memorization') await normalizeMasterySessionIdentity(connection, task.studentId, sessionDate);
   await connection.query(
     `INSERT INTO student_quran_recitation_submissions
@@ -116,7 +118,8 @@ export async function claimRecitationSession(connection, {
        event_time_trusted, created_at_local, committed_at_local, plan_id, plan_version,
        current_plan_version, plan_snapshot_json, payload_json)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON DUPLICATE KEY UPDATE payload_json = VALUES(payload_json), plan_snapshot_json = VALUES(plan_snapshot_json),
+     ON DUPLICATE KEY UPDATE payload_json = IF(status = 'accepted', payload_json, VALUES(payload_json)),
+       plan_snapshot_json = IF(status = 'accepted', plan_snapshot_json, VALUES(plan_snapshot_json)),
        updated_at = NOW(3)`,
     [
       sessionId, task.studentId, req.auth.id, req.auth.role, deviceId, sessionDate, sessionType, event.eventAt,
@@ -131,14 +134,17 @@ export async function claimRecitationSession(connection, {
       DATE_FORMAT(slot.accepted_event_at, '%Y-%m-%d %H:%i:%s.%f') AS eventAt,
       slot.event_time_trusted AS eventTimeTrusted, submission.evaluator_id AS evaluatorId, submission.evaluator_role AS evaluatorRole,
       submission.plan_id AS planId, submission.current_plan_version AS planVersion,
-      JSON_UNQUOTE(JSON_EXTRACT(submission.payload_json, '$.correctionOf')) AS correctionOf
+      JSON_UNQUOTE(JSON_EXTRACT(submission.payload_json, '$.correctionOf')) AS correctionOf,
+      JSON_UNQUOTE(JSON_EXTRACT(submission.payload_json, '$.retryOf')) AS retryOf,
+      submission.status, submission.current_plan_version AS currentPlanVersion
      FROM student_quran_recitation_daily_slots slot
      JOIN student_quran_recitation_submissions submission ON submission.session_id = slot.session_id
      WHERE slot.student_id = ? AND slot.session_date = ? AND slot.session_type = ? FOR UPDATE`,
     [task.studentId, sessionDate, sessionType],
   );
   slot = await createOrReadRecitationSlot({ slot, connection, task, sessionDate, sessionType, sessionId, req, event });
-  if (slot.sessionId !== sessionId && recitedUnderEarlierPlan(slot, task, currentPlanVersion)) {
+  const explicitRetry = await assertExplicitRecitationRetry(connection, { req, slot, task, sessionId, currentPlanVersion });
+  if (!req.body.retryOf && slot.sessionId !== sessionId && recitedUnderEarlierPlan(slot, task, currentPlanVersion)) {
     // The plan changed after today's recitation: the new plan gets its own session and the earlier one stays valid.
     await connection.query(
       `UPDATE student_quran_recitation_daily_slots SET session_id = ?, evaluator_id = ?,
@@ -154,7 +160,7 @@ export async function claimRecitationSession(connection, {
   }
   if (slot.sessionId !== sessionId) {
     const compensationRetry = await canRetryReviewCompensation(connection, { req, slot, task, sessionDate, currentPlanVersion });
-    const wins = compensationRetry || (!slot.correctionOf && recitationCandidateWins(
+    const wins = explicitRetry || compensationRetry || (!slot.correctionOf && !slot.retryOf && recitationCandidateWins(
       { sessionId, eventAt: event.eventAt, trusted: event.trusted },
       { sessionId: slot.sessionId, eventAt: String(slot.eventAt || '').slice(0, 23), trusted: Boolean(slot.eventTimeTrusted) },
     ));
@@ -178,8 +184,8 @@ export async function claimRecitationSession(connection, {
       `UPDATE student_quran_recitation_submissions SET status = 'rejected_duplicate',
         rejection_code = ?, rejection_message = ?, resolved_at = NOW(3)
        WHERE session_id = ?`,
-      [compensationRetry ? 'COMPENSATION_RETRY' : 'EARLIER_TRUSTED_SESSION',
-        compensationRetry ? 'أعيد تسميع التعويض غير المجتاز.' : 'وصل تسميع أسبق وفق مرجع الوقت الموثوق.', slot.sessionId],
+      [explicitRetry ? 'SUPERSEDED_BY_RETRY' : compensationRetry ? 'COMPENSATION_RETRY' : 'EARLIER_TRUSTED_SESSION',
+        explicitRetry ? 'اعتمدت محاولة تسميع جديدة للمقدار نفسه.' : compensationRetry ? 'أعيد تسميع التعويض غير المجتاز.' : 'وصل تسميع أسبق وفق مرجع الوقت الموثوق.', slot.sessionId],
     );
     await connection.query(
       `UPDATE student_quran_recitation_attempts SET is_official = 0
@@ -195,7 +201,7 @@ export async function claimRecitationSession(connection, {
       sessionId: slot.sessionId,
       req,
       deviceId,
-      eventType: compensationRetry ? 'superseded_by_compensation_retry' : 'superseded_by_earlier_session',
+      eventType: explicitRetry ? 'superseded_by_retry' : compensationRetry ? 'superseded_by_compensation_retry' : 'superseded_by_earlier_session',
       details: { winningSessionId: sessionId, sessionDate },
     });
     await connection.query(

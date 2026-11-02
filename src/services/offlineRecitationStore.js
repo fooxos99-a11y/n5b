@@ -259,12 +259,22 @@ class OfflineRecitationStore {
     const now = new Date().toISOString();
     const sessionType = normalizeRecitationSessionType(value.sessionType);
     // A session recited under an earlier plan (or plan version) does not block the new plan's session.
-    const existing = (await this.getSessions(actorKey)).find((row) => (
+    const sessions = await this.getSessions(actorKey);
+    const matching = sessions.filter((row) => (
       Number(row.studentId) === Number(value.studentId)
       && row.sessionDate === value.sessionDate
       && normalizeRecitationSessionType(row.sessionType) === sessionType
       && recitationPlanKey(row.tasks) === recitationPlanKey(value.tasks)
     ));
+    if (value.retryOf && matching.some(row => row.sessionId !== value.retryOf
+      && ['pending', 'syncing', 'failed', 'invalid_sequence'].includes(row.status))) {
+      throw new Error('انتظر مزامنة المحاولة المحفوظة قبل إعادة التسميع.');
+    }
+    const previous = value.retryOf ? matching.find(row => row.sessionId === value.retryOf) : null;
+    if (previous && previous.status !== 'synced') throw new Error('انتظر اعتماد المحاولة السابقة قبل إعادة التسميع.');
+    const existing = value.retryOf
+      ? matching.find(row => row.retryOf === value.retryOf && canEditPendingRecitation(row.status))
+      : matching[0];
     if (existing && !canEditPendingRecitation(existing.status)) {
       throw new Error(existing.status === 'synced'
         ? 'تم تسميع الطالب اليوم بالفعل.'
@@ -300,7 +310,7 @@ class OfflineRecitationStore {
           [row.sessionId, actorKey, row.studentId, row.sessionDate, row.sessionType, row.status, json(row), row.createdAtLocal, row.updatedAtLocal],
           false,
         );
-        await this.connection.run('DELETE FROM offline_drafts WHERE key = ?', [`${actorKey}:${row.studentId}`], false);
+        await this.connection.run('DELETE FROM offline_drafts WHERE key = ?', [`${actorKey}:${row.draftKey || row.studentId}`], false);
         await this.connection.commitTransaction();
       } catch (error) {
         await this.connection.rollbackTransaction().catch(() => undefined);
@@ -309,7 +319,7 @@ class OfflineRecitationStore {
     } else {
       const transaction = this.connection.transaction(['sessions', 'drafts'], 'readwrite');
       transaction.objectStore('sessions').put(row);
-      transaction.objectStore('drafts').delete(`${actorKey}:${row.studentId}`);
+      transaction.objectStore('drafts').delete(`${actorKey}:${row.draftKey || row.studentId}`);
       await idbTransactionDone(transaction);
     }
     notifyChange();

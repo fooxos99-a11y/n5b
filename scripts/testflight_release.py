@@ -55,9 +55,13 @@ def prepare_build(app_id, version, number, group_id, request, sleep=time.sleep, 
                     payload={"data": [{"type": "builds", "id": build["id"]}]})
         if not any(item["id"] == group_id for item in request(membership).get("data", [])):
             raise RuntimeError("TestFlight group membership was not confirmed")
-    details = request(f"/builds/{build['id']}/buildBetaDetail")["data"]["attributes"]
-    if details.get("internalBuildState") != "IN_BETA_TESTING":
-        raise RuntimeError("Build is not available for internal testing: " + str(details))
+    for attempt in range(attempts):
+        details = request(f"/builds/{build['id']}/buildBetaDetail")["data"]["attributes"]
+        if details.get("internalBuildState") == "IN_BETA_TESTING":
+            break
+        if details.get("internalBuildState") != "READY_FOR_BETA_TESTING" or attempt == attempts - 1:
+            raise RuntimeError("Build is not available for internal testing: " + str(details))
+        sleep(30)
     return {"appId": app_id, "version": version, "buildNumber": number,
             "buildId": build["id"], "processingState": "VALID", "internalGroupId": group_id,
             "internalBuildState": details["internalBuildState"], "groupName": group["attributes"]["name"],
