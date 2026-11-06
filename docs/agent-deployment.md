@@ -70,7 +70,7 @@
 - احفظ أوامر البناء، مسارات الحزم، النطاق، `applicationId`، `Bundle ID`، المعرّفات وروابط التحقق في `data1.yml` فقط.
 - لا تحفظ كلمة مرور أو مفتاح Apple أو Google أو ملف حساب خدمة داخل `AGENTS.md` أو Git؛ يحفظ في مدير الأسرار، ويذكر في `data1.yml` اسم متغير السر فقط.
 - Android: نفّذ `npm run native:android` ثم أنشئ حزمة AAB موقعة واختبرها قبل الرفع إلى مسار الاختبار المحدد في `data1.yml`.
-- iOS: نفّذ `npm run release:ios:prepare` ثم أنشئ Archive موقّعًا وارفعه إلى App Store Connect؛ TestFlight للاختبار أولًا، وإصدار App Store عملية مستقلة بعد الاعتماد.
+- iOS: استخدم Expo EAS Build لمشروع Capacitor/Xcode الأصلي بعد تهيئته والتحقق من التوقيع، ثم EAS Submit لرفع البناء الجديد إلى TestFlight. تجهيز محلي قد يسبق EAS عند الحاجة؛ لا تستخدم GitHub Actions ولا ترفع للعامة دون أمر مستقل.
 - الموقع: نفّذ بوابة الجودة والبناء المعرّف للوجهة، ثم ارفع الناتج إلى المسار المحدد وأعد تشغيل الخدمة وتحقق من health URL.
 
 ## التحويل إلى EAS ونشر VPS دون GitHub Actions — 6 نوفمبر 2026
